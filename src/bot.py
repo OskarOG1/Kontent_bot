@@ -192,8 +192,9 @@ async def obsluz_wzor_plik(message: Message, state: FSMContext, konf: Konfigurac
     cel = katalog_wzoru / f"zrodlo.{rozszerzenie}"
     try:
         await pobierz_plik(message.bot, file_id, cel)
-    except TelegramAPIError:
-        await message.answer(komunikaty.limit_rozmiaru(None, konf.limit_pobierania_mb))
+    except Exception:
+        log.exception("pobieranie wzoru nie powiodlo sie, file_id=%s", file_id)
+        await message.answer(komunikaty.BLAD_POBIERANIA)
         return
 
     await state.clear()
@@ -228,8 +229,9 @@ async def obsluz_material(
         cel = magazyn.sciezka_materialu(katalog_projektu, message.message_id, file_unique_id, rozszerzenie)
         try:
             await pobierz_plik(message.bot, file_id, cel)
-        except TelegramAPIError:
-            await message.answer(komunikaty.limit_rozmiaru(None, konf.limit_pobierania_mb))
+        except Exception:
+            log.exception("pobieranie materialu nie powiodlo sie, file_id=%s", file_id)
+            await message.answer(komunikaty.BLAD_POBIERANIA)
             return
 
         if message.media_group_id:

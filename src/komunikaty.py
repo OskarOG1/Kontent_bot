@@ -26,6 +26,8 @@ BRAK_STANU = "Najpierw użyj /nowy albo /wzor."
 
 BRAK_MATERIALOW = "Nie masz jeszcze żadnych materiałów. Wyślij zdjęcia albo klipy, potem /gotowe."
 
+BLAD_POBIERANIA = "Nie udało się pobrać pliku. Spróbuj wysłać go jeszcze raz."
+
 PROJEKT_ANULOWANY = "Projekt anulowany."
 
 STATUS_BRAK_PROJEKTU = "Nie zbierasz teraz żadnego projektu."
