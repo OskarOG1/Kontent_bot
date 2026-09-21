@@ -17,7 +17,7 @@ KOMENDY = (
 )
 
 WZOR_PROSBA = "Wyślij wideo, które ma być wzorem."
-WZOR_ZAPISANY = "Wzór zapisany."
+ANALIZA_PRZEKROCZONO_CZAS = "Analiza wzoru trwała zbyt długo i została przerwana. Plik wzoru został zapisany."
 WZOR_NIEPOPRAWNY_TYP = "To nie jest wideo. Wyślij plik wideo jako wzór."
 
 NOWY_PROJEKT = "Nowy projekt. Wysyłaj zdjęcia, klipy i teksty, na koniec /gotowe."
@@ -42,6 +42,33 @@ def limit_rozmiaru(rozmiar_bajty: int | None, limit_mb: int) -> str:
         return f"Plik jest za duży. Limit pobierania to {limit_mb} MB."
     rozmiar_mb = rozmiar_bajty / (1024 * 1024)
     return f"Plik ma {formatuj_mb(rozmiar_mb)} MB, limit pobierania to {limit_mb} MB."
+
+
+def formatuj_liczbe(wartosc: float, miejsca: int) -> str:
+    return f"{wartosc:.{miejsca}f}".replace(".", ",")
+
+
+def analizuje_wzor(pozycja: int) -> str:
+    if pozycja > 1:
+        return f"Analizuję wzór. Pozycja w kolejce: {pozycja}."
+    return "Analizuję wzór."
+
+
+def blad_analizy(opis: str) -> str:
+    return f"Analiza wzoru nie powiodła się: {opis}"
+
+
+def podsumowanie_wzoru(czas_s: float, liczba_ujec: int, srednia_s: float, tempo_bpm: float | None, ma_dzwiek: bool) -> str:
+    if not ma_dzwiek:
+        rytm = "brak dźwięku, więc bez tempa"
+    elif tempo_bpm is None:
+        rytm = "nie wykryto tempa"
+    else:
+        rytm = f"tempo {formatuj_liczbe(tempo_bpm, 1)} BPM"
+    return (
+        f"Wzór przeanalizowany: {formatuj_liczbe(czas_s, 1)} s, ujęć {liczba_ujec}, "
+        f"średnia długość ujęcia {formatuj_liczbe(srednia_s, 2)} s, {rytm}."
+    )
 
 
 def projekt_w_kolejce(zdjecia: int, klipy: int, linie: int) -> str:
