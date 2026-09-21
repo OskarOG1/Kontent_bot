@@ -12,6 +12,6 @@ Plany, pomiary i notatki: `Pomiary/` (poza gitem). Mapa planów: `Pomiary/PLAN_E
 6. Przy pracy z planu otwieraj tylko pliki wskazane w zadaniu, nie przeszukuj repo.
 7. Z wzorcowego editu bierzemy tylko strukturę i styl. Jego obraz i dźwięk nigdy nie trafiają do wyniku.
 8. Raport na koniec pracy: wniosek w pierwszym zdaniu, liczby, problemy, opcje do decyzji. Bez relacjonowania drogi.
-9. Repo tylko lokalne: bez GitHuba i jakiegokolwiek zdalnego repozytorium (`git remote`, `git push`, `gh`). Na serwer kod trafia przez `wdroz.ps1` (archiwum i scp).
+9. Repo ma zdalne repozytorium na GitHubie: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`). Na serwer kod mimo to trafia przez `wdroz.ps1` (archiwum i scp), nie przez GitHub. Przed każdym push sprawdź, że `.env` i katalogi `dane/`, `outputs/`, `Pomiary/` nie są w indeksie.
 10. `.env` zawiera prawdziwy token bota: nie otwieraj go bez potrzeby, nie przepisuj jego wartości do innych plików, logów ani raportów, nigdy go nie commituj.
 11. Projekt nie ma związku z allegro-rag-agents: nie korzystaj z jego plików ani skryptów.
