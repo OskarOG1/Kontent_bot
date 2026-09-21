@@ -92,3 +92,28 @@ def test_zapisz_projekt_przerwanie_nie_psuje_pliku(tmp_path, monkeypatch):
 
     assert sciezka.read_text(encoding="utf-8") == tresc_przed
     assert json.loads(sciezka.read_text(encoding="utf-8"))["stan"] == "start"
+
+
+def test_najnowszy_wzor_pomija_katalog_bez_wzor_json(tmp_path):
+    starszy = tmp_path / "wzory" / "20260921_100000"
+    nowszy = tmp_path / "wzory" / "20260921_110000"
+    najnowszy = tmp_path / "wzory" / "20260921_120000"
+    for katalog in (starszy, nowszy, najnowszy):
+        katalog.mkdir(parents=True)
+    (starszy / "wzor.json").write_text("{}", encoding="utf-8")
+    (nowszy / "wzor.json").write_text("{}", encoding="utf-8")
+    assert magazyn.najnowszy_wzor(tmp_path) == nowszy / "wzor.json"
+
+
+def test_najnowszy_wzor_kolizja_w_tej_samej_sekundzie(tmp_path):
+    for nazwa in ("20260921_100000", "20260921_100000_2"):
+        katalog = tmp_path / "wzory" / nazwa
+        katalog.mkdir(parents=True)
+        (katalog / "wzor.json").write_text("{}", encoding="utf-8")
+    assert magazyn.najnowszy_wzor(tmp_path).parent.name == "20260921_100000_2"
+
+
+def test_najnowszy_wzor_bez_wzorow(tmp_path):
+    assert magazyn.najnowszy_wzor(tmp_path) is None
+    (tmp_path / "wzory").mkdir()
+    assert magazyn.najnowszy_wzor(tmp_path) is None

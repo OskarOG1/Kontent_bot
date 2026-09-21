@@ -50,6 +50,17 @@ def nowy_wzor(katalog_danych: Path) -> Path:
     return katalog_wzoru
 
 
+def najnowszy_wzor(katalog_danych: Path) -> Path | None:
+    katalog_wzorow = Path(katalog_danych) / "wzory"
+    if not katalog_wzorow.is_dir():
+        return None
+    for katalog in sorted(katalog_wzorow.iterdir(), key=lambda k: k.name, reverse=True):
+        sciezka = katalog / "wzor.json"
+        if katalog.is_dir() and sciezka.is_file():
+            return sciezka
+    return None
+
+
 def sciezka_materialu(katalog_projektu: Path, message_id: int, file_unique_id: str, rozszerzenie: str) -> Path:
     nazwa = f"{message_id:010d}_{file_unique_id}.{rozszerzenie}"
     return Path(katalog_projektu) / "materialy" / nazwa
