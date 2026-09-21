@@ -15,3 +15,4 @@ Plany, pomiary i notatki: `Pomiary/` (poza gitem). Mapa planów: `Pomiary/PLAN_E
 9. Repo ma zdalne repozytorium na GitHubie: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`). Na serwer kod mimo to trafia przez `wdroz.ps1` (archiwum i scp), nie przez GitHub. Przed każdym push sprawdź, że `.env` i katalogi `dane/`, `outputs/`, `Pomiary/` nie są w indeksie.
 10. `.env` zawiera prawdziwy token bota: nie otwieraj go bez potrzeby, nie przepisuj jego wartości do innych plików, logów ani raportów, nigdy go nie commituj.
 11. Projekt nie ma związku z allegro-rag-agents: nie korzystaj z jego plików ani skryptów.
+12. Dziennik rozwoju to `Pomiary/ROZWOJ.md`. Na starcie pracy przeczytaj go, a w trakcie uzupełniaj na bieżąco, nie na końcu: po każdym zadaniu, decyzji, odkryciu, błędzie z testu ręcznego i nowym wymaganiu właściciela dopisz wpis (stan, znane problemy, decyzje, dziennik, następne kroki). Nie wpisuj tam tokenu ani wartości z `.env`.
