@@ -16,6 +16,7 @@ KROK_ROZKLADU = 128
 KROK_DOKLADNY = 32
 OKNO_DOKLADNE = 512
 POSZUKIWANIE_S = 0.05
+START_BPM = 150.0
 
 
 class BladAnalizy(Exception):
@@ -137,7 +138,7 @@ def analizuj_rytm(sciezka) -> tuple[float | None, list[float]]:
         return None, []
     obwiednia = librosa.onset.onset_strength(y=sygnal, sr=sr, hop_length=KROK_ROZKLADU)
     tempo, uderzenia = librosa.beat.beat_track(
-        onset_envelope=obwiednia, sr=sr, hop_length=KROK_ROZKLADU, units="time"
+        onset_envelope=obwiednia, sr=sr, hop_length=KROK_ROZKLADU, units="time", start_bpm=START_BPM
     )
     czasy = doprecyzuj_uderzenia(librosa, sygnal, sr, [float(t) for t in uderzenia])
     if len(czasy) < 2:
