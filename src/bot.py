@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -23,6 +24,8 @@ from konfiguracja import Konfiguracja
 log = logging.getLogger("bot")
 
 LIMIT_SERWERA_TELEGRAM_MB = 20
+LIMIT_ANALIZY_S = 300
+SKRYPT_ANALIZY = Path(__file__).resolve().parent / "analyze.py"
 
 
 class Stany(StatesGroup):
@@ -184,7 +187,61 @@ async def obsluz_cmd_status(
     await message.answer("\n".join(linie))
 
 
-async def obsluz_wzor_plik(message: Message, state: FSMContext, konf: Konfiguracja) -> None:
+async def bezpiecznie_odpisz(message: Message, tekst: str) -> None:
+    try:
+        await message.answer(tekst)
+    except TelegramAPIError:
+        log.exception("nie udalo sie wyslac odpowiedzi")
+
+
+def pierwsza_linia(tekst: str) -> str:
+    for linia in tekst.splitlines():
+        if linia.strip():
+            return linia.strip()
+    return ""
+
+
+def podsumuj_wzor(dane: dict) -> str:
+    zrodlo = dane["zrodlo"]
+    liczba_ujec = len(dane["ciecia_s"])
+    return komunikaty.podsumowanie_wzoru(
+        zrodlo["czas_s"],
+        liczba_ujec,
+        zrodlo["czas_s"] / liczba_ujec,
+        dane["tempo_bpm"],
+        zrodlo["ma_dzwiek"],
+    )
+
+
+async def analizuj_wzor_w_tle(message: Message, zrodlo: Path, wzor_json: Path, zapowiedz: asyncio.Event) -> None:
+    await zapowiedz.wait()
+    wynik = await kolejka_modul.uruchom(
+        [sys.executable, str(SKRYPT_ANALIZY), str(zrodlo), str(wzor_json)],
+        limit_s=LIMIT_ANALIZY_S,
+    )
+    if wynik.przekroczono_czas:
+        await bezpiecznie_odpisz(message, komunikaty.ANALIZA_PRZEKROCZONO_CZAS)
+        return
+    if wynik.kod != 0:
+        opis = pierwsza_linia(wynik.stderr) or f"kod {wynik.kod}"
+        await bezpiecznie_odpisz(message, komunikaty.blad_analizy(opis))
+        return
+    try:
+        dane = json.loads(wzor_json.read_text(encoding="utf-8"))
+        tekst = podsumuj_wzor(dane)
+    except (OSError, ValueError, KeyError, ZeroDivisionError):
+        log.exception("nie udalo sie odczytac wyniku analizy, wzor=%s", wzor_json)
+        await bezpiecznie_odpisz(message, komunikaty.blad_analizy("nie udało się odczytać wyniku"))
+        return
+    await bezpiecznie_odpisz(message, tekst)
+
+
+async def obsluz_wzor_plik(
+    message: Message,
+    state: FSMContext,
+    konf: Konfiguracja,
+    kolejka_obiekt: kolejka_modul.Kolejka,
+) -> None:
     zalacznik = rozpoznaj_zalacznik(message)
     if zalacznik is None:
         await message.answer(komunikaty.WZOR_NIEPOPRAWNY_TYP)
@@ -208,7 +265,16 @@ async def obsluz_wzor_plik(message: Message, state: FSMContext, konf: Konfigurac
         return
 
     await state.clear()
-    await message.answer(komunikaty.WZOR_ZAPISANY)
+    zapowiedz = asyncio.Event()
+
+    async def zadanie() -> None:
+        await analizuj_wzor_w_tle(message, cel, katalog_wzoru / "wzor.json", zapowiedz)
+
+    pozycja = await kolejka_obiekt.dodaj(zadanie)
+    try:
+        await message.answer(komunikaty.analizuje_wzor(pozycja))
+    finally:
+        zapowiedz.set()
 
 
 async def obsluz_wzor_niepoprawny(message: Message) -> None:
