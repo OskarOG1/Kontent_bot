@@ -69,7 +69,7 @@ class Kolejka:
 
     def start(self) -> None:
         if self._zadanie_pracownika is None:
-            self._zadanie_pracownika = asyncio.create_task(self._pracownik())
+            self._zadanie_pracownika = asyncio.create_task(self.pracownik())
 
     async def dodaj(self, zadanie) -> int:
         self._dlugosc += 1
@@ -80,7 +80,7 @@ class Kolejka:
     def dlugosc(self) -> int:
         return self._dlugosc
 
-    async def _pracownik(self) -> None:
+    async def pracownik(self) -> None:
         while True:
             zadanie = await self._kolejka.get()
             try:
