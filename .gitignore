@@ -1,0 +1,7 @@
+dane/
+outputs/
+Pomiary/
+.env
+venv/
+__pycache__/
+.pytest_cache/

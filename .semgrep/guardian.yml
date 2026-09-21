@@ -1,0 +1,26 @@
+serial: 2
+anonymous_user_id: 9f2b8170-2daa-4734-b651-5af76bd2d384
+oauth:
+    metadata:
+        issuer: https://login.semgrep.dev
+        authorization_endpoint: https://login.semgrep.dev/oauth2/authorize
+        token_endpoint: https://login.semgrep.dev/oauth2/token
+        registration_endpoint: https://login.semgrep.dev/oauth2/register
+    client:
+        client_id: client_01M32SJKN6XGCCC36QM70ZZ7K1
+        callback_url: http://127.0.0.1/callback
+    token:
+        access_token: eyJhbGciOiJSUzI1NiIsImtpZCI6InNzb19vaWRjX2tleV9wYWlyXzAxSldYWjRHVkZIQkZBVFhZOUtQNDlHUFlRIn0.eyJzZW1ncmVwOm9yZ19pZCI6IjEwOTg0MCIsImlzcyI6Imh0dHBzOi8vbG9naW4uc2VtZ3JlcC5kZXYiLCJhdWQiOiJjbGllbnRfMDFKV1haNEdaM1dQMUJGV0o1WVRFOUpXSzciLCJzdWIiOiJkZWZhdWx0LTE3NjU5OSIsInNpZCI6ImFwcF9jb25zZW50XzAxTTMyU0tGNTVCOTcwWjcyUktIVFFTSkUwIiwianRpIjoiMDFNMzJTS0ZOTTVQU1JOMDkwQzY3NVdaMUciLCJjbGllbnRfaWQiOiJjbGllbnRfMDFNMzJTSktONlhHQ0NDMzZRTTcwWlo3SzEiLCJhdXRoX3RpbWUiOjE3OTAwMjE1ODEsInNjb3BlIjoiZW1haWwgb2ZmbGluZV9hY2Nlc3Mgb3BlbmlkIHByb2ZpbGUiLCJleHAiOjE3OTAxMTUxODIsImlhdCI6MTc5MDAyMTU4Mn0.SXigPYsJg1_OrjdaiyNKQtyFvlfZlF7Pp3gE-ae3jULumI5x3G0djoqhrlCUzh8V1WjMaSDTuYYn0bxhC0OK4joERpeZ0c41iH-L0mqbD6gN_eby7X-le2utv6NNoUjybbUURp_dCMrZV9Df4ndljXr7ujsHmhCuBMptqMZeGz-S50LdsjoAgaiIKjrkr_YyU0tmZrZ8SwmP8te5H8lcg6PcFL8lqkHjBYUkU3zaXZScmJYlVSZC_kYGjPfwTZIbJgkLXZt7jd7E9VtUqZ-8KdLkGW2ULRngMaco9l_3yKpEzZ3r4vM1lKB9CpbnxUFgiuXryqNPyYupkqFMVrC7Uw
+        refresh_token: EUkxCH87Vn3OVhglG3Gk7k0sN
+        token_type: bearer
+        expiry: 2026-09-23T00:13:03.1117371+02:00
+deployment:
+    user_id: 176599
+    orgs:
+        - id: 109840
+          name: og-personal
+          display_name: og-personal
+          organization_id: 191514
+semgrep:
+    auth_method: oauth
+expiry: 2026-09-22T06:12:33.4315194+02:00
