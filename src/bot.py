@@ -7,7 +7,7 @@ from time import monotonic
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
-from aiogram.exceptions import TelegramAPIError
+from aiogram.exceptions import TelegramAPIError, TelegramEntityTooLarge
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -22,10 +22,16 @@ from konfiguracja import Konfiguracja
 
 log = logging.getLogger("bot")
 
+LIMIT_SERWERA_TELEGRAM_MB = 20
+
 
 class Stany(StatesGroup):
     czekam_na_wzor = State()
     zbieram = State()
+
+
+def efektywny_limit_mb(konf: Konfiguracja) -> int:
+    return min(konf.limit_pobierania_mb, LIMIT_SERWERA_TELEGRAM_MB)
 
 
 def to_wideo(message: Message) -> bool:
@@ -184,14 +190,18 @@ async def obsluz_wzor_plik(message: Message, state: FSMContext, konf: Konfigurac
         await message.answer(komunikaty.WZOR_NIEPOPRAWNY_TYP)
         return
     _, rozszerzenie, file_id, _, rozmiar = zalacznik
-    if rozmiar is not None and rozmiar > konf.limit_pobierania_mb * 1024 * 1024:
-        await message.answer(komunikaty.limit_rozmiaru(rozmiar, konf.limit_pobierania_mb))
+    limit_mb = efektywny_limit_mb(konf)
+    if rozmiar is not None and rozmiar > limit_mb * 1024 * 1024:
+        await message.answer(komunikaty.limit_rozmiaru(rozmiar, limit_mb))
         return
 
     katalog_wzoru = magazyn.nowy_wzor(konf.katalog_danych)
     cel = katalog_wzoru / f"zrodlo.{rozszerzenie}"
     try:
         await pobierz_plik(message.bot, file_id, cel)
+    except TelegramEntityTooLarge:
+        await message.answer(komunikaty.limit_rozmiaru(None, limit_mb))
+        return
     except Exception:
         log.exception("pobieranie wzoru nie powiodlo sie, file_id=%s", file_id)
         await message.answer(komunikaty.BLAD_POBIERANIA)
@@ -220,15 +230,19 @@ async def obsluz_material(
         if zalacznik is None:
             return
         _, rozszerzenie, file_id, file_unique_id, rozmiar = zalacznik
+        limit_mb = efektywny_limit_mb(konf)
 
-        if rozmiar is not None and rozmiar > konf.limit_pobierania_mb * 1024 * 1024:
-            await message.answer(komunikaty.limit_rozmiaru(rozmiar, konf.limit_pobierania_mb))
+        if rozmiar is not None and rozmiar > limit_mb * 1024 * 1024:
+            await message.answer(komunikaty.limit_rozmiaru(rozmiar, limit_mb))
             return
 
         katalog_projektu = konf.katalog_danych / "projekty" / projekt_id
         cel = magazyn.sciezka_materialu(katalog_projektu, message.message_id, file_unique_id, rozszerzenie)
         try:
             await pobierz_plik(message.bot, file_id, cel)
+        except TelegramEntityTooLarge:
+            await message.answer(komunikaty.limit_rozmiaru(None, limit_mb))
+            return
         except Exception:
             log.exception("pobieranie materialu nie powiodlo sie, file_id=%s", file_id)
             await message.answer(komunikaty.BLAD_POBIERANIA)

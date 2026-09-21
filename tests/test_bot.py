@@ -117,6 +117,36 @@ async def test_document_25mb_komunikat_bez_pobrania(srodowisko):
     assert nazwy_wywolan(sesja) == ["SendMessage", "SendMessage"]
 
 
+async def test_limit_telegrama_dziala_mimo_wyzszego_limitu_w_konfiguracji(konf):
+    konf.limit_pobierania_mb = 200
+    dyspozytor = bot.utworz_dispatcher(konf, kolejka.Kolejka())
+    bot_obiekt = zbuduj_bota()
+    sesja = bot_obiekt.session
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+
+    wiadomosc = zbuduj_wiadomosc(document=dokument("f_big", "u_big", nazwa="klip.mp4", file_size=25 * 1024 * 1024))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+
+    assert "GetFile" not in nazwy_wywolan(sesja)
+    ostatnia = [m for m in sesja.wywolania if type(m).__name__ == "SendMessage"][-1]
+    assert "20 MB" in ostatnia.text
+
+
+async def test_zbyt_duzy_plik_zgloszony_przez_telegram_daje_komunikat_o_limicie(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    sesja.plik_za_duzy = True
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+
+    wiadomosc = zbuduj_wiadomosc(video=klip("f_video", "u_video", file_size=None))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+
+    ostatnia = [m for m in sesja.wywolania if type(m).__name__ == "SendMessage"][-1]
+    assert "20 MB" in ostatnia.text
+    dane_stanu = await dyspozytor.storage.get_data(key=klucz_stanu(bot_obiekt))
+    katalog_projektu = konf.katalog_danych / "projekty" / dane_stanu["projekt_id"]
+    assert magazyn.lista_materialow(katalog_projektu) == []
+
+
 async def test_gotowe_czeka_na_trwajace_pobrania(srodowisko):
     dyspozytor, bot_obiekt, sesja, konf = srodowisko
     sesja.opoznienie_pobierania_s = 0.5
