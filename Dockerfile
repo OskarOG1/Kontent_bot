@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ ./src/
 COPY tests/ ./tests/
+COPY pytest.ini ./
 COPY zasob[y]/ ./zasoby/
 
 ENV NUMBA_CACHE_DIR=/app/dane/.cache/numba
