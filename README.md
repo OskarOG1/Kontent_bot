@@ -17,3 +17,13 @@ Python 3.13, ffmpeg i ffprobe 8.1 dostępne w PATH.
 ## Dane
 
 Materiały, projekty i wzory trzymane są w katalogu `dane/` (poza gitem, ścieżka konfigurowalna przez `KATALOG_DANYCH`). Wyniki pomiarów trafiają do `outputs/`.
+
+## Wdrożenie
+
+Bot działa na VPS w Dockerze (obraz `python:3.13-slim` z ffmpeg, `libgl1` i `libglib2.0-0`), uruchomiony jako `docker compose` z jedną usługą `bot`. Kod trafia na serwer bez GitHuba: skrypt `wdroz.ps1` pakuje stan ostatniego commita (`git archive HEAD`), kopiuje archiwum na serwer i tam je rozpakowuje, po czym uruchamia `docker compose up -d --build`.
+
+```powershell
+.\wdroz.ps1 -Serwer root@<adres>
+```
+
+Katalog `dane/` na serwerze jest zamontowany jako wolumen poza obrazem, a plik `.env` trafia na serwer osobno (`scp`), nie przez `wdroz.ps1`. Pełna procedura pierwszego wdrożenia (katalogi, `.env`, muzyka, restart) jest opisana w `Pomiary/PLAN_EDITY_7_WDROZENIE.md`.

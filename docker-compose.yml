@@ -1,0 +1,13 @@
+services:
+  bot:
+    build: .
+    env_file: .env
+    volumes:
+      - ./dane:/app/dane
+    restart: unless-stopped
+    cpus: "2"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
