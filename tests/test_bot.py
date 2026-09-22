@@ -4,7 +4,10 @@ import sys
 from pathlib import Path
 
 import pytest
+from aiogram import Bot
+from aiogram.client.telegram import TelegramAPIServer
 from aiogram.fsm.storage.base import StorageKey
+from aiogram.types import File
 
 import bot
 import kolejka
@@ -13,7 +16,9 @@ from konfiguracja import Konfiguracja
 from pomocnicze import (
     CZAT_ID,
     OBCY_ID,
+    TOKEN_TESTOWY,
     WLASCICIEL_ID,
+    SesjaTestowa,
     dokument,
     klip,
     nazwy_wywolan,
@@ -133,6 +138,57 @@ async def test_limit_telegrama_dziala_mimo_wyzszego_limitu_w_konfiguracji(konf):
     assert "GetFile" not in nazwy_wywolan(sesja)
     ostatnia = [m for m in sesja.wywolania if type(m).__name__ == "SendMessage"][-1]
     assert "20 MB" in ostatnia.text
+
+
+def test_efektywny_limit_mb_bez_adresu_lokalnego(konf):
+    konf.limit_pobierania_mb = 2500
+    assert bot.efektywny_limit_mb(konf) == 20
+
+
+def test_efektywny_limit_mb_z_adresem_lokalnym(konf):
+    konf.telegram_api_url = "http://bot-api:8081"
+    konf.limit_pobierania_mb = 2500
+    assert bot.efektywny_limit_mb(konf) == 2500
+
+
+def test_efektywny_limit_wysylki_mb_bez_adresu_lokalnego(konf):
+    konf.limit_wysylki_mb = 2000
+    assert bot.efektywny_limit_wysylki_mb(konf) == 50
+
+
+def test_efektywny_limit_wysylki_mb_z_adresem_lokalnym(konf):
+    konf.telegram_api_url = "http://bot-api:8081"
+    konf.limit_wysylki_mb = 2000
+    assert bot.efektywny_limit_wysylki_mb(konf) == 2000
+
+
+def test_zbuduj_sesje_bez_adresu_lokalnego_brak_sesji(konf):
+    assert bot.zbuduj_sesje(konf) is None
+
+
+def test_zbuduj_sesje_z_adresem_lokalnym(konf):
+    konf.telegram_api_url = "http://bot-api:8081"
+    sesja = bot.zbuduj_sesje(konf)
+    assert sesja.api.is_local is True
+    assert sesja.api.base == "http://bot-api:8081/bot{token}/{method}"
+
+
+async def test_pobierz_plik_w_trybie_lokalnym_kopiuje_sciezke_z_getfile(tmp_path, monkeypatch):
+    zrodlo = tmp_path / "zrodlowy.mp4"
+    zrodlo.write_bytes(b"zawartosc-lokalna")
+    sesja = SesjaTestowa(api=TelegramAPIServer.from_base("http://bot-api:8081", is_local=True))
+    bot_obiekt = Bot(token=TOKEN_TESTOWY, session=sesja)
+
+    async def get_file_podmieniony(file_id, request_timeout=None):
+        return File(file_id=file_id, file_unique_id="u_lokalny", file_path=str(zrodlo))
+
+    monkeypatch.setattr(bot_obiekt, "get_file", get_file_podmieniony)
+
+    cel = tmp_path / "cel.mp4"
+    await bot.pobierz_plik(bot_obiekt, "f_lokalny", cel)
+
+    assert cel.read_bytes() == b"zawartosc-lokalna"
+    assert "GetFile" not in nazwy_wywolan(sesja)
 
 
 async def test_zbyt_duzy_plik_zgloszony_przez_telegram_daje_komunikat_o_limicie(srodowisko):

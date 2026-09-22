@@ -1,0 +1,8 @@
+dane
+outputs
+Pomiary
+.env
+venv
+.git
+__pycache__
+.pytest_cache
