@@ -49,3 +49,17 @@ def test_limity_niestandardowe():
     })
     assert konf.limit_pobierania_mb == 30
     assert konf.limit_wysylki_mb == 60
+
+
+def test_telegram_api_url_domyslnie_brak():
+    konf = wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123"})
+    assert konf.telegram_api_url is None
+
+
+def test_telegram_api_url_ustawiony():
+    konf = wczytaj({
+        "BOT_TOKEN": "token",
+        "OWNER_ID": "123",
+        "TELEGRAM_API_URL": "http://bot-api:8081",
+    })
+    assert konf.telegram_api_url == "http://bot-api:8081"

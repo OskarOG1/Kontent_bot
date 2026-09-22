@@ -13,6 +13,7 @@ class Konfiguracja:
     katalog_danych: Path
     limit_pobierania_mb: int = 20
     limit_wysylki_mb: int = 50
+    telegram_api_url: str | None = None
 
 
 def wczytaj(srodowisko: Mapping[str, str] | None = None) -> Konfiguracja:
@@ -39,6 +40,7 @@ def wczytaj(srodowisko: Mapping[str, str] | None = None) -> Konfiguracja:
 
     limit_pobierania_mb = int(srodowisko.get("LIMIT_POBIERANIA_MB", 20))
     limit_wysylki_mb = int(srodowisko.get("LIMIT_WYSYLKI_MB", 50))
+    telegram_api_url = srodowisko.get("TELEGRAM_API_URL") or None
 
     return Konfiguracja(
         token=token,
@@ -46,6 +48,7 @@ def wczytaj(srodowisko: Mapping[str, str] | None = None) -> Konfiguracja:
         katalog_danych=katalog_danych,
         limit_pobierania_mb=limit_pobierania_mb,
         limit_wysylki_mb=limit_wysylki_mb,
+        telegram_api_url=telegram_api_url,
     )
 
 

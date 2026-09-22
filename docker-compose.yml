@@ -4,6 +4,7 @@ services:
     env_file: .env
     volumes:
       - ./dane:/app/dane
+      - bot_api_dane:/var/lib/telegram-bot-api
     restart: unless-stopped
     cpus: "2"
     logging:
@@ -11,3 +12,20 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  bot-api:
+    image: aiogram/telegram-bot-api:latest
+    env_file: .env
+    environment:
+      TELEGRAM_LOCAL: "1"
+    volumes:
+      - bot_api_dane:/var/lib/telegram-bot-api
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  bot_api_dane:

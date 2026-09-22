@@ -8,6 +8,8 @@ from time import monotonic
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
 from aiogram.exceptions import TelegramAPIError, TelegramEntityTooLarge
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -24,6 +26,9 @@ from konfiguracja import Konfiguracja
 log = logging.getLogger("bot")
 
 LIMIT_SERWERA_TELEGRAM_MB = 20
+LIMIT_SERWERA_TELEGRAM_LOKALNY_MB = 2500
+LIMIT_WYSYLKI_TELEGRAM_MB = 50
+LIMIT_WYSYLKI_TELEGRAM_LOKALNY_MB = 2000
 LIMIT_ANALIZY_S = 300
 SKRYPT_ANALIZY = Path(__file__).resolve().parent / "analyze.py"
 
@@ -34,7 +39,13 @@ class Stany(StatesGroup):
 
 
 def efektywny_limit_mb(konf: Konfiguracja) -> int:
-    return min(konf.limit_pobierania_mb, LIMIT_SERWERA_TELEGRAM_MB)
+    limit_serwera = LIMIT_SERWERA_TELEGRAM_LOKALNY_MB if konf.telegram_api_url else LIMIT_SERWERA_TELEGRAM_MB
+    return min(konf.limit_pobierania_mb, limit_serwera)
+
+
+def efektywny_limit_wysylki_mb(konf: Konfiguracja) -> int:
+    limit_serwera = LIMIT_WYSYLKI_TELEGRAM_LOKALNY_MB if konf.telegram_api_url else LIMIT_WYSYLKI_TELEGRAM_MB
+    return min(konf.limit_wysylki_mb, limit_serwera)
 
 
 def to_wideo(message: Message) -> bool:
@@ -380,8 +391,14 @@ def utworz_dispatcher(konf: Konfiguracja, kolejka_obiekt: kolejka_modul.Kolejka)
     return dyspozytor
 
 
+def zbuduj_sesje(konf: Konfiguracja) -> AiohttpSession | None:
+    if not konf.telegram_api_url:
+        return None
+    return AiohttpSession(api=TelegramAPIServer.from_base(konf.telegram_api_url, is_local=True))
+
+
 async def uruchom_bota(konf: Konfiguracja) -> None:
-    bot = Bot(token=konf.token, default=DefaultBotProperties(parse_mode=None))
+    bot = Bot(token=konf.token, session=zbuduj_sesje(konf), default=DefaultBotProperties(parse_mode=None))
     kolejka_obiekt = kolejka_modul.Kolejka()
     kolejka_obiekt.start()
     dyspozytor = utworz_dispatcher(konf, kolejka_obiekt)
