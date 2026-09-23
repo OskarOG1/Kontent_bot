@@ -155,6 +155,25 @@ Katalog: C:\Dev\edity-bot. Wykonaj zadanie 3.5 z Pomiary/PLAN_EDITY_3_RENDER.md;
 Katalog: C:\Dev\edity-bot. Wykonaj zadanie 3.6 z Pomiary/PLAN_EDITY_3_RENDER.md; otwórz src/render.py, src/analyze.py, tests/generuj.py. Weryfikacja: python Pomiary/measure_render.py
 ```
 
+### [Task 3.7: Dźwięk przycinany na wejściu, długość wyniku wymuszona]
+- **Powód:** na prawdziwych danych (utwór 152 s, edit 32 s) `przebieg_koncowy` dawał plik 27,2 do 27,7 s zamiast 32 s, w każdym przebiegu inny, więc `zweryfikuj_wynik` odrzucał wynik i bot odpowiadał „Montaż nie powiódł się: Długość wyniku nie zgadza się z planem”. Test ręczny właściciela 2026-09-23 na serwerze.
+- **Stan obecny i co jest złe:** `przebieg_koncowy` (`src/render.py`) podaje utwór jako drugie wejście w całości, przycina go filtrem `atrim=start=...:duration=...` z `asetpts=PTS-STARTPTS`, a długość wyjścia bierze z `-shortest`. Przy utworze wielokrotnie dłuższym od editu ffmpeg czyta dalej wejście, którego wyjście filtra już się skończyło, wypisuje „Queue input is backward in time” oraz „Non-monotonic DTS” na strumieniu dźwięku i kończy plik za wcześnie.
+- **Ustalone doświadczalnie na serwerze, na tych samych plikach** (sklejony materiał `praca/polaczone.mp4` był poprawny: 960 klatek, 32,0 s):
+  - sam obraz przez ten sam przebieg: 960 klatek, 32,0 s;
+  - sam dźwięk z `atrim` zapisany osobno: 32,0 s;
+  - obraz i dźwięk razem, `atrim` plus `-shortest`: 817, 826 i 830 klatek w kolejnych przebiegach, czyli wynik niedeterministyczny;
+  - `-t` zamiast `-shortest`: obraz wraca do 960 klatek, ale dźwięk nadal ma popsute znaczniki (1481 ramek, zgłaszany czas 27,3 s);
+  - okładka w mp3 (`staly.mp3` ma strumień PNG, oba utwory właściciela też) nie jest przyczyną: po jej usunięciu błąd wygląda tak samo;
+  - **działa:** przycięcie utworu opcjami wejścia `-ss <start_audio_s> -t <czas_trwania_s>` przed `-i`, bez `atrim` i `asetpts`, z zachowanym `afade`: obraz 960 klatek i 32,0 s, dźwięk 32,0 s.
+- **Stan docelowy:** `przebieg_koncowy` przycina utwór opcjami wejścia, filtr dźwięku zostaje tylko na wyciszenie, a długość wyjścia jest wymuszona jawnie (`-frames:v` z `liczba_klatek` albo `-t`), nie przez `-shortest`. Reszta bez zmian: to dalej jedyne miejsce kodowania wyniku, `maxrate` liczony jak dziś, segmenty i sklejanie nietknięte.
+- **Przypadek cichy i test, który go łapie:** dzisiejsze testy renderu używają utworu o długości zbliżonej do editu (klik 6 s), więc odrzucany ogon jest krótki i błąd się nie pokazuje. Nowy test: pełny render z utworem wielokrotnie dłuższym od editu (np. klik 60 s przy edicie około 2 s), sprawdzający liczbę klatek wyniku co do jednej i osobno długość strumienia dźwięku z ffprobe (`stream=duration`, nie tylko `format=duration`, bo to właśnie rozjazd między nimi wyszedł na serwerze).
+- **Pomiar:** `Pomiary/measure_render.py` sekcja A bez zmian, ale w raporcie dopisz długość strumienia dźwięku obok długości obrazu. Progi jak dotąd.
+- **Sonnet Prompt:**
+```text
+Katalog: C:\Dev\edity-bot. Wykonaj zadanie 3.7 z Pomiary/PLAN_EDITY_3_RENDER.md; otwórz src/render.py, tests/test_render.py, tests/generuj.py, Pomiary/measure_render.py. Na starcie przeczytaj Pomiary/ROZWOJ.md i dopisz do niego wpis po zadaniu. Weryfikacja: python -m pytest -q oraz python Pomiary/measure_render.py.
+```
+Commit: `render: dźwięk przycinany na wejściu i wymuszona długość wyniku`.
+
 ## Gotowe, gdy
 - `python -m pytest -q` przechodzi w całości.
 - Pomiar A: 100% granic, mediana do 20 ms; B najwyżej 47,5 MB.

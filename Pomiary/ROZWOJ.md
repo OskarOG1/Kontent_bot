@@ -9,7 +9,7 @@ Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym
 | 1 szkielet | kod gotowy, testy 33 z 33, pomiar w progach. Odbiór 2026-09-22 (Opus): OK. Test ręczny na Telegramie: materiały działają, wzór nie (limit 20 MB, patrz „Znane problemy") |
 | 2 analiza | kod gotowy, scalony do `main` w PR #1 (`4b929c9`), testy 62 z 62, pomiar A w progach (100% cięć, błąd tempa maks 0,35%), pomiar B na dwóch prawdziwych wzorach. Odbiór 2026-09-22 (Opus): OK, domyślny ContentDetector potwierdzony. Brak testu ręcznego na prawdziwym wzorze (czeka na lokalny serwer Bot API) |
 | 7 wdrożenie | 7.1 i 7.2 scalone do `main` w PR #2 (`e9a4755`), na `46.62.151.181` działa bot testowy, testy w kontenerze 71 z 71. 7.3 wykonane na gałęzi `wdrozenie-poprawki` (2026-09-23), testy lokalnie 75 z 75, pomiar w progach. Odbiór 7.3 (Opus) 2026-09-23: OK, scalone w PR #3. `Pomiary/` zostaje w repozytorium (decyzja właściciela 2026-09-23). Serwer przełączony na głównego bota `@cwel54_bot`, punkty a do f i h zrobione 2026-09-23: pobieranie przez serwer lokalny odblokowane, limit pamięci 3 GB działa, cron ustawiony. Punkt g zrobiony 2026-09-23: wzór 153 MB pobrany w 9 s, analiza 51 s, szczyt pamięci 894 MB przy limicie 3 GB, wolumen serwera Bot API po skopiowaniu pusty. Część 7 zamknięta |
-| 3 render | scalona w PR #4, testy 115 z 115 (56 s lokalnie, 62 s w kontenerze na serwerze), pomiar A i B w progach (100% granic, mediana 8 ms; B 36,4 MB). Pomiar C tylko ręcznie zweryfikowany kodem, bez arkuszy PNG. Odbiór 2026-09-23 (Opus): OK. Wdrożona na serwer. Zostaje test ręczny właściciela |
+| 3 render | scalona w PR #4, testy 115 z 115 (56 s lokalnie, 62 s w kontenerze na serwerze), pomiar A i B w progach (100% granic, mediana 8 ms; B 36,4 MB). Pomiar C tylko ręcznie zweryfikowany kodem, bez arkuszy PNG. Odbiór 2026-09-23 (Opus): OK. Wdrożona na serwer. Zostaje test ręczny właściciela Test ręczny 2026-09-23: montaż odrzucony przez weryfikację długości, naprawa w zadaniu 3.7 |
 | 4 do 6 | nie ruszone |
 
 Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`). Wdrożenie na serwer nadal przez `wdroz.ps1` (część 7).
@@ -44,6 +44,13 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 - Wyniki (`outputs/`), dane (`dane/`) i `.env` są poza gitem. Katalog `Pomiary/` od 2026-09-23 jest w repozytorium (decyzja właściciela), więc zmiany planów i dziennika trzeba commitować.
 
 ## Dziennik
+
+### 2026-09-23 (test ręczny części 3 na serwerze: montaż odrzucony, diagnoza)
+- Właściciel wysłał `/nowy`, 3 zdjęcia i 2 klipy (10,9 s i 19,6 s), `/gotowe`. Bot odpowiedział „Montaż nie powiódł się: Długość wyniku nie zgadza się z planem”, projekt `20260923_163553` ma stan `blad`.
+- Diagnoza na serwerze z katalogu `praca/`, który zostaje po błędzie: plan i sklejony materiał były poprawne (960 klatek, dokładnie 32,0 s, tyle co wzór), a `wynik.mp4` miał 826 klatek i 27,5 s. Czyli błąd siedzi w `przebieg_koncowy`, a `zweryfikuj_wynik` zadziałał tak, jak miał: złapał krótszy plik zamiast wysłać go po cichu.
+- Przyczyna ustalona eksperymentami na tych samych plikach: przycinanie utworu filtrem `atrim` razem z `-shortest` przy utworze wielokrotnie dłuższym od editu (152 s wobec 32 s) kończy plik za wcześnie i niedeterministycznie (817, 826 i 830 klatek w kolejnych przebiegach), z ostrzeżeniami „Queue input is backward in time” i „Non-monotonic DTS”. Okładka w mp3 nie jest winna (sprawdzone na kopii bez okładki), `-t` zamiast `-shortest` naprawia tylko obraz. Działa przycięcie utworu opcjami wejścia `-ss` i `-t` przed `-i`: obraz 960 klatek i 32,0 s, dźwięk 32,0 s.
+- Naprawa opisana jako zadanie 3.7 w `PLAN_EDITY_3_RENDER.md`, razem z testem, który to łapie (dziś testy używają utworu długości editu, więc przypadek nie występował).
+- Po naprawie nie trzeba wysyłać materiałów jeszcze raz: render można powtórzyć na serwerze z CLI na istniejącym projekcie `20260923_163553`.
 
 ### 2026-09-23 (odbiór części 3 i wdrożenie, Opus)
 - Werdykt: OK. Testy 115 z 115 lokalnie w 56,0 s (próg 60 s, margines wąski, potwierdzam obserwację wykonawcy) oraz 115 z 115 w kontenerze na serwerze w 62 s, czyli render działa też na ffmpegu 7.1.5 z Debiana, nie tylko na lokalnym 8.1.
