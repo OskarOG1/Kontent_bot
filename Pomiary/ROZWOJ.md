@@ -9,7 +9,7 @@ Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym
 | 1 szkielet | kod gotowy, testy 33 z 33, pomiar w progach. Odbiór 2026-09-22 (Opus): OK. Test ręczny na Telegramie: materiały działają, wzór nie (limit 20 MB, patrz „Znane problemy") |
 | 2 analiza | kod gotowy, scalony do `main` w PR #1 (`4b929c9`), testy 62 z 62, pomiar A w progach (100% cięć, błąd tempa maks 0,35%), pomiar B na dwóch prawdziwych wzorach. Odbiór 2026-09-22 (Opus): OK, domyślny ContentDetector potwierdzony. Brak testu ręcznego na prawdziwym wzorze (czeka na lokalny serwer Bot API) |
 | 7 wdrożenie | 7.1 i 7.2 scalone do `main` w PR #2 (`e9a4755`), na `46.62.151.181` działa bot testowy, testy w kontenerze 71 z 71. 7.3 wykonane na gałęzi `wdrozenie-poprawki` (2026-09-23), testy lokalnie 75 z 75, pomiar w progach. Odbiór 7.3 (Opus) 2026-09-23: OK, scalone w PR #3. `Pomiary/` zostaje w repozytorium (decyzja właściciela 2026-09-23). Serwer przełączony na głównego bota `@cwel54_bot`, punkty a do f i h zrobione 2026-09-23: pobieranie przez serwer lokalny odblokowane, limit pamięci 3 GB działa, cron ustawiony. Punkt g zrobiony 2026-09-23: wzór 153 MB pobrany w 9 s, analiza 51 s, szczyt pamięci 894 MB przy limicie 3 GB, wolumen serwera Bot API po skopiowaniu pusty. Część 7 zamknięta |
-| 3 render | następna, plan gotowy (), materiały i muzyka na miejscu |
+| 3 render | następna, plan `PLAN_EDITY_3_RENDER.md` gotowy, materiały i muzyka na miejscu |
 | 4 do 6 | nie ruszone |
 
 Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`). Wdrożenie na serwer nadal przez `wdroz.ps1` (część 7).
@@ -32,7 +32,7 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 2. Wcześniejsze puste projekty z testu ręcznego (23:03 i 23:05) mają prawdopodobnie tę samą przyczynę: klipy 19 do 31 s z telefonu łatwo przekraczają 20 MB. Też niepotwierdzone logiem.
 3. Nieznany typ dokumentu w stanie zbierania (np. PDF) jest po cichu ignorowany, bez komunikatu.
 4. Licznik trwających pobrań i aktywny projekt są jednym wspólnym stanem (bot obsługuje jednego właściciela i jedno zbieranie naraz). Przy wielu projektach naraz trzeba to przerobić.
-5. **Pobieranie na serwerze nie działa (odbiór części 7, 2026-09-22).** Serwer Bot API zapisuje pliki jako UID 101 z prawami tylko dla siebie, bot działa jako UID 1000. Naprawa w kodzie: zadanie 7.3 (`bot-api/Dockerfile` z UID 1000), niepotwierdzona na serwerze, bo lokalnie nie ma Dockera. Do potwierdzenia w punktach a do h (właściciel).
+5. **Pobieranie na serwerze: rozwiązane 2026-09-23.** Serwer Bot API działa jako UID 1000 (`bot-api/Dockerfile` z zadania 7.3, plus poprawka `1611573` na `delgroup`), a wzór 153 MB przeszedł całą drogę na produkcji. Tym samym punkt 1 tej listy dotyczy już tylko pracy lokalnej na zwykłym API.
 
 ## Decyzje techniczne podjęte przy realizacji
 
@@ -41,7 +41,7 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 - Licznik pobrań rośnie w pierwszej linii handlera materiału, przed jakimkolwiek `await`. To chroni `/gotowe` przed policzeniem albumu za wcześnie (pomiar B: 20 z 20).
 - Błąd pobierania: `TelegramEntityTooLarge` daje komunikat o limicie, każdy inny wyjątek jest logowany (`log.exception`) i daje ogólny komunikat „nie udało się pobrać". Wcześniej każdy błąd był mylnie opisywany jako „za duży plik".
 - Pobieranie przez `pobierz_plik` do `<cel>.part` z podmianą po sukcesie. To jedyne miejsce pobierania, część 7 je podmieni.
-- Pomiary i wyniki (`Pomiary/`, `outputs/`), dane (`dane/`) i `.env` są poza gitem.
+- Wyniki (`outputs/`), dane (`dane/`) i `.env` są poza gitem. Katalog `Pomiary/` od 2026-09-23 jest w repozytorium (decyzja właściciela), więc zmiany planów i dziennika trzeba commitować.
 
 ## Dziennik
 
