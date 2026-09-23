@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy
 
-WERSJA_WZORU = 2
+WERSJA_WZORU = 3
 CZESTOTLIWOSC_ANALIZY = 22050
 KROK_ROZKLADU = 128
 KROK_DOKLADNY = 32
@@ -251,6 +251,57 @@ def kwantyzuj(pozycje: list[float], krok: float = 0.25) -> list[float]:
     return wynik
 
 
+def wykryj_drop(
+    uderzenia_s: list[float],
+    energia_uderzen: list[float] | None,
+    ciecia_s: list[float],
+    ciecia_uderzenia: list[float] | None,
+    czas_s: float,
+) -> dict | None:
+    if not uderzenia_s or not energia_uderzen:
+        return None
+    if len(uderzenia_s) < 16:
+        return None
+    if len(ciecia_s) < 2:
+        return None
+    granica_czasu = czas_s / 2
+    srednia_energii = sum(energia_uderzen) / len(energia_uderzen)
+    najlepszy_i = None
+    najlepszy_wynik = None
+    for i in range(4, len(uderzenia_s)):
+        if uderzenia_s[i] > granica_czasu:
+            break
+        przed = energia_uderzen[max(0, i - 8):i]
+        po = energia_uderzen[i:i + 8]
+        if len(przed) < 4 or len(po) < 4:
+            continue
+        wynik = sum(po) / len(po) - sum(przed) / len(przed)
+        if najlepszy_wynik is None or wynik > najlepszy_wynik:
+            najlepszy_wynik = wynik
+            najlepszy_i = i
+    if najlepszy_i is None or najlepszy_wynik < 0.2 * srednia_energii:
+        return None
+    t = uderzenia_s[najlepszy_i]
+    kandydaci = [(idx, c) for idx, c in enumerate(ciecia_s) if idx >= 1]
+    if not kandydaci:
+        return None
+    najblizszy_idx, najblizszy_c = min(kandydaci, key=lambda kc: (abs(kc[1] - t), kc[0]))
+    if abs(najblizszy_c - t) <= 1.0:
+        drop_idx, drop_c = najblizszy_idx, najblizszy_c
+    else:
+        po_czasie = [(idx, c) for idx, c in kandydaci if c > t]
+        if po_czasie:
+            drop_idx, drop_c = min(po_czasie, key=lambda kc: kc[1])
+        else:
+            drop_idx, drop_c = najblizszy_idx, najblizszy_c
+    koniec_haka = ciecia_uderzenia[drop_idx] if ciecia_uderzenia is not None else None
+    return {
+        "drop_s": drop_c,
+        "drop_ujecie": drop_idx,
+        "koniec_haka_uderzenia": koniec_haka,
+    }
+
+
 def analizuj_wzor(sciezka, wzor_id: str) -> dict:
     sciezka = Path(sciezka)
     zrodlo = metadane(sciezka)
@@ -276,6 +327,7 @@ def analizuj_wzor(sciezka, wzor_id: str) -> dict:
         energia_uderzen = None
         ciecia_uderzenia = None
         koniec_uderzenia = None
+    sekcje = wykryj_drop(uderzenia, energia_uderzen, ciecia, ciecia_uderzenia, czas_s)
     return {
         "wersja": WERSJA_WZORU,
         "id": wzor_id,
@@ -287,6 +339,7 @@ def analizuj_wzor(sciezka, wzor_id: str) -> dict:
         "ciecia_uderzenia": ciecia_uderzenia,
         "koniec_uderzenia": koniec_uderzenia,
         "odcisk_dzwieku": odcisk_dzwieku,
+        "sekcje": sekcje,
         "kolorystyka": None,
         "tekst": None,
     }

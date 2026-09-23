@@ -196,13 +196,14 @@ def test_wideo_bez_dzwieku_ma_puste_pola_rytmu(tmp_path):
     assert wynik.returncode == 0
     dane = json.loads(wyjscie.read_text(encoding="utf-8"))
     assert dane["id"] == "20260921_153012"
-    assert dane["wersja"] == 2
+    assert dane["wersja"] == 3
     assert dane["tempo_bpm"] is None
     assert dane["uderzenia_s"] == []
     assert dane["energia_uderzen"] is None
     assert dane["ciecia_uderzenia"] is None
     assert dane["koniec_uderzenia"] is None
     assert dane["odcisk_dzwieku"] is None
+    assert dane["sekcje"] is None
     assert dane["zrodlo"] == {"czas_s": 2.0, "szerokosc": 270, "wysokosc": 480, "fps": 30.0, "ma_dzwiek": False}
     assert dane["kolorystyka"] is None and dane["tekst"] is None
 
@@ -271,13 +272,13 @@ def test_analizuj_dzwiek_bez_dzwieku_daje_none(tmp_path):
     assert wzor["energia_uderzen"] is None
 
 
-def test_analizuj_wzor_z_melodia_daje_wersje_2(tmp_path):
+def test_analizuj_wzor_z_melodia_daje_wersje_3(tmp_path):
     sciezka = tmp_path / "wzor.mp4"
     wav = tmp_path / "melodia.wav"
     melodia(wav, 120, 8.0, ziarno=2)
     wideo_z_cieciami(sciezka, [1.0, 4.0], 8.0, dzwiek=wav)
     wzor = analyze.analizuj_wzor(sciezka, "abc")
-    assert wzor["wersja"] == 2
+    assert wzor["wersja"] == 3
     assert wzor["odcisk_dzwieku"] is not None
     assert wzor["energia_uderzen"] is not None
 
@@ -301,7 +302,8 @@ def test_wszystkie_przelicza_tylko_katalogi_ze_zrodlem(tmp_path):
     assert wynik.returncode == 0
     dane_a = json.loads((wzor_a / "wzor.json").read_text(encoding="utf-8"))
     assert dane_a["id"] == "aaa"
-    assert dane_a["wersja"] == 2
+    assert dane_a["wersja"] == 3
+    assert "sekcje" in dane_a
     dane_b = json.loads((wzor_b / "wzor.json").read_text(encoding="utf-8"))
     assert dane_b == stary
 
@@ -312,3 +314,54 @@ def test_analizuj_rytm_nie_zmienia_globalnych_filtrow_warnings(tmp_path):
     przed = list(warnings.filters)
     analyze.analizuj_rytm(wav)
     assert list(warnings.filters) == przed
+
+
+def test_wykryj_drop_na_skoku_glosnosci(tmp_path):
+    sciezka = tmp_path / "wzor.mp4"
+    wav = tmp_path / "klik.wav"
+    klik(wav, 120, 30.0, glosnosc=[(0, 0.15), (9, 1.0)])
+    ciecia = [float(k) for k in range(1, 30)]
+    wideo_z_cieciami(sciezka, ciecia, 30.0, dzwiek=wav)
+    wzor = analyze.analizuj_wzor(sciezka, "abc")
+    assert wzor["sekcje"] is not None
+    assert wzor["sekcje"]["drop_s"] == pytest.approx(9.0, abs=1 / 30 + 1e-6)
+    assert wzor["sekcje"]["drop_ujecie"] == 9
+
+
+def test_wykryj_drop_skok_w_drugiej_polowie_daje_brak(tmp_path):
+    sciezka = tmp_path / "wzor.mp4"
+    wav = tmp_path / "klik.wav"
+    klik(wav, 120, 30.0, glosnosc=[(0, 0.15), (22, 1.0)])
+    ciecia = [float(k) for k in range(1, 30)]
+    wideo_z_cieciami(sciezka, ciecia, 30.0, dzwiek=wav)
+    wzor = analyze.analizuj_wzor(sciezka, "abc")
+    assert wzor["sekcje"] is None
+
+
+def test_wykryj_drop_stala_glosnosc_daje_brak(tmp_path):
+    sciezka = tmp_path / "wzor.mp4"
+    wav = tmp_path / "klik.wav"
+    klik(wav, 120, 30.0)
+    ciecia = [float(k) for k in range(1, 30)]
+    wideo_z_cieciami(sciezka, ciecia, 30.0, dzwiek=wav)
+    wzor = analyze.analizuj_wzor(sciezka, "abc")
+    assert wzor["sekcje"] is None
+
+
+def test_wykryj_drop_bez_dzwieku_daje_brak(tmp_path):
+    sciezka = tmp_path / "wzor.mp4"
+    wideo_z_cieciami(sciezka, [1.0], 2.0)
+    wzor = analyze.analizuj_wzor(sciezka, "abc")
+    assert wzor["sekcje"] is None
+
+
+def test_wykryj_drop_przyciaga_do_najblizszego_ciecia(tmp_path):
+    sciezka = tmp_path / "wzor.mp4"
+    wav = tmp_path / "klik.wav"
+    klik(wav, 150, 30.0, glosnosc=[(0, 0.15), (8.9, 1.0)])
+    ciecia = [float(k) for k in range(1, 30)]
+    wideo_z_cieciami(sciezka, ciecia, 30.0, dzwiek=wav)
+    wzor = analyze.analizuj_wzor(sciezka, "abc")
+    assert wzor["sekcje"] is not None
+    assert wzor["sekcje"]["drop_s"] == pytest.approx(9.0, abs=1 / 30 + 1e-6)
+    assert wzor["sekcje"]["drop_ujecie"] == 9
