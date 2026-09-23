@@ -78,10 +78,10 @@ def melodia(
     sygnal = np.zeros(liczba_probek, dtype=np.float32)
     dlugosc_klika = int(0.03 * sr)
     tk = np.arange(dlugosc_klika) / sr
-    tlo = np.random.default_rng(0).uniform(-1.0, 1.0, dlugosc_klika)
+    generator = np.random.default_rng(ziarno)
+    tlo = generator.uniform(-1.0, 1.0, dlugosc_klika)
     ziarno_klika = (0.7 * np.cos(2 * np.pi * 1500 * tk) + 0.3 * tlo) * np.exp(-tk / 0.006)
     odstep = 60.0 / bpm
-    generator = np.random.default_rng(ziarno)
     dlugosc_tonu = max(1, int(round(0.5 * odstep * sr)))
     tt = np.arange(dlugosc_tonu) / sr
     obwiednia_tonu = np.exp(-tt / max(1e-6, 0.5 * odstep * 0.3))
