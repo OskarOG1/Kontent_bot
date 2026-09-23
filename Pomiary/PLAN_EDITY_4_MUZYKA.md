@@ -1,125 +1,333 @@
-# Część 4: biblioteka muzyki i dobór po tempie
+# Część 4: dźwięk wzoru i biblioteka muzyki
 
-**Zależy od:** części 3 (commit `bot: montaż po /gotowe`).
-**Efekt:** render sam wybiera z `dane/muzyka/` utwór o tempie najbliższym wzorowi (z uwzględnieniem oktawy) i jego najmocniejszy fragment; licencja nie jest warunkiem doboru (edity trafiają na TikTok, decyzja właściciela 2026-09-22, `PLAN_EDITY_0_MAPA.md` decyzja 6). Gdy utwór ma wpis w `licencje.csv`, podpis wiadomości z wynikiem dostaje dane licencji do wklejenia pod postem; bez wpisu podpis pomija tę linię.
-**Nowe pliki:** `src/music.py`, `tests/test_muzyka.py`, `Pomiary/measure_muzyka.py`.
-**Zmieniane:** `src/render.py` (utwór opcjonalny), `src/analyze.py` (parametr `start_bpm` w `analizuj_rytm`), `src/bot.py`, `src/komunikaty.py`, `tests/generuj.py` (głośność kliku), `tests/test_render.py`, `tests/test_bot.py`.
-**Od właściciela:** 5 do 15 utworów w `dane/muzyka/`; `dane/muzyka/licencje.csv` opcjonalny, tylko dla utworów, które mają dostać podpis z tytułem i autorem.
-**Gałąź:** `muzyka` od `main` po scaleniu części 3.
+**Zależy od:** części 3 z naprawą 3.7 (`main` po PR #5, commit `e16c604` `render: dźwięk przycinany na wejściu i wymuszona długość wyniku`).
+**Gałąź:** `muzyka` od `main`.
+**Efekt:** render sam wybiera utwór z `dane/muzyka/`. Gdy biblioteka ma utwór, który gra we wzorze, render rozpoznaje go po odcisku dźwięku i montuje na tym samym fragmencie: cięcia wypadają w tych samych momentach utworu co we wzorze, więc drop wzoru trafia w drop utworu. Gdy takiego utworu nie ma, render wybiera utwór o najbliższym tempie (z uwzględnieniem oktawy) i fragment, którego przebieg głośności najlepiej pasuje do wzoru. Podpis wyniku mówi, jaki to utwór i od której sekundy.
+**Dlaczego tak (przegląd 2026-09-23, `ROZWOJ.md`):** `0915` to „Hot N Cold (Hardstyle)” od 40,36 s, a `0922` to „Ex's And Oh's (Hardstyle)” od 23,29 s (korelacja chromy 0,78 i 0,81, inne pary najwyżej 0,12). `0921` nie ma utworu w bibliotece. Reguła „najmocniejszy fragment” z poprzedniej wersji planu chybiała: w `0915` o 3 uderzenia, a w `0922` okno wzoru było dopiero 158. z 347. Z kolei `start_bpm=120` dawał dla „Ex's And Oh's” 88,3 zamiast 175,2 BPM. Dzisiejszy render bierze najwcześniejsze uderzenie, więc edit do `0915` idzie na intro utworu, a wzór leży od 40 s.
+**Nowe pliki:** `src/music.py`, `tests/test_muzyka.py`, `Pomiary/measure_muzyka.py`, `Pomiary/arkusz.py`.
+**Zmieniane:** `src/analyze.py`, `tests/test_analiza.py`, `tests/generuj.py`, `src/render.py`, `tests/test_render.py`, `src/bot.py`, `src/komunikaty.py`, `tests/test_bot.py`.
+**Od właściciela:**
+- przed startem `git pull` na `main`, bo lokalny `main` bywa za `origin/main`;
+- w `dane/muzyka/` dźwięki wzorów, które mają być obsłużone: najlepiej pełne utwory w tej samej wersji i tempie co na TikToku. Nazwy plików bez dopisku „ (1)”, bo nazwa trafia do podpisu. Ta sama zawartość na serwerze (`scp -r dane/muzyka root@<adres>:/opt/edity-bot/dane/`, właściciel plików UID 1000);
+- przykładowe zdjęcia i klipy w `dane/probki/materialy/` (np. dzisiejsze `dane/zdjęcia/` i `dane/gify/`), potrzebne do arkuszy porównawczych.
+
+**Poza zakresem:**
+- `licencje.csv` i dane licencji w podpisie (odłożone, decyzja 6 w mapie);
+- dźwięk przyspieszony („sped up”) albo w innej tonacji niż plik w bibliotece: odcisk wtedy nie pasuje i działa dobór po tempie.
 
 Prompt startowy (cała część w jednej sesji):
 ```text
-Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania z Pomiary/PLAN_EDITY_4_MUZYKA.md, zaczynając od „Stan wejściowy”. Na starcie przeczytaj Pomiary/ROZWOJ.md i dopisuj do niego po każdym zadaniu. Otwieraj tylko pliki wymienione w zadaniu. Po każdym zadaniu uruchom jego weryfikację i zrób commit o nazwie z sekcji „Commity”. Na koniec uruchom pomiar i zdaj krótki raport.
+Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania z Pomiary/PLAN_EDITY_4_MUZYKA.md, zaczynając od „Stan wejściowy”. Na starcie przeczytaj Pomiary/ROZWOJ.md i dopisuj do niego po każdym zadaniu. Otwieraj tylko pliki wymienione w zadaniu. Po każdym zadaniu uruchom jego weryfikację i zrób commit o nazwie podanej w zadaniu. Na koniec uruchom pomiar i zdaj krótki raport.
 ```
 
 ## WSPÓLNE (ten sam blok w każdej części)
-- Plan pisany 2026-09-21, poprawiony 2026-09-22 po wykonaniu części 1 i 2. Kotwice `plik:linia` pochodzą z commita `0e84cba` i mogą się przesunąć: wtedy szukaj po nazwie funkcji. Jeżeli nazwy lub kontrakty nie zgadzają się z tym, co zastaniesz, zatrzymaj się i zapytaj zamiast zgadywać. Otwieraj tylko pliki wymienione w zadaniu oraz `Pomiary/ROZWOJ.md`, nie przeszukuj repo ani dysku.
-- Po co: bot na Telegramie montuje edit wideo 9:16 z materiałów właściciela według struktury wzorcowego editu (cięcia na uderzeniach, tempo, kolorystyka, sposób podania tekstu), z muzyką z biblioteki właściciela w `dane/muzyka/` (licencja nie jest warunkiem, decyzja 6 w mapie). Z wzoru bierzemy tylko strukturę i styl: jego obraz ani dźwięk nigdy nie trafiają do wyniku.
-- Środowisko: lokalnie Windows 11, Python 3.13 w `venv` repo (`venv/Scripts/python.exe`, zależności przypięte w `requirements.txt`), ffmpeg i ffprobe 8.1 w PATH, brak Dockera. Serwer: Docker (obraz Debian) na Ubuntu 22.04. Ścieżki przez pathlib, procesy jako lista argumentów, bez powłoki.
+- Plan pisany 2026-09-21, przepisany 2026-09-23 po przeglądzie prawdziwych wzorów (`ROZWOJ.md`, wpisy „przegląd planów 4 do 6” i „przepisanie planów 4 do 9”). Kotwice `plik:linia` pochodzą z commita `57ba8fe` (stan po części 3 i zadaniu 3.7). Po wcześniejszych częściach mogą się przesunąć: wtedy szukaj po nazwie funkcji. Jeżeli nazwy lub kontrakty nie zgadzają się z tym, co zastaniesz, zatrzymaj się i zapytaj zamiast zgadywać. Otwieraj tylko pliki wymienione w zadaniu oraz `Pomiary/ROZWOJ.md`, nie przeszukuj repo ani dysku.
+- Po co: bot na Telegramie montuje edity wideo 9:16 na TikToka z dostarczonych materiałów. Wzorem jest gotowy edit: bot odtwarza jego strukturę i styl, a muzykę bierze z biblioteki właściciela w `dane/muzyka/`. Z wzoru bierzemy tylko strukturę i styl: jego obraz ani dźwięk nigdy nie trafiają do wyniku.
+  - Prawdziwe wzory (`0915`, `0921`, `0922`) mają ten sam format: hak (pierwsze 4 do 11 s, naturalne kolory, napis), drop (od niego pełnoekranowa nakładka graficzna i mocny grading), montaż i plansza końcowa około 1 s (mapa, decyzja 15).
+  - Biblioteka muzyki to dźwięki samych wzorów (decyzja 14).
+- Środowisko:
+  - lokalnie: Windows 11, Python 3.13 w `venv` repo (`venv/Scripts/python.exe`, zależności przypięte w `requirements.txt`), ffmpeg i ffprobe 8.1 w PATH, brak Dockera;
+  - serwer: Docker (obraz Debian, ffmpeg 7.1) na Ubuntu 24.04, bot z limitem 2 CPU i 3 GB;
+  - ścieżki przez pathlib, procesy jako lista argumentów, bez powłoki.
 - Reguły repo:
-  1. Każda zmiana ma pomiar w `Pomiary/measure_<temat>.py`, tylko tam wolno pisać komentarze. Skrypt zaczyna od `sys.stdout.reconfigure(encoding='utf-8', errors='replace')` i zapisuje wyniki do `outputs/` po każdej sekcji.
+  1. Każda zmiana ma pomiar w `Pomiary/measure_<temat>.py`. Tylko tam i w `Pomiary/arkusz.py` wolno pisać komentarze. Skrypt zaczyna od `sys.stdout.reconfigure(encoding='utf-8', errors='replace')` i zapisuje wyniki do `outputs/` po każdej sekcji.
   2. Zero komentarzy i docstringów w `src/` i `tests/`.
-  3. Nazwy funkcji bez `_` na początku, nazewnictwo po polsku (moduły `bot`, `analyze`, `music`, `render` zachowują nazwy z KONTEKST).
+  3. Nazwy funkcji bez `_` na początku, nazewnictwo po polsku (moduły `bot`, `analyze`, `music`, `render` zachowują swoje nazwy).
   4. Komunikaty bota, README i commity bez myślników i półpauz wewnątrz zdań.
-  5. Commity bez wzmianek o AI i bez Co-Authored-By. Każda część na własnej gałęzi (nazwa w nagłówku). Zdalne repo `origin` na GitHubie: push tylko na prośbę właściciela, a przed nim sprawdź, że `.env`, `dane/`, `outputs/` i `Pomiary/` nie są w indeksie. Na serwer kod trafia przez `wdroz.ps1`, nie przez GitHub.
+  5. Commity i gałęzie:
+     - commity bez wzmianek o AI i bez Co-Authored-By;
+     - każda część na własnej gałęzi (nazwa w nagłówku) od aktualnego `main` (przed startem `git pull`);
+     - zdalne repo `origin` na GitHubie: push tylko na prośbę właściciela, a przed nim sprawdź, że `.env`, `dane/` i `outputs/` nie są w indeksie;
+     - `Pomiary/` jest w repozytorium (decyzja właściciela 2026-09-23): zmiany planów, pomiarów i dziennika commituj razem z zadaniem;
+     - na serwer kod trafia przez `wdroz.ps1`, nie przez GitHub.
   6. Każde wywołanie ffmpeg i ffprobe z zamkniętym stdin (`-nostdin` albo `stdin=DEVNULL`), inaczej proces potomny potrafi zawisnąć.
-- Testy: `python -m pytest -q` z katalogu głównego, cały zestaw poniżej 60 s. Media testowe generowane w locie w małej rozdzielczości (270x480), nigdy z `dane/`.
+- Testy: `python -m pytest -q` z katalogu głównego. Czas całego zestawu podaj w raporcie, ale nie jest progiem (decyzja właściciela 2026-09-23): nie skracaj testów kosztem tego, co sprawdzają. Media testowe generowane w locie w małej rozdzielczości (270x480), nigdy z `dane/`.
+- Arkusz porównawczy (decyzja 17): pomiar każdej części kończy się arkuszem `outputs/porownanie_<czesc>_<wzor>.png` z `Pomiary/arkusz.py` (powstaje w zadaniu 4.4).
+  - Arkusz powstaje dla każdego wzoru z `dane/probki/wzory/`, na materiałach z `dane/probki/materialy/`; gdy ich brak, na barwnych zdjęciach z generatora.
+  - Oceniający wydaje werdykt na arkuszu, a progi liczbowe są dodatkiem.
+  - Wzór ogląda się tylko w `outputs/`, nic z niego nie trafia do wyniku bota.
 - Dziennik `Pomiary/ROZWOJ.md`: przeczytaj na starcie (stan, znane problemy, decyzje), dopisuj wpis po każdym zadaniu, decyzji i odkryciu, bez tokenu i wartości z `.env`.
 - Raport na koniec sesji: wniosek, liczby z pomiaru, problemy. Bez opisu drogi.
 
 ## Stan wejściowy
-`main` zawiera commit `bot: montaż po /gotowe` (część 3 po odbiorze i scaleniu), a `python -m pytest -q` przechodzi. Utwórz gałąź `muzyka` od `main`. Inaczej zatrzymaj się i zapytaj.
+`main` zawiera commit `e16c604`, a `python -m pytest -q` przechodzi w całości (liczbę testów zanotuj w `ROZWOJ.md` jako punkt wyjścia). `git diff --stat 57ba8fe -- src/ tests/` pokazuje, czy kotwice niżej są aktualne. Utwórz gałąź `muzyka` od `main`. Inaczej zatrzymaj się i zapytaj.
 
-## Kontrakt z części 2 i 3 (streszczenie)
-- `analyze.analizuj_rytm(sciezka) -> (tempo_bpm | None, uderzenia_s)` (analyze.py:123 w `0e84cba`): dekoduje przez `analyze.zdekoduj_do_wav(sciezka, cel)` (112) do WAV mono 22050 Hz (`CZESTOTLIWOSC_ANALIZY`), liczy uderzenia ze stałą `START_BPM = 150.0` (dobraną pod szybkie wzory, patrz `ROZWOJ.md`) i doprecyzowuje je na obwiedni (`doprecyzuj_uderzenia`). `analyze.czas_z_pozycji(p, uderzenia)`.
-- `wzor.json`: `tempo_bpm`, `ciecia_uderzenia` (pierwsza pozycja `c_0` bywa ujemna), `koniec_uderzenia`, `zrodlo.czas_s`; pola rytmu bywają puste.
-- `render.plan_ujec(wzor, uderzenia_utworu, materialy, fps, start_uderzenie=None)`; `render.renderuj(...)` i CLI z wymaganym dziś `--utwor`; podsumowanie JSON ma pole `utwor` z `plik` i `start_s`.
-- Bot przekazuje dziś `--utwor dane/muzyka/staly.mp3` i odmawia montażu bez tego pliku.
+## Kontrakt z części 2 i 3 (stan z `57ba8fe`)
+- `src/analyze.py`:
+  - `START_BPM = 150.0` (19), `WERSJA_WZORU = 1` (13);
+  - `zdekoduj_do_wav(sciezka, cel)` (112) dekoduje do WAV mono 22050 Hz (`CZESTOTLIWOSC_ANALIZY`);
+  - `analizuj_rytm(sciezka) -> (tempo_bpm | None, uderzenia_s)` (123) woła `warnings.filterwarnings("ignore")` dla całego procesu, potem `beat_track` z krokiem 128 i `doprecyzuj_uderzenia` (150);
+  - `czas_z_pozycji` (193) ekstrapoluje medianą odstępu;
+  - `analizuj_wzor(sciezka, wzor_id)` (215) zwraca `wersja`, `id`, `zrodlo`, `ciecia_s`, `tempo_bpm`, `uderzenia_s`, `ciecia_uderzenia`, `koniec_uderzenia`, `kolorystyka: null`, `tekst: null`;
+  - `zapisz_json` (247) zapisuje atomowo;
+  - `main(argv)` (255) przyjmuje dokładnie `<wejscie> <wyjscie.json>` i tak woła go bot (`analizuj_wzor_w_tle`, bot.py:332).
+- `src/render.py`:
+  - `plan_ujec(wzor, uderzenia_utworu, materialy, fps, start_uderzenie=None)` (176) ma gałąź z uderzeniami (183 do 188) i gałąź bez rytmu z `ciecia_s` (189 i 190);
+  - `znajdz_start_uderzenia` (129) bierze najwcześniejsze uderzenie;
+  - `renderuj(wzor_json, katalog_projektu, utwor, wyjscie, ...)` (300) woła `analyze.analizuj_rytm(utwor)` (342) i liczy `dlugosc_wstawki_s` z planu wstępnego (344 do 347), a podsumowanie ma `utwor: {plik, start_s}` (379);
+  - `przebieg_koncowy` (244) przycina utwór opcjami wejścia `-ss` i `-t` (261);
+  - CLI `glowna` (390) wymaga `--utwor`.
+- `src/bot.py`:
+  - `renderuj_w_tle` (153) przekazuje `--utwor`;
+  - `obsluz_cmd_gotowe` (211) odmawia bez `dane/muzyka/staly.mp3` (241 do 244, `komunikaty.BRAK_UTWORU`);
+  - `obsluz_cmd_status` (283).
+- `src/komunikaty.py`: `podsumowanie_renderu` (95), `status_kolejki` (108), `BRAK_UTWORU` (37).
+- `tests/generuj.py`:
+  - `klik(sciezka_wav, bpm, czas_s, pierwsze_uderzenie_s=0.0, sr=22050)` (25);
+  - `wideo_z_cieciami(sciezka, ciecia_s, czas_s, fps=30, rozmiar=(270, 480), bpm=None, pierwsze_uderzenie_s=0.0, blyski_s=())` (62): dźwięk tylko jako klik przy podanym `bpm`.
 
 ## Kontrakty ustalane w tej części
 
-**`dane/muzyka/licencje.csv`** (opcjonalny, tylko dla podpisu): nagłówek `plik;tytul;autor;zrodlo;licencja;podpis`. Separator `;` albo `,` (wykrywany), UTF-8 z BOM albo bez, bo plik będzie edytowany w Excelu. `podpis` to gotowy tekst pod post, może być pusty. Brak pliku albo brak wpisu dla utworu nie wyklucza go z doboru, tylko pomija dane licencji w podpisie.
-
-**`dane/muzyka/indeks.json`**
+**`analyze.analizuj_dzwiek(sciezka) -> dict | None`**: dekoduje jeden raz przez `zdekoduj_do_wav` i z jednego sygnału liczy wszystko:
 ```json
-{"wersja": 1, "utwory": [{"plik": "epic_01.mp3", "rozmiar": 4812345, "zmieniony": 1758450000.0,
-  "czas_s": 142.3, "tempo_bpm": 128.1, "uderzenia_s": [0.42, 0.89], "energia_uderzen": [0.071]}]}
+{"czas_s": 151.8, "tempo_bpm": 164.1, "uderzenia_s": [1.46, 1.83],
+ "energia_uderzen": [0.071],
+ "odcisk": {"krok_chroma_s": 0.09288, "chroma": [[0.12, 0.0, 0.4, 0.1, 0.0, 0.0, 0.9, 1.0, 0.2, 0.0, 0.1, 0.3]],
+            "krok_obwiedni_s": 0.01161, "obwiednia": [0.3, 0.5]}}
 ```
-`energia_uderzen[i]` to RMS dźwięku między uderzeniem i oraz i+1, więc lista jest o jeden krótsza od `uderzenia_s`. Liczona z tego samego WAV co uderzenia (`analyze.zdekoduj_do_wav`). Dane licencji nie trafiają do indeksu, czyta się je przy każdym doborze, więc poprawka w CSV działa od razu.
+- Zwraca `None`, gdy pliku nie da się zdekodować jako dźwięk albo sygnał jest krótszy niż 1 s.
+- Tempo i uderzenia liczone jak dziś w `analizuj_rytm`, z `START_BPM = 150` dla wszystkiego, wzorów i utworów (decyzja 11), bez parametru `start_bpm`. Gdy tracker nic nie znajdzie, `tempo_bpm` to `null`, a `uderzenia_s` i `energia_uderzen` to `[]`; odcisk powstaje mimo to.
+- `energia_uderzen[i]` to RMS sygnału między uderzeniem i oraz i+1, więc lista jest o jeden krótsza od `uderzenia_s`.
+- `odcisk.chroma` to `librosa.feature.chroma_stft` z `hop_length=2048`, czyli krok 2048/22050 s: jeden wiersz 12 wartości na ramkę, zaokrąglone do 4 miejsc.
+- `odcisk.obwiednia` to `librosa.onset.onset_strength` z `hop_length=256`, zaokrąglona do 4 miejsc.
+- Wszystkie liczby to `float` Pythona.
+- `analizuj_rytm(sciezka)` zostaje z tą samą sygnaturą i wynikiem, ale jako nakładka na `analizuj_dzwiek`. Dotychczasowe testy analizy przechodzą bez zmian.
+- Ostrzeżenia librosy wyciszane tylko w bloku `warnings.catch_warnings()` wokół jej wywołań, nie w całym procesie (znany problem 0e).
 
-**Funkcje:**
-- `analyze.analizuj_rytm(sciezka, start_bpm: float = START_BPM)`: nowy parametr opcjonalny; wywołania bez niego działają jak dotąd, więc wzory zostają przy 150. Indeks muzyki liczy tempo z `start_bpm=120`, bo utwory nie muszą być szybkie, a 150 przyciąga pomyłki 3:2; pomiar B pokaże, czy to słuszne.
-- `music.indeksuj(katalog: Path) -> dict`: analizuje nowe i zmienione pliki (inny rozmiar albo czas modyfikacji), usuwa wpisy plików skasowanych, zapisuje indeks atomowo. Przyjmuje mp3, wav, m4a, ogg, flac oraz mp4 (ścieżka dźwiękowa z wideo, np. dźwięk zapisany z TikToka jak `MR.mp4`, który już leży w bibliotece). Plik bez ścieżki dźwiękowej pomija z ostrzeżeniem w logu, a reszta indeksu powstaje normalnie (test: katalog z mp4 bez dźwięku i jednym klikiem mp3 daje indeks z samym klikiem).
-- `music.wczytaj_licencje(katalog: Path) -> dict[str, dict]`, klucz to nazwa pliku.
-- `music.wybierz_utwor(wzor: dict, indeks: dict, licencje: dict) -> dict`:
+**`wzor.json` w wersji 2** (`WERSJA_WZORU = 2`):
+- dochodzą `energia_uderzen` (dla uderzeń wzoru, `null` bez rytmu) i `odcisk_dzwieku` (pole `odcisk` z `analizuj_dzwiek`, `null` bez dźwięku);
+- `analizuj_wzor` wywołuje `analizuj_dzwiek` jeden raz, zamiast `analizuj_rytm`;
+- plik rośnie do około 200 KB i to jest w porządku;
+- render dalej czyta z katalogu wzoru wyłącznie `wzor.json`. Odcisk to dane wyliczone, a nie dźwięk: nie da się z niego odtworzyć dźwięku wzoru.
+
+**CLI `python src/analyze.py --wszystkie [--katalog-danych dane]`**:
+- dla każdego katalogu `<katalog-danych>/wzory/<id>/` z plikiem `zrodlo.*` analizuje wzór od nowa i nadpisuje `wzor.json` (to samo `id`);
+- katalog bez `zrodlo.*` pomija z linią w logu;
+- na koniec drukuje liczby przeliczonych, pominiętych i błędów;
+- kod 0, gdy nie było błędów;
+- wywołanie z dwoma argumentami (bot) działa bez zmian;
+- na serwerze uruchamiane po wdrożeniu każdej części, która zmienia `wzor.json`: `docker compose exec bot python src/analyze.py --wszystkie` (około minuty na wzór 4K).
+
+**`dane/muzyka/indeks.json`** (wersja 2; wcześniejszego formatu nie ma, więc bez migracji):
 ```json
-{"plik": "epic_01.mp3", "mnoznik": 2.0, "uderzenia_s": [0.42, 0.655, 0.89], "start_uderzenie": 17, "odleglosc_bpm": 0.8,
- "licencja": {"tytul": "Epic 01", "autor": "Autor", "licencja": "CC BY 4.0", "podpis": "Muzyka: ..."}}
+{"wersja": 2, "utwory": [{"plik": "Hot N Cold (Hardstyle).mp3", "rozmiar": 5374087, "zmieniony": 1758650000.0,
+  "czas_s": 151.8, "tempo_bpm": 164.1, "uderzenia_s": [1.46], "energia_uderzen": [], "odcisk": {"krok_chroma_s": 0.09288}}]}
 ```
-Pole `licencja` jest `null`, gdy utwór nie ma wpisu w `licencje.csv` (brak pliku CSV liczy się jak brak wpisu dla każdego utworu).
+Wpis to wynik `analizuj_dzwiek` plus `plik`, `rozmiar` i `zmieniony` (czas modyfikacji). Indeks ma około 300 KB na utwór, więc przy 15 utworach kilka MB, a wczytanie trwa poniżej sekundy.
 
-Zasady:
-  - Kandydat ma znane tempo i mieści całe okno wzoru na siatce uderzeń bez ekstrapolacji na końcu. Wpis w `licencje.csv` nie jest warunkiem.
-  - Odległość tempa `b` od tempa wzoru `T` to minimum z `|b − T|`, `|2b − T|`, `|b/2 − T|`. Mnożnik 2 zagęszcza siatkę (środki między uderzeniami; energia połówki równa energii uderzenia), mnożnik 0,5 bierze co drugie uderzenie od indeksu 0. `uderzenia_s` w wyniku są już po tej korekcie i idą prosto do `plan_ujec`.
-  - `start_uderzenie`: s z najwyższą średnią energią uderzeń w oknie od `s + c_0` do `s + koniec_uderzenia`, przy warunku nieujemnego `czas_z_pozycji(s + c_0)`. Remis: najmniejsze s.
-  - Remis odległości: pierwszy alfabetycznie. Wzór bez tempa: pierwszy alfabetycznie kandydat nie krótszy niż wzór, mnożnik 1, `start_uderzenie` puste.
-  - Brak kandydata: `ValueError` z liczbą odrzuconych z każdego powodu (brak tempa, za krótki).
-- CLI: `python src/music.py indeksuj [--katalog dane/muzyka]` drukuje tabelę (plik, czas, tempo, licencja tak albo nie) i liczbę przeanalizowanych plików; `python src/music.py wybierz --wzor <wzor.json> [--katalog ...]` drukuje wybór.
-- Render: `--utwor` staje się opcjonalny; bez niego render wywołuje `indeksuj` i `wybierz_utwor` dla katalogu z nowego parametru `--muzyka`. Pole `utwor` podsumowania dostaje `tytul`, `autor`, `licencja`, `podpis`, `tempo_bpm`, `mnoznik`, `start_s`.
+**`src/music.py`**:
+- `ROZSZERZENIA_MUZYKI = {"mp3", "wav", "m4a", "ogg", "flac", "mp4"}`.
+- `pliki_muzyki(katalog) -> list[Path]`: pliki z tymi rozszerzeniami, posortowane po nazwie, bez `indeks.json`.
+- `indeksuj(katalog) -> tuple[dict, int]` zwraca indeks i liczbę przeanalizowanych plików:
+  - analizuje nowe i zmienione pliki (inny rozmiar albo czas modyfikacji);
+  - usuwa wpisy plików skasowanych;
+  - plik bez dźwięku (np. mp4 bez ścieżki audio, `analizuj_dzwiek` daje `None`) pomija z ostrzeżeniem w logu, a reszta indeksu powstaje normalnie;
+  - zapisuje przez `analyze.zapisz_json`.
+- `dopasuj_odcisk(odcisk_wzoru, odcisk_utworu) -> tuple[float, float] | None` zwraca `(zgodnosc, przesuniecie_s)`, a `None`, gdy wzór jest dłuższy niż utwór:
+  - zgrubnie: dla każdego przesunięcia `o` (w ramkach chromy) od 0 do `len(chroma_utworu) − len(chroma_wzoru)` liczy współczynnik korelacji Pearsona między chromą wzoru a oknem utworu. Obie tablice przed porównaniem są normalizowane: od każdego z 12 pasm odejmuje się jego średnią w obrębie okna, całość dzieli przez odchylenie, a potem się ją spłaszcza. Wygrywa najlepsze `o`, a przy remisie najmniejsze;
+  - dokładnie: w oknie ±0,2 s wokół wyniku zgrubnego liczy Pearsona obwiedni wzoru i utworu po przesunięciach co jedną ramkę obwiedni. `przesuniecie_s` to najlepsze z nich, a `zgodnosc` to wartość zgrubna (z chromy);
+  - obie liczby zaokrąglone do 3 miejsc.
+- `PROG_ZGODNOSCI = 0.5`: na prawdziwych danych pary pasujące mają 0,78 i 0,81, a niepasujące najwyżej 0,12.
+- `wybierz_utwor(wzor, indeks) -> dict`:
+```json
+{"plik": "Hot N Cold (Hardstyle).mp3", "tryb": "dzwiek_wzoru", "zgodnosc": 0.78, "przesuniecie_s": 40.36,
+ "tempo_bpm": 164.1, "mnoznik": 1.0, "uderzenia_s": [1.46], "start_uderzenie": null, "odleglosc_bpm": 0.0}
+```
+  Zasady po kolei:
+  1. `dzwiek_wzoru`:
+     - dotyczy wzoru z `odcisk_dzwieku`: dla każdego utworu liczy `dopasuj_odcisk`;
+     - najwyższa zgodność co najmniej `PROG_ZGODNOSCI` wygrywa, a przy remisie pierwszy alfabetycznie;
+     - wynik ma `przesuniecie_s`, `uderzenia_s` utworu bez zmian (tylko do raportu), `start_uderzenie: null` i `mnoznik: 1.0`;
+     - `odleglosc_bpm` liczona jak w trybie tempa, gdy oba tempa są znane, inaczej `null`.
+  2. `tempo`: gdy wzór ma `tempo_bpm` i `ciecia_uderzenia`, a żaden utwór nie przeszedł progu zgodności (albo wzór nie ma odcisku).
+     - Warunki kandydata: ma znane tempo i mieści całe okno wzoru na swojej siatce uderzeń. Musi istnieć całkowite `s`, dla którego `czas_z_pozycji(s + c_0)` jest nieujemny, a `s + koniec_uderzenia` nie przekracza ostatniego indeksu uderzeń, więc na końcu nie ma ekstrapolacji.
+     - Odległość: odległość tempa `b` od tempa wzoru `T` to minimum z `|b − T|`, `|2b − T|` i `|b/2 − T|`.
+     - Mnożnik 2 zagęszcza siatkę: dodaje środki między uderzeniami, a energia połówki jest równa energii uderzenia. Mnożnik 0,5 bierze co drugie uderzenie od indeksu 0, a energia to średnia dwóch.
+     - `uderzenia_s` w wyniku są już po tej korekcie i idą prosto do `plan_ujec`.
+     - Wybór: wygrywa najmniejsza odległość, a przy remisie pierwszy alfabetycznie.
+     - `start_uderzenie`: dopuszczalne `s`, dla którego profil energii utworu na uderzeniach `s + j` najlepiej koreluje (Pearson) z profilem energii wzoru na uderzeniach `j`. Liczą się wszystkie `j` z okna wzoru (od `floor(c_0)` do `ceil(koniec_uderzenia) − 1`), które mają energię po obu stronach. Przy remisie albo stałym profilu wygrywa najmniejsze `s`. Dzięki temu cichy hak wzoru trafia w cichy fragment utworu, a drop w drop, zamiast brać po prostu najgłośniejsze okno.
+  3. `bez_rytmu`: wzór bez tempa i bez pasującego odcisku dostaje pierwszy alfabetycznie utwór nie krótszy niż wzór, z `mnoznik: 1.0`, `start_uderzenie: null` i `przesuniecie_s: 0.0`.
+  4. Brak kandydata: `ValueError` z liczbą odrzuconych z każdego powodu, np. „Brak pasującego utworu: bez tempa 1, za krótkie 2”.
+
+  Wynik jest deterministyczny: dwa wywołania na tych samych danych dają identyczny słownik.
+- CLI:
+  - `python src/music.py indeksuj [--katalog dane/muzyka]` drukuje tabelę (plik, czas, tempo, liczba uderzeń) i liczbę przeanalizowanych plików;
+  - `python src/music.py wybierz --wzor <wzor.json> [--katalog dane/muzyka]` drukuje wybór (`uderzenia_s` jako liczbę elementów) i zgodność wzoru z każdym utworem.
+
+**`render.plan_ujec(wzor, uderzenia_utworu, materialy, fps, start_uderzenie=None, przesuniecie_s=None)`**:
+- Nowy parametr `przesuniecie_s`: gdy nie jest `None`, cięcia to `ciecia_s` wzoru, a koniec to `zrodlo.czas_s`. `start_audio_s = przesuniecie_s`, więc edit ma dokładnie długość i czasy cięć wzoru, a dźwięk leci od tego miejsca utworu. W przeciwnym razie zachowanie jak dziś.
+- Każde ujęcie dostaje pole `numer_wzoru`: indeks cięcia wzoru, od którego się zaczyna (0 dla pierwszego). Ujęcia o 0 klatkach wypadają jak dziś, więc `numer_wzoru` może przeskoczyć. Części 8 i 5 mapują po nim sekcje i kolor.
+
+**Render**: `renderuj(wzor_json, katalog_projektu, utwor: Path | None, wyjscie, szerokosc=1080, wysokosc=1920, fps=30, limit_mb=50, muzyka: Path | None = None)`:
+- `utwor` podany: zachowanie jak dziś (`analizuj_rytm`, `plan_ujec` po uderzeniach od najwcześniejszego uderzenia), tryb `staly`. Z tej ścieżki korzysta `Pomiary/measure_render.py`.
+- `utwor` pusty, a `muzyka` podana:
+  - najpierw `music.indeksuj(muzyka)` i `music.wybierz_utwor(wzor, indeks)`;
+  - potem `plan_ujec`: z `przesuniecie_s` w trybie `dzwiek_wzoru`, z `uderzenia_s` i `start_uderzenie` wyboru w trybie `tempo`, a bez rytmu w trybie `bez_rytmu`;
+  - dźwięk z `muzyka / wybor["plik"]`;
+  - plan wstępny do `dlugosc_wstawki_s` liczony tak samo jak plan właściwy.
+- Oba puste: błąd „Brak utworu i katalogu muzyki”.
+- Podsumowanie: `"utwor": {"plik": "...", "tryb": "dzwiek_wzoru" | "tempo" | "bez_rytmu" | "staly", "zgodnosc": 0.78 | null, "start_s": 40.36, "tempo_bpm": 164.1 | null, "mnoznik": 1.0}`.
+- CLI: `--utwor` opcjonalny, nowy `--muzyka`. Bez obu kod 1 i jedna linia na stderr.
+
+**Bot**:
+- `renderuj_w_tle` przekazuje `--muzyka <katalog_danych>/muzyka` zamiast `--utwor`.
+- `obsluz_cmd_gotowe` zamiast `staly.mp3` sprawdza, czy `music.pliki_muzyki` coś zwraca. Gdy nie, odpowiada `komunikaty.BRAK_MUZYKI` („Biblioteka muzyki jest pusta. Dodaj utwory do dane/muzyka.”) i nic nie trafia do kolejki. `BRAK_UTWORU` znika.
+- Podpis wyniku (`komunikaty.podsumowanie_renderu`) dostaje drugą linię z nazwą pliku bez rozszerzenia, zależnie od trybu:
+  - „Muzyka: Hot N Cold (Hardstyle), dźwięk wzoru od 40,4 s.”;
+  - „Muzyka: X, dobór po tempie 164,1 BPM, od 12,3 s.”;
+  - „Muzyka: X, od początku.”.
+- `/status` dostaje wiersz „Muzyka: N utworów.”, liczony przez `music.pliki_muzyki`, bez analizy.
+- Pierwszy montaż po dodaniu utworów buduje indeks (około 10 s na utwór w limicie 900 s). Na serwerze można go zbudować wcześniej: `docker compose exec bot python src/music.py indeksuj`.
+
+**`Pomiary/arkusz.py`** (decyzja 17): `arkusz_porownawczy(wzor: Path, wynik: Path, cel: Path, klatek_na_s: float = 2.0, kolumny: int = 16, komorka=(108, 192)) -> Path`:
+- N = `ceil(dłuższy czas × klatek_na_s)`;
+- z każdego pliku N klatek równo rozłożonych w jego czasie: jedno wywołanie ffmpeg na plik z filtrem `fps=N/<czas pliku>`, skalowanie do komórki, klatki rawvideo do numpy;
+- układ: wiersz wzoru, pod nim wiersz wyniku z tych samych ułamków długości, cienka jasna linia między parami;
+- dla 32 s przy 2 klatkach na sekundę daje to 4 pary wierszy po 16 komórek, 1728x1536 px;
+- używany przez pomiary części 4, 8, 5, 6 i 9.
 
 ## Zadania
 
-### [Task 4.1: Indeks i licencje]
-- **Objective:** `music.indeksuj`, `music.wczytaj_licencje`, CLI `indeksuj`, parametr głośności kliku w generatorze.
-- **Context/Inputs:** kontrakty powyżej; `src/analyze.py` (`zdekoduj_do_wav` i `analizuj_rytm`, do której dochodzi parametr `start_bpm`). Przy okazji: `warnings.filterwarnings("ignore")` na początku `analizuj_rytm` wycisza ostrzeżenia w całym procesie, także w testach; zawęź to do bloku `warnings.catch_warnings()` wokół wywołań librosy (`ROZWOJ.md`, „Znane problemy” 0e). Do `tests/generuj.py` dopisz opcjonalny parametr `klik(..., glosnosc=None)`: lista par (od sekundy, mnożnik amplitudy); domyślne zachowanie bez zmian.
-- **Constraints:** `analizuj_rytm` bez nowego parametru działa jak dotąd (dotychczasowe testy analizy bez zmian). Testy: CSV z BOM, średnikami i polskimi znakami czyta się poprawnie, wersja z przecinkami też; drugi `indeksuj` bez zmian w katalogu analizuje 0 plików, zmiana czasu modyfikacji jednego pliku daje 1; skasowany plik znika z indeksu; wszystkie liczby w indeksie to typy wbudowane.
+### [Task 4.1: Analiza dźwięku i odcisk]
+- **Objective:** `analyze.analizuj_dzwiek`, `wzor.json` w wersji 2, CLI `--wszystkie` i generator melodii.
+- **Context/Inputs:**
+  - kontrakty wyżej;
+  - `src/analyze.py`: `zdekoduj_do_wav` (112), `analizuj_rytm` (123), `doprecyzuj_uderzenia` (150), `analizuj_wzor` (215), `main` (255);
+  - `tests/generuj.py`: `klik` (25), `wideo_z_cieciami` (62);
+  - nowe w generatorze:
+    - `melodia(sciezka_wav, bpm, czas_s, ziarno=0, sr=22050, glosnosc=None) -> list[float]`: na każde uderzenie ton sinusoidalny o wysokości losowanej przez `numpy.random.default_rng(ziarno)` z 24 półtonów (dwie oktawy od 220 Hz), trwający pół uderzenia z obwiednią wykładniczą. Do tego klik na uderzeniu, żeby tracker znalazł tempo. `glosnosc` to lista par (od sekundy, mnożnik amplitudy), domyślnie stała. Funkcja zwraca czasy uderzeń;
+    - ten sam parametr `glosnosc=None` w `klik`, bez zmiany domyślnego zachowania;
+    - `wideo_z_cieciami(..., dzwiek: Path | None = None)`: gdy podany, plik WAV jest ścieżką dźwiękową zamiast kliku (`bpm` wtedy ignorowane).
+- **Constraints:** dotychczasowe testy analizy przechodzą bez zmian. Nowe testy w `tests/test_analiza.py`:
+  1. melodia 20 s: `odcisk.chroma` ma liczbę wierszy w granicy 2 od 20/0,09288, każdy po 12 wartości, a `obwiednia` w granicy 2 od 20/0,01161; wszystkie liczby to `float` Pythona;
+  2. `energia_uderzen` jest o jeden krótsza od `uderzenia_s`; melodia z `glosnosc=[(0, 0.1), (10, 1.0)]` ma średnią energię uderzeń po 10 s co najmniej 5 razy większą niż przed;
+  3. wideo bez dźwięku: `analizuj_dzwiek` daje `None`, a `analizuj_wzor` daje `odcisk_dzwieku: null` i `energia_uderzen: null`;
+  4. `analizuj_wzor` na wideo z melodią daje `wersja: 2` i oba nowe pola;
+  5. `--wszystkie` na katalogu danych z dwoma wzorami (jeden z `zrodlo.mp4`, drugi tylko z `wzor.json`): pierwszy przeliczony z tym samym `id` i `wersja: 2`, drugi nietknięty, kod 0;
+  6. `warnings.filters` po `analizuj_rytm` jest taki sam jak przed wywołaniem.
 - **Sonnet Prompt:**
 ```text
-Katalog: C:\Dev\edity-bot. Wykonaj zadanie 4.1 z Pomiary/PLAN_EDITY_4_MUZYKA.md; otwórz src/analyze.py i tests/generuj.py. Weryfikacja: python -m pytest -q tests/test_muzyka.py
+Katalog: C:\Dev\edity-bot. Wykonaj zadanie 4.1 z Pomiary/PLAN_EDITY_4_MUZYKA.md; otwórz src/analyze.py, tests/generuj.py, tests/test_analiza.py. Weryfikacja: python -m pytest -q tests/test_analiza.py
 ```
+- **Commit:** `analiza: odcisk dźwięku i energia uderzeń`
 
-### [Task 4.2: Dobór utworu]
-- **Objective:** `music.wybierz_utwor` i CLI `wybierz`.
-- **Context/Inputs:** zasady z kontraktu; `analyze.czas_z_pozycji`.
-- **Constraints:** testy: utwór 70 BPM przy wzorze 140 dostaje mnożnik 2, dwa razy więcej uderzeń (z dokładnością do 1) i odległość 0; utwór 128 przy wzorze 64 dostaje mnożnik 0,5; klik 60 s z mnożnikiem głośności 0,1 do 30 s i 1,0 dalej, wzór na 16 uderzeń: start wypada po 30 s; dwa utwory w tej samej odległości: wygrywa pierwszy alfabetycznie; brak kandydata: `ValueError` z powodami; dwa wywołania na tych samych danych dają identyczny wynik.
+### [Task 4.2: Biblioteka i rozpoznanie dźwięku wzoru]
+- **Objective:** `src/music.py` z `ROZSZERZENIA_MUZYKI`, `pliki_muzyki`, `indeksuj`, `dopasuj_odcisk`, `PROG_ZGODNOSCI`, `wybierz_utwor` i CLI.
+- **Context/Inputs:** kontrakty wyżej; `analyze.analizuj_dzwiek`, `analyze.czas_z_pozycji` (193), `analyze.zapisz_json` (247); generator z zadania 4.1.
+- **Constraints:** testy w `tests/test_muzyka.py`:
+  1. rozpoznanie:
+     - biblioteka: melodia A (ziarno 1) i melodia B (ziarno 2), obie 20 s przy 120 BPM;
+     - wzór: odcisk fragmentu A od 7,3 s długości 6 s (fragment wycięty z WAV w teście);
+     - oczekiwane: `wybierz_utwor` daje plik A, tryb `dzwiek_wzoru`, `przesuniecie_s` w granicy 0,015 s od 7,3 i zgodność co najmniej 0,8; zgodność z B poniżej 0,3;
+  2. fragment melodii C (ziarno 3, spoza biblioteki) ma zgodność poniżej progu z A i B, więc wybór przechodzi do trybu `tempo`;
+  3. wzór dłuższy niż utwór: `dopasuj_odcisk` daje `None`;
+  4. tryb tempa (wzory z `odcisk_dzwieku: null`):
+     - wzór 140 BPM, w bibliotece klik 70 BPM: mnożnik 2, dwa razy więcej uderzeń (z dokładnością do 1), odległość 0;
+     - klik 128 BPM przy wzorze 64 BPM: mnożnik 0,5;
+  5. profil energii zamiast najgłośniejszego okna:
+     - utwór: klik 60 s przy 120 BPM z `glosnosc=[(0, 0.1), (30, 1.0)]`;
+     - wzór: klik 16 s przy 120 BPM z `glosnosc=[(0, 0.1), (8, 1.0)]` i `odcisk_dzwieku: null`;
+     - oczekiwane: `czas_z_pozycji(start_uderzenie + c_0, uderzenia_s)` wypada w granicy 1 uderzenia od 22 s (skok wzoru w 8 s trafia w skok utworu w 30 s), a nie po 30 s;
+  6. dwa utwory w tej samej odległości tempa: wygrywa pierwszy alfabetycznie;
+  7. brak kandydata: `ValueError` z liczbą odrzuconych z każdego powodu;
+  8. `indeksuj`:
+     - drugi przebieg bez zmian w katalogu analizuje 0 plików;
+     - zmiana czasu modyfikacji jednego pliku daje 1;
+     - skasowany plik znika z indeksu;
+     - mp4 bez dźwięku jest pominięty (indeks zawiera tylko klik);
+     - wszystkie liczby w indeksie to typy wbudowane;
+  9. dwa wywołania `wybierz_utwor` na tych samych danych dają identyczny wynik.
 - **Sonnet Prompt:**
 ```text
-Katalog: C:\Dev\edity-bot. Wykonaj zadanie 4.2 z Pomiary/PLAN_EDITY_4_MUZYKA.md; otwórz src/music.py i src/analyze.py tylko w miejscu czas_z_pozycji. Weryfikacja: python -m pytest -q tests/test_muzyka.py
+Katalog: C:\Dev\edity-bot. Wykonaj zadanie 4.2 z Pomiary/PLAN_EDITY_4_MUZYKA.md; otwórz src/analyze.py tylko w miejscach analizuj_dzwiek, czas_z_pozycji i zapisz_json oraz tests/generuj.py. Weryfikacja: python -m pytest -q tests/test_muzyka.py
 ```
+- **Commit:** `muzyka: biblioteka i rozpoznanie dźwięku wzoru`
 
 ### [Task 4.3: Render i bot]
-- **Objective:** render bez `--utwor` bierze utwór z biblioteki; bot pokazuje licencję w podpisie, gdy jest.
-- **Context/Inputs:** `src/render.py` (miejsce wyboru utworu i wywołania `plan_ujec`), `src/bot.py` (zadanie montażu, `/status`, `/gotowe`), `src/komunikaty.py`. Bot przestaje przekazywać `--utwor` i wymagać `staly.mp3`, przekazuje `--muzyka <katalog_danych>/muzyka`. Podpis dostaje linię „Muzyka: tytuł, autor. Licencja: …” i `podpis` tylko wtedy, gdy wybrany utwór ma wpis w `licencje.csv` (pole `licencja` niepuste); bez wpisu podpis nie wspomina o muzyce. `/status` dostaje wiersz „Muzyka: N utworów, M z licencją”. Brak kandydata (za mało utworów albo żaden nie pasuje tempem czy długością) kończy render błędem, a bot pokazuje jego treść.
-- **Constraints:** `--utwor` dalej działa (pomiar części 3 z niego korzysta). Testy: render bez `--utwor` na katalogu z jednym klikiem mp3 i wpisem w CSV daje podsumowanie z polami licencji; render bez `--utwor` i bez `licencje.csv` (albo bez wpisu dla wybranego pliku) daje podsumowanie z `licencja: null`, bez błędu; render z `--utwor` działa jak dotąd; bot z podmienionym `uruchom` wysyła podpis z autorem utworu, gdy licencja jest, i bez linii o muzyce, gdy jej nie ma.
+- **Objective:** render bez `--utwor` wybiera utwór z biblioteki, a bot przestaje wymagać `staly.mp3`.
+- **Context/Inputs:**
+  - kontrakty `plan_ujec`, `renderuj` i bota wyżej;
+  - `src/render.py`: `plan_ujec` (176), `renderuj` (300), `glowna` (390);
+  - `src/bot.py`: `renderuj_w_tle` (153), `obsluz_cmd_gotowe` (211, sprawdzenie utworu 241 do 244), `obsluz_cmd_status` (283);
+  - `src/komunikaty.py`: `BRAK_UTWORU` (37), `podsumowanie_renderu` (95), `status_kolejki` (108).
+- **Constraints:** `--utwor` działa jak dotąd: istniejące testy renderu i `Pomiary/measure_render.py` bez zmian. Testy:
+  1. `plan_ujec` z `przesuniecie_s=5.0` na wzorze z `ciecia_s` [0, 0.9, 2.1] i `zrodlo.czas_s` 3.0, przy 30 fps:
+     - granice klatek 0, 27 i 63, `liczba_klatek` 90, `start_audio_s` 5.0;
+     - ujęcia mają `numer_wzoru` 0, 1 i 2;
+     - przy dwóch cięciach w tej samej klatce `numer_wzoru` przeskakuje;
+  2. pełny render bez `--utwor` (270x480):
+     - biblioteka: melodia A (20 s) i B;
+     - wzór: wideo z 4 cięciami i dźwiękiem fragmentu A od 7,3 s długości 6 s;
+     - materiały w jednolitych, różnych kolorach (jak test 2 z części 3);
+     - oczekiwane: podsumowanie ma `tryb: "dzwiek_wzoru"` i `start_s` w granicy 0,015 s od 7,3, a `analyze.wykryj_ciecia` na wyniku znajduje każde cięcie wzoru (`ciecia_s`) z dokładnością do 1 klatki;
+  3. tryby i błędy renderu:
+     - render bez `--utwor` na bibliotece bez pasującego dźwięku daje `tryb: "tempo"`;
+     - bez `--utwor` i bez `--muzyka`: kod 1 i jedna linia na stderr;
+  4. bot z podmienionym `uruchom`:
+     - przekazuje `--muzyka`, a nie `--utwor`;
+     - pusta `dane/muzyka/` daje `BRAK_MUZYKI` i nie dodaje zadania;
+     - podpis zawiera nazwę utworu bez rozszerzenia i „dźwięk wzoru od”;
+     - `/status` pokazuje liczbę utworów.
 - **Sonnet Prompt:**
 ```text
-Katalog: C:\Dev\edity-bot. Wykonaj zadanie 4.3 z Pomiary/PLAN_EDITY_4_MUZYKA.md; otwórz src/render.py, src/music.py, src/bot.py, src/komunikaty.py, tests/test_render.py, tests/test_bot.py. Weryfikacja: python -m pytest -q
+Katalog: C:\Dev\edity-bot. Wykonaj zadanie 4.3 z Pomiary/PLAN_EDITY_4_MUZYKA.md; otwórz src/render.py, src/music.py, src/bot.py, src/komunikaty.py, tests/test_render.py, tests/test_bot.py, tests/generuj.py. Weryfikacja: python -m pytest -q
 ```
+- **Commity:** `render: utwór z biblioteki i dźwięk wzoru`, potem `bot: muzyka z biblioteki`
 
-### [Task 4.4: Pomiar]
-- **Objective:** `Pomiary/measure_muzyka.py`, wynik w `outputs/pomiar_muzyka.json`.
-- **Context/Inputs:** sekcja A: kliki od 60 do 180 BPM co 10; błąd tempa w % po uwzględnieniu oktawy i liczba pomyłek o oktawę. Sekcja B (gdy `dane/muzyka/` ma pliki): tabela utworów (czas, tempo przy `start_bpm` 120 i 150 obok siebie z oznaczeniem par różniących się o 3:2 albo 2:1 do odsłuchu, liczba uderzeń, czas indeksowania, licencja tak albo nie), a dla każdego wzoru z `dane/probki/wzory/` wybrany utwór, odległość, mnożnik i sekunda startu. Sekcja C: dwa przebiegi doboru dają to samo.
-- **Constraints:** progi: A błąd do 2% dla wszystkich temp, C identyczność; B tylko raport.
+### [Task 4.4: Pomiar i arkusz porównawczy]
+- **Objective:** `Pomiary/arkusz.py` i `Pomiary/measure_muzyka.py`, wynik w `outputs/pomiar_muzyka.json`.
+- **Context/Inputs:**
+  - **Sekcja A** (syntetyczna):
+    - 10 melodii 60 s (ziarna od 1 do 10) w bibliotece tymczasowej, z każdej 3 fragmenty (10, 20 i 30 s) z losowym przesunięciem (stałe ziarno pomiaru);
+    - raport: liczba błędnie rozpoznanych utworów, maksymalny i medianowy błąd przesunięcia w ms, najniższa zgodność pary pasującej i najwyższa niepasującej;
+    - kliki od 60 do 180 BPM co 10: błąd tempa w procentach po uwzględnieniu oktawy.
+  - **Sekcja B** (prawdziwe pliki, gdy są `dane/muzyka/` i `dane/probki/wzory/`):
+    - czas indeksowania biblioteki;
+    - tabela utworów: czas, tempo, liczba uderzeń;
+    - macierz zgodności wzór na utwór;
+    - dla każdego wzoru wybór: tryb, plik, przesunięcie, tempo, mnożnik;
+    - porównanie z referencją z przeglądu: `0915` to Hot N Cold od 40,36 s, `0922` to Ex's And Oh's od 23,29 s, `0921` w trybie `tempo`. Nazwy plików mogą mieć dopisek „ (1)”, więc porównuj po początku nazwy;
+    - analizę wzoru trzymaj w cache `outputs/wzor_<nazwa>.json`: wersja 2 liczona raz i używana ponownie, a starszy cache przeliczony (wzór 4K to około minuty analizy).
+  - **Sekcja C:** dwa przebiegi doboru dla każdego wzoru dają to samo.
+  - **Sekcja D:**
+    - dla każdego wzoru render bez `--utwor` (1080x1920) na materiałach z `dane/probki/materialy/`; gdy ich brak, na 8 barwnych zdjęciach z `zdjecie_testowe`;
+    - arkusz `outputs/porownanie_muzyka_<wzor>.png` przez `arkusz_porownawczy`.
+- **Constraints:** progi:
+  - A: 0 błędnie rozpoznanych, błąd przesunięcia najwyżej 15 ms, błąd tempa najwyżej 2%;
+  - B: referencje zgodne (plik i przesunięcie ±0,05 s);
+  - C: identyczność;
+  - D: arkusze powstały.
 - **Sonnet Prompt:**
 ```text
-Katalog: C:\Dev\edity-bot. Wykonaj zadanie 4.4 z Pomiary/PLAN_EDITY_4_MUZYKA.md; otwórz src/music.py, src/analyze.py, tests/generuj.py. Weryfikacja: python Pomiary/measure_muzyka.py
+Katalog: C:\Dev\edity-bot. Wykonaj zadanie 4.4 z Pomiary/PLAN_EDITY_4_MUZYKA.md; otwórz src/music.py, src/render.py, src/analyze.py, tests/generuj.py oraz Pomiary/measure_render.py jako wzór układu skryptu pomiaru. Weryfikacja: python Pomiary/measure_muzyka.py
 ```
+- **Commit:** `Pomiary: pomiar muzyki i arkusz porównawczy`
 
 ## Gotowe, gdy
 - `python -m pytest -q` przechodzi w całości.
-- Pomiar A: błąd tempa do 2% po uwzględnieniu oktawy; C: dobór powtarzalny.
-- Test ręczny (Ty): dwa wzory o wyraźnie różnym tempie dają różne utwory (jeśli biblioteka ma takie tempa), podpis zawiera autora i licencję dla utworów z wpisem w CSV, `/status` liczy utwory.
+- Pomiar: A, B i C w progach, arkusze D powstały.
+- Wdrożenie (Ty): `wdroz.ps1`, potem na serwerze `docker compose exec bot python src/analyze.py --wszystkie` i `docker compose exec bot python src/music.py indeksuj`.
+- Test ręczny (Ty):
+  - `/nowy`, kilka materiałów i `/gotowe` przy najnowszym wzorze `0915` (albo `0922`, jeśli wyślesz go przez `/wzor`);
+  - podpis mówi „dźwięk wzoru od 40,4 s” (albo 23,3 s), a drop wzoru słychać w tym samym miejscu editu co we wzorze;
+  - wzór bez utworu w bibliotece (`0921`) dostaje dobór po tempie;
+  - każde odstępstwo zapisz jednym zdaniem w `ROZWOJ.md`.
 
 ## Commity
-1. `muzyka: indeks, licencje i dobór po tempie`
-2. `render: utwór z biblioteki`
-3. `bot: podpis muzyki`
+1. `analiza: odcisk dźwięku i energia uderzeń`
+2. `muzyka: biblioteka i rozpoznanie dźwięku wzoru`
+3. `render: utwór z biblioteki i dźwięk wzoru`
+4. `bot: muzyka z biblioteki`
+5. `Pomiary: pomiar muzyki i arkusz porównawczy`
 
 ## Odbiór (oceniający)
 ```text
 Katalog: C:\Dev\edity-bot. Oceniasz część 4 według Pomiary/PLAN_EDITY_4_MUZYKA.md, sekcje „Gotowe, gdy” i „Odbiór”. Nie poprawiaj kodu i nie otwieraj plików spoza kroków odbioru. Werdykt: OK albo lista poprawek (plik:linia, co jest źle, jaki test to złapie).
 ```
 1. `git log --oneline main..muzyka`, `python -m pytest -q`, stan i znane problemy w `Pomiary/ROZWOJ.md`.
-2. `python Pomiary/measure_muzyka.py`, sekcje A i C wobec progów, tabela B: czy dobór ma sens przy tempach wzorów i które `start_bpm` zostaje dla indeksu.
-3. `src/music.py`: korekta oktawy (zagęszczenie siatki i co drugie uderzenie), warunek mieszczenia okna, wybór startu po energii, wykrywanie separatora i BOM w CSV.
-4. `src/render.py`: ścieżka bez `--utwor` i pola licencji w podsumowaniu.
+2. `python Pomiary/measure_muzyka.py`: sekcje A, B i C wobec progów. Na macierzy zgodności sprawdź, czy próg 0,5 ma zapas po obu stronach.
+3. Arkusze `outputs/porownanie_muzyka_*.png`: w `0915` i `0922` cięcia wyniku wypadają w tych samych kolumnach co cięcia wzoru (tryb dźwięku wzoru odtwarza czasy cięć), a długość wyniku równa się długości wzoru.
+4. `src/music.py`: normalizacja okna w korelacji chromy, doprecyzowanie na obwiedni, kolejność trybów, warunek mieszczenia okna, korelacja profilu energii w trybie tempa, remisy.
+5. `src/analyze.py`: jedno dekodowanie w `analizuj_dzwiek`, `warnings` tylko w bloku, `--wszystkie` nie psuje wywołania z bota.
+6. `src/render.py`: `przesuniecie_s` i `numer_wzoru` w `plan_ujec`, ścieżka `--utwor` bez zmian.
+7. `src/bot.py`: `--muzyka` i brak wymogu `staly.mp3`.

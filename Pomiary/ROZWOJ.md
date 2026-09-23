@@ -9,8 +9,8 @@ Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym
 | 1 szkielet | kod gotowy, testy 33 z 33, pomiar w progach. Odbiór 2026-09-22 (Opus): OK. Test ręczny na Telegramie: materiały działają, wzór nie (limit 20 MB, patrz „Znane problemy") |
 | 2 analiza | kod gotowy, scalony do `main` w PR #1 (`4b929c9`), testy 62 z 62, pomiar A w progach (100% cięć, błąd tempa maks 0,35%), pomiar B na dwóch prawdziwych wzorach. Odbiór 2026-09-22 (Opus): OK, domyślny ContentDetector potwierdzony. Brak testu ręcznego na prawdziwym wzorze (czeka na lokalny serwer Bot API) |
 | 7 wdrożenie | 7.1 i 7.2 scalone do `main` w PR #2 (`e9a4755`), na `46.62.151.181` działa bot testowy, testy w kontenerze 71 z 71. 7.3 wykonane na gałęzi `wdrozenie-poprawki` (2026-09-23), testy lokalnie 75 z 75, pomiar w progach. Odbiór 7.3 (Opus) 2026-09-23: OK, scalone w PR #3. `Pomiary/` zostaje w repozytorium (decyzja właściciela 2026-09-23). Serwer przełączony na głównego bota `@cwel54_bot`, punkty a do f i h zrobione 2026-09-23: pobieranie przez serwer lokalny odblokowane, limit pamięci 3 GB działa, cron ustawiony. Punkt g zrobiony 2026-09-23: wzór 153 MB pobrany w 9 s, analiza 51 s, szczyt pamięci 894 MB przy limicie 3 GB, wolumen serwera Bot API po skopiowaniu pusty. Część 7 zamknięta |
-| 3 render | scalona w PR #4, testy 116 z 116, pomiar A i B w progach (100% granic, mediana 8 ms; B 36,5 MB). Pomiar C tylko ręcznie zweryfikowany kodem, bez arkuszy PNG. Odbiór 2026-09-23 (Opus): OK. Test ręczny 2026-09-23: montaż odrzucony przez weryfikację długości (dźwięk ucięty przez `atrim`+`-shortest`), naprawa w zadaniu 3.7 (przycinanie opcjami wejścia, wymuszona długość wyjścia), wdrożona na serwer, powtórzona na projekcie `20260923_163553`: 32,0 s obraz i dźwięk zgodnie. Właściciel potwierdził wynik. Część 3 zamknięta, PR do wysłania |
-| 4 do 6 | nie ruszone |
+| 3 render | scalona w PR #4, testy 116 z 116, pomiar A i B w progach (100% granic, mediana 8 ms; B 36,5 MB). Pomiar C tylko ręcznie zweryfikowany kodem, bez arkuszy PNG. Odbiór 2026-09-23 (Opus): OK. Test ręczny 2026-09-23: montaż odrzucony przez weryfikację długości (dźwięk ucięty przez `atrim`+`-shortest`), naprawa w zadaniu 3.7 (przycinanie opcjami wejścia, wymuszona długość wyjścia), wdrożona na serwer, powtórzona na projekcie `20260923_163553`: 32,0 s obraz i dźwięk zgodnie. Właściciel potwierdził wynik. Część 3 zamknięta, naprawa scalona w PR #5 |
+| 4, 8, 5, 6, 9 | plany przepisane 2026-09-23 po przeglądzie wzorów (8 i 9 nowe), kod nie ruszony. Kolejność: 4, 8, 5, 6, 9 |
 
 Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`). Wdrożenie na serwer nadal przez `wdroz.ps1` (część 7).
 
@@ -44,6 +44,36 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 - Wyniki (`outputs/`), dane (`dane/`) i `.env` są poza gitem. Katalog `Pomiary/` od 2026-09-23 jest w repozytorium (decyzja właściciela), więc zmiany planów i dziennika trzeba commitować.
 
 ## Dziennik
+
+### 2026-09-23 (przepisanie planów 4 do 9, Opus)
+- Właściciel wybrał wszystkie opcje z przeglądu: A (dźwięk wzoru), B (nakładka i plansza), C (kolor na sekcję), D (napisy w haku), E (kolejność i fabryka), F (odbiór na arkuszu porównawczym). Edity robi z materiałów i wzorów, które mu dostarczają.
+- Przepisane: `PLAN_EDITY_0_MAPA.md` (cel, tabela części, kolejność 4, 8, 5, 6, 9, decyzje 3, 4, 6, 7, 8, 10 i 11 zmienione, nowe 14 do 19, ryzyka, zakres), `PLAN_EDITY_4_MUZYKA.md`, `PLAN_EDITY_5_KOLOR.md`, `PLAN_EDITY_6_TEKST.md`.
+- Nowe: `PLAN_EDITY_8_NAKLADKA.md` (drop, nakładka, plansza) i `PLAN_EDITY_9_FABRYKA.md` (restart, biblioteka wzorów, warianty, partie, `/ponow`).
+- Najważniejsze zmiany kontraktów:
+  - `plan_ujec` dostaje `przesuniecie_s` i pole `numer_wzoru` w ujęciach;
+  - `wzor.json` rośnie wersjami: 2 (odcisk dźwięku, energia uderzeń), 3 (`sekcje`), 4 (`kolorystyka` na ujęcie);
+  - `analyze.py --wszystkie` przeniesione do części 4;
+  - `START_BPM = 150` dla wszystkiego;
+  - LUT na segment zamiast w przebiegu końcowym;
+  - kolejność warstw: materiał z kolorem, nakładka, napisy;
+  - zadanie 5.0 i `licencje.csv` zdjęte.
+- Blok WSPÓLNE ujednolicony we wszystkich nowych planach:
+  - kotwice z `57ba8fe`;
+  - Ubuntu 24.04;
+  - przed push sprawdzane tylko `.env`, `dane/` i `outputs/`;
+  - czas testów nie jest progiem;
+  - bez odwołania do `KONTEKST_PROJEKTU.md`;
+  - arkusz porównawczy w każdym pomiarze.
+- Plany 1, 2, 3 i 7 bez zmian (wykonane). Zmiany planów na gałęzi `plany-4-9` w PR do `main`, na prośbę właściciela.
+
+### 2026-09-23 (przegląd planów 4 do 6 pod cel „fabryka editów”, Opus)
+- Dźwięk wzorów porównany z biblioteką korelacją chromy i obwiedni uderzeń (skrypt jednorazowy poza repo): `0915` to „Hot N Cold (Hardstyle)” od 40,36 s (r chromy 0,78, drugi utwór 0,12), `0922` (nowy wzór, 4K, 120 fps) to „Ex's And Oh's (Hardstyle)” od 23,29 s (r 0,81 wobec 0,12), `0921` nie pasuje do żadnego (r do 0,07). Biblioteka właściciela to więc dźwięki samych wzorów.
+- Reguła planu 4 „najmocniejszy fragment” (średnia RMS uderzeń w oknie długości wzoru) sprawdzona na tych utworach: w „Hot N Cold” najmocniejsze okno zaczyna się w 39,31 s, czyli 3 uderzenia przed miejscem ze wzoru; w „Ex's And Oh's” w 115,08 s, a okno wzoru jest dopiero 158. z 347. Dzisiejszy render bierze najwcześniejsze możliwe uderzenie (`znajdz_start_uderzenia`), więc edit do `0915` idzie na intro utworu, a wzór leży od 40 s.
+- Tempo przy `start_bpm` 120 i 150: „Ex's And Oh's” 88,3 i 175,2 BPM (pomyłka oktawy przy 120), „Hot N Cold” 164,1 w obu, `0915` 110,0 i 164,1, `0921` 139,7 w obu, `0922` 88,3 i 175,2. Przy 150 wszystkie pięć plików wychodzi spójnie.
+- Arkusze klatek trzech wzorów (4 klatki na sekundę): ten sam format we wszystkich. Hak z napisem w pierwszych 4 do 11 s w naturalnych kolorach, potem drop, od którego wchodzi pełnoekranowa nakładka graficzna (gwiazdy) i mocny grading (`0915` i `0922` niebieski z posteryzacją, `0921` złoty), na końcu plansza około 1 s. Napisy tylko w haku, szeryfowe, białe, na środku kadru. Jedna średnia barw z całego wzoru (plan 5) wymiesza ciepły hak z niebieskim montażem.
+- Rozbieżności w planach: zadanie 5.1 i „Gotowe, gdy” części 5 opierają się na odwołanym zadaniu 5.0; blok WSPÓLNE w planach 4 do 6 każe sprawdzać, że `Pomiary/` nie jest w indeksie (od 2026-09-23 jest) i trzymać testy poniżej 60 s (próg zniesiony), podaje Ubuntu 22.04 (serwer ma 24.04) i odsyła do nieistniejącego `KONTEKST_PROJEKTU.md`.
+- Stan lokalny: `main` 1 commit za `origin/main` (scalenie PR #5). W `dane/` brak `muzyka/staly.mp3` i `wzory/`, pliki mają dopisek „ (1)”, doszły `probki/wzory/0922.mp4`, `gify/` i `zdjęcia/`.
+- Do decyzji właściciela: część 4 przebudowana na dopasowanie do dźwięku wzoru (utwór i przesunięcie z korelacji, dobór po tempie tylko jako zapas), nowa część na nakładkę i planszę końcową, kolor na ujęcie albo sekcję w części 5, okna napisów w haku w części 6, poprawki bloku WSPÓLNE.
 
 ### 2026-09-23 (zadanie 3.7: dźwięk przycinany na wejściu, długość wyniku wymuszona)
 - `src/render.py`, `przebieg_koncowy`: usunięty `atrim`+`asetpts`+`-shortest`. Utwór jest teraz przycinany opcjami wejścia `-ss <start_audio_s> -t <czas_trwania_s>` przed drugim `-i`, filtr dźwięku ma już tylko `afade` na wyciszenie. Długość wyjścia wymuszona jawnie: `-frames:v <liczba_klatek>` na strumieniu wideo i `-t <czas_trwania_s>` jako opcja wyjścia (obcina też dźwięk do dokładnej długości, niezależnie od zaokrągleń kodera AAC do ramek 1024 próbek). Reszta funkcji bez zmian (maxrate, bufsize, x264-params).
@@ -214,7 +244,10 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Następne kroki
 
-1. Właściciel: test ręczny na `@cwel54_bot`: `/nowy`, kilka zdjęć i klipów, `/gotowe`. Sprawdzić, czy plik gra na telefonie, czy cięcia siedzą na uderzeniach, czy zdjęcia nie są obrócone, czy zoom nie drga i czy wstawki z klipów się przeplatają. Odstępstwa jednym zdaniem tutaj.
-2. Właściciel przed częścią 4: 5 do 15 utworów w różnych tempach w `dane/muzyka/`; dziś biblioteka ma 164 i 175 BPM oraz za krótki `MR.mp4`.
-3. Część 4 według `PLAN_EDITY_4_MUZYKA.md`, potem 5 i 6 w dowolnej kolejności.
-4. Po każdej części: odbiór, scalenie, `wdroz.ps1`.
+1. Właściciel przed częścią 4:
+   - scalenie PR z przepisanymi planami (`plany-4-9`), potem `git pull` na `main`;
+   - w `dane/muzyka/` dźwięki wzorów bez dopisku „ (1)” w nazwach, ta sama zawartość na serwerze;
+   - próbki materiałów w `dane/probki/materialy/` (np. z `dane/zdjęcia/` i `dane/gify/`).
+2. Części w kolejności 4, 8, 5, 6, 9 według planów (Sonnet), po każdej odbiór (Opus) na arkuszach porównawczych.
+3. Przed częścią 8: pliki nakładek i plansz (własne, nie ze wzoru).
+4. Po każdej części: scalenie, `wdroz.ps1`, a po częściach 4, 8 i 5 na serwerze `docker compose exec bot python src/analyze.py --wszystkie`.
