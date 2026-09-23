@@ -546,7 +546,10 @@ def podsumowanie_renderu_testowe() -> dict:
         "materialy_pominiete": [],
         "rozmiar_mb": 8.1,
         "czas_renderu_s": 3.4,
-        "utwor": {"plik": "staly.mp3", "start_s": 0.5},
+        "utwor": {
+            "plik": "Hot N Cold (Hardstyle).mp3", "tryb": "tempo", "zgodnosc": None,
+            "start_s": 12.3, "tempo_bpm": 164.1, "mnoznik": 1.0,
+        },
     }
 
 
@@ -584,6 +587,7 @@ async def test_render_sukces_jedno_send_document(z_praca_w_tle, monkeypatch):
     wywolania_wysylki = [m for m in sesja.wywolania if type(m).__name__ == "SendDocument"]
     assert len(wywolania_wysylki) == 1
     assert "ujęć 20" in wywolania_wysylki[0].caption
+    assert "Muzyka: Hot N Cold (Hardstyle), dobór po tempie 164,1 BPM, od 12,3 s." in wywolania_wysylki[0].caption
     projekt_id = jedyny_projekt_id(konf)
     dane_projektu = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / projekt_id)
     assert dane_projektu["stan"] == "gotowy"
@@ -617,7 +621,7 @@ async def test_brak_wzoru_nie_dodaje_zadania_do_kolejki(z_praca_w_tle):
     assert teksty_odpowiedzi(sesja)[-1] == "Najpierw wyślij wzór przez /wzor."
 
 
-async def test_brak_utworu_nie_dodaje_zadania_do_kolejki(z_praca_w_tle):
+async def test_brak_muzyki_nie_dodaje_zadania_do_kolejki(z_praca_w_tle):
     dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
     katalog_wzoru = konf.katalog_danych / "wzory" / "w1"
     katalog_wzoru.mkdir(parents=True)
@@ -626,7 +630,33 @@ async def test_brak_utworu_nie_dodaje_zadania_do_kolejki(z_praca_w_tle):
     await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
 
     assert kolejka_obiekt.dlugosc() == 0
-    assert teksty_odpowiedzi(sesja)[-1] == "Brak utworu do montażu. Dodaj plik dane/muzyka/staly.mp3."
+    assert teksty_odpowiedzi(sesja)[-1] == "Biblioteka muzyki jest pusta. Dodaj utwory do dane/muzyka."
+
+
+async def test_render_dostaje_muzyke_a_nie_utwor(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+    wywolania = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    argumenty = wywolania[0]
+    assert "--utwor" not in argumenty
+    assert Path(argumenty[argumenty.index("--muzyka") + 1]) == konf.katalog_danych / "muzyka"
+
+
+async def test_status_pokazuje_liczbe_utworow(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    przygotuj_wzor_i_utwor(konf)
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/status")))
+    assert "Muzyka: 1 utworów." in teksty_odpowiedzi(sesja)[-1]
 
 
 async def test_limit_mb_renderu_bez_lokalnego_serwera(z_praca_w_tle, monkeypatch):
