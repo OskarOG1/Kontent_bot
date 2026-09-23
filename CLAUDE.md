@@ -1,6 +1,6 @@
 # edity-bot
 
-Bot na Telegramie, który montuje edity wideo 9:16 z materiałów właściciela według wzorcowego editu, z muzyką royalty free.
+Bot na Telegramie, który montuje edity wideo 9:16 z materiałów właściciela według wzorcowego editu, z muzyką z biblioteki właściciela.
 Plany, pomiary i notatki: `Pomiary/` (poza gitem). Mapa planów: `Pomiary/PLAN_EDITY_0_MAPA.md`. Wyciąg z Telegram Bot API: `Pomiary/TELEGRAM_BOT_API.md`.
 
 ## Reguły
