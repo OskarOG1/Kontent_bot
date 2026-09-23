@@ -1,5 +1,7 @@
 import json
 import subprocess
+import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -378,3 +380,147 @@ def test_segment_klipu_gra_dalej_poza_dlugoscia_kawalka_i_zamraza_dopiero_na_kon
     klatki_b = dekoduj_klatki(wyjscie_b, tmp_path, "b.raw")
     assert klatki_b.shape[0] == 30
     assert zblizony(kolor_srodka(klatki_b[-1]), generuj.kolor_ujecia(4))
+
+
+def wzor_syntetyczny_8_ciec():
+    return {
+        "ciecia_uderzenia": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+        "koniec_uderzenia": 8.0,
+        "ciecia_s": [0.0],
+        "zrodlo": {"czas_s": 8.0},
+    }
+
+
+def zbuduj_projekt(tmp_path, dodaj_materialy):
+    projekt = tmp_path / "projekt"
+    katalog_materialow = projekt / "materialy"
+    katalog_materialow.mkdir(parents=True)
+    dodaj_materialy(katalog_materialow)
+    return projekt
+
+
+def test_renderuj_pelny_przebieg(tmp_path):
+    def dodaj(katalog):
+        generuj.zdjecie_testowe(katalog / "0000000001_a.jpg", rozmiar=(800, 600))
+        generuj.zdjecie_testowe(katalog / "0000000002_b.jpg", rozmiar=(600, 800))
+        generuj.zdjecie_testowe(katalog / "0000000003_c.jpg", rozmiar=(600, 800))
+        generuj.klip_testowy(katalog / "0000000004_d.mp4", czas_s=3.0, rozmiar=(270, 480))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_syntetyczny_8_ciec()), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=128, czas_s=10.0, pierwsze_uderzenie_s=0.3)
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50)
+
+    dane = uruchom_ffprobe(wyjscie)
+    strumien = strumien_wideo(dane)
+    assert strumien["pix_fmt"] == "yuv420p"
+    assert strumien["sample_aspect_ratio"] == "1:1"
+    assert any(s["codec_type"] == "audio" for s in dane["streams"])
+    wynik_formatu = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(wyjscie)],
+        stdin=subprocess.DEVNULL, capture_output=True,
+    )
+    rzeczywisty_czas_s = float(wynik_formatu.stdout.decode().strip())
+    assert abs(rzeczywisty_czas_s - podsumowanie["czas_s"]) <= 1.0 / 30 + 0.02
+    assert wyjscie.with_suffix(".json").exists()
+    assert not (projekt / "praca").exists()
+
+
+def test_renderuj_ciecia_na_swoim_miejscu(tmp_path):
+    def dodaj(katalog):
+        for i in range(4):
+            generuj.zdjecie_testowe(katalog / f"000000000{i}_m.jpg", rozmiar=(800, 600), kolor=generuj.kolor_ujecia(i))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_syntetyczny_8_ciec()), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=128, czas_s=10.0, pierwsze_uderzenie_s=0.3)
+    fps = 30
+
+    wyjscie = tmp_path / "wynik.mp4"
+    render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50)
+
+    _, uderzenia = analyze.analizuj_rytm(utwor)
+    material_zastepczy = [{"plik": "x", "typ": "zdjecie", "message_id": 0}]
+    plan = render.plan_ujec(wzor_syntetyczny_8_ciec(), uderzenia, material_zastepczy, fps)
+    oczekiwane_granice = [u["klatka_od"] for u in plan["ujecia"][1:]]
+
+    wykryte_s = analyze.wykryj_ciecia(wyjscie)
+    wykryte_klatki = [round(t * fps) for t in wykryte_s]
+
+    for oczekiwana in oczekiwane_granice:
+        assert any(abs(oczekiwana - wykryta) <= 1 for wykryta in wykryte_klatki)
+
+
+def test_renderuj_limit_rozmiaru_dla_szumu(tmp_path):
+    def dodaj(katalog):
+        generuj.szum(katalog / "0000000001_n.mp4", czas_s=10.0, rozmiar=(270, 480))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_syntetyczny_8_ciec()), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=128, czas_s=10.0, pierwsze_uderzenie_s=0.3)
+
+    wyjscie = tmp_path / "wynik.mp4"
+    render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=2)
+
+    assert wyjscie.stat().st_size <= 2 * 1024 * 1024
+
+
+def test_renderuj_dziala_bez_zrodla_wzoru(tmp_path):
+    def dodaj(katalog):
+        generuj.zdjecie_testowe(katalog / "0000000001_a.jpg", rozmiar=(800, 600))
+        generuj.klip_testowy(katalog / "0000000002_b.mp4", czas_s=3.0, rozmiar=(270, 480))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    wzor = wzor_syntetyczny_8_ciec()
+    del wzor["zrodlo"]
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=128, czas_s=10.0, pierwsze_uderzenie_s=0.3)
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50)
+
+    assert wyjscie.exists()
+    assert podsumowanie["materialy_uzyte"] == 2
+
+
+def uruchom_cli(argumenty):
+    return subprocess.run(
+        [sys.executable, str(Path(render.__file__))] + argumenty,
+        stdin=subprocess.DEVNULL, capture_output=True,
+    )
+
+
+def test_cli_sukces_i_blad(tmp_path):
+    def dodaj(katalog):
+        generuj.zdjecie_testowe(katalog / "0000000001_a.jpg", rozmiar=(800, 600))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_syntetyczny_8_ciec()), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=128, czas_s=10.0, pierwsze_uderzenie_s=0.3)
+    wyjscie = tmp_path / "wynik.mp4"
+
+    wynik = uruchom_cli([
+        "--wzor", str(wzor_json), "--projekt", str(projekt), "--utwor", str(utwor), "--wyjscie", str(wyjscie),
+        "--szerokosc", "270", "--wysokosc", "480", "--fps", "30",
+    ])
+    assert wynik.returncode == 0
+    assert wyjscie.exists()
+    assert wyjscie.with_suffix(".json").exists()
+
+    wynik_bledu = uruchom_cli([
+        "--wzor", str(tmp_path / "brak.json"), "--projekt", str(projekt), "--utwor", str(utwor), "--wyjscie", str(tmp_path / "brak_wyniku.mp4"),
+    ])
+    assert wynik_bledu.returncode != 0
+    assert len(wynik_bledu.stderr.decode("utf-8", errors="replace").strip().splitlines()) == 1

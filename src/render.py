@@ -1,10 +1,18 @@
+import argparse
+import json
+import statistics
+import shutil
 import subprocess
+import sys
+import tempfile
+import time
 from pathlib import Path
 
 import pillow_heif
 from PIL import Image, ImageOps
 
 import analyze
+import magazyn
 
 pillow_heif.register_heif_opener()
 
@@ -208,3 +216,199 @@ def plan_ujec(
         "liczba_klatek": liczba_klatek,
         "ujecia": ujecia,
     }
+
+
+def czas_trwania(sciezka) -> float | None:
+    wynik = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(sciezka)],
+        stdin=subprocess.DEVNULL, capture_output=True,
+    )
+    if wynik.returncode != 0:
+        return None
+    try:
+        czas = float(wynik.stdout.decode("utf-8", errors="replace").strip())
+    except ValueError:
+        return None
+    return czas if czas > 0 else None
+
+
+def sklej_segmenty(sciezki_segmentow: list[Path], wyjscie: Path) -> None:
+    with tempfile.TemporaryDirectory() as katalog_tymczasowy:
+        lista = Path(katalog_tymczasowy) / "lista.txt"
+        with open(lista, "w", encoding="utf-8") as plik:
+            for sciezka in sciezki_segmentow:
+                plik.write(f"file '{Path(sciezka).resolve().as_posix()}'\n")
+        uruchom_ffmpeg(["-f", "concat", "-safe", "0", "-i", str(lista), "-c", "copy", str(wyjscie)])
+
+
+def przebieg_koncowy(polaczone_wideo: Path, utwor: Path, start_audio_s: float, liczba_klatek: int, fps: float, wyjscie: Path, limit_mb: float) -> None:
+    czas_trwania_s = liczba_klatek / fps
+    wyciszenie_s = min(0.5, czas_trwania_s)
+    poczatek_wyciszenia = max(0.0, czas_trwania_s - wyciszenie_s)
+
+    bitrate_audio_bps = 192_000
+    limit_bitow = limit_mb * 8 * 1024 * 1024 * 0.95
+    maxrate_bps = max(100_000, int(limit_bitow / czas_trwania_s) - bitrate_audio_bps)
+    bufsize_bps = maxrate_bps
+
+    filtr = (
+        "[0:v]setsar=1[v];"
+        f"[1:a]atrim=start={start_audio_s:.6f}:duration={czas_trwania_s:.6f},"
+        "asetpts=PTS-STARTPTS,"
+        f"afade=t=out:st={poczatek_wyciszenia:.6f}:d={wyciszenie_s:.6f}[a]"
+    )
+
+    uruchom_ffmpeg([
+        "-i", str(polaczone_wideo),
+        "-i", str(utwor),
+        "-filter_complex", filtr,
+        "-map", "[v]", "-map", "[a]",
+        "-r", str(fps),
+        "-c:v", "libx264", "-profile:v", "high", "-preset", "medium", "-crf", "20",
+        "-maxrate", str(maxrate_bps), "-bufsize", str(bufsize_bps), "-x264-params", "vbv-init=0",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", str(bitrate_audio_bps),
+        "-movflags", "+faststart",
+        "-shortest",
+        str(wyjscie),
+    ])
+
+
+def zweryfikuj_wynik(wyjscie: Path, szerokosc: int, wysokosc: int, fps: float, liczba_klatek: int, limit_mb: float) -> None:
+    wynik = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(wyjscie)],
+        stdin=subprocess.DEVNULL, capture_output=True,
+    )
+    if wynik.returncode != 0:
+        raise RuntimeError("Nie udało się odczytać wyniku ffprobe")
+    dane = json.loads(wynik.stdout.decode("utf-8", errors="replace"))
+    strumien_v = next((s for s in dane["streams"] if s["codec_type"] == "video"), None)
+    if strumien_v is None:
+        raise RuntimeError("Wynik nie ma strumienia wideo")
+    if int(strumien_v["width"]) != szerokosc or int(strumien_v["height"]) != wysokosc:
+        raise RuntimeError("Wynik ma zły rozmiar kadru")
+    if not any(s["codec_type"] == "audio" for s in dane["streams"]):
+        raise RuntimeError("Wynik nie ma dźwięku")
+    oczekiwany_czas_s = liczba_klatek / fps
+    rzeczywisty_czas_s = float(dane["format"]["duration"])
+    if abs(rzeczywisty_czas_s - oczekiwany_czas_s) > 1.0 / fps + 0.02:
+        raise RuntimeError("Długość wyniku nie zgadza się z planem")
+    rozmiar_mb = Path(wyjscie).stat().st_size / (1024 * 1024)
+    if rozmiar_mb > limit_mb:
+        raise RuntimeError(f"Plik wynikowy {rozmiar_mb:.2f} MB przekracza limit {limit_mb} MB")
+
+
+def renderuj(
+    wzor_json: Path,
+    katalog_projektu: Path,
+    utwor: Path,
+    wyjscie: Path,
+    szerokosc: int = 1080,
+    wysokosc: int = 1920,
+    fps: int = 30,
+    limit_mb: float = 50,
+) -> dict:
+    czas_startu = time.time()
+    wzor_json = Path(wzor_json)
+    katalog_projektu = Path(katalog_projektu)
+    utwor = Path(utwor)
+    wyjscie = Path(wyjscie)
+
+    with open(wzor_json, "r", encoding="utf-8") as plik:
+        wzor = json.load(plik)
+
+    materialy_surowe = magazyn.lista_materialow(katalog_projektu)
+    if not materialy_surowe:
+        raise RuntimeError("Brak materiałów w projekcie")
+
+    katalog_pracy = katalog_projektu / "praca"
+    katalog_pracy.mkdir(parents=True, exist_ok=True)
+
+    materialy_pominiete = []
+    do_przygotowania = []
+    for material in materialy_surowe:
+        if material["typ"] == "klip":
+            czas_s = czas_trwania(material["plik"])
+            if czas_s is None:
+                materialy_pominiete.append({"plik": Path(material["plik"]).name, "powod": "brak strumienia wideo"})
+                continue
+            material = dict(material, czas_s=czas_s)
+        do_przygotowania.append(material)
+
+    dobre, pominiete_z_przygotowania = przygotuj_materialy(do_przygotowania, katalog_pracy, szerokosc, wysokosc)
+    materialy_pominiete += pominiete_z_przygotowania
+    if not dobre:
+        raise RuntimeError("Brak dobrego materiału do renderu")
+
+    _, uderzenia_utworu = analyze.analizuj_rytm(utwor)
+
+    material_zastepczy = [{"plik": "zastepczy", "typ": "zdjecie", "message_id": 0}]
+    plan_wstepny = plan_ujec(wzor, uderzenia_utworu, material_zastepczy, fps)
+    dlugosci_s = [u["liczba_klatek"] / fps for u in plan_wstepny["ujecia"]]
+    dlugosc_wstawki_s = min(2.0, max(0.5, statistics.median(dlugosci_s)))
+
+    kawalki = wstawki(dobre, dlugosc_wstawki_s)
+    plan = plan_ujec(wzor, uderzenia_utworu, kawalki, fps)
+
+    sciezki_robocze = {str(material["plik"]): material["plik_roboczy"] for material in dobre if material["typ"] == "zdjecie"}
+
+    sciezki_segmentow = []
+    for indeks, ujecie in enumerate(plan["ujecia"]):
+        sciezka_segmentu = katalog_pracy / f"segment_{indeks:06d}.mp4"
+        if ujecie["typ"] == "zdjecie":
+            segment_zdjecia(sciezki_robocze[ujecie["material"]], sciezka_segmentu, indeks, ujecie["liczba_klatek"], fps, szerokosc, wysokosc)
+        else:
+            segment_klipu(ujecie["material"], sciezka_segmentu, ujecie["start_w_klipie_s"], ujecie["liczba_klatek"], fps, szerokosc, wysokosc)
+        sciezki_segmentow.append(sciezka_segmentu)
+
+    polaczone = katalog_pracy / "polaczone.mp4"
+    sklej_segmenty(sciezki_segmentow, polaczone)
+
+    przebieg_koncowy(polaczone, utwor, plan["start_audio_s"], plan["liczba_klatek"], fps, wyjscie, limit_mb)
+    zweryfikuj_wynik(wyjscie, szerokosc, wysokosc, fps, plan["liczba_klatek"], limit_mb)
+
+    materialy_uzyte = len({u["material"] for u in plan["ujecia"]})
+    rozmiar_mb = wyjscie.stat().st_size / (1024 * 1024)
+
+    podsumowanie = {
+        "czas_s": round(plan["liczba_klatek"] / fps, 3),
+        "liczba_ujec": len(plan["ujecia"]),
+        "materialy_uzyte": materialy_uzyte,
+        "materialy_pominiete": materialy_pominiete,
+        "rozmiar_mb": round(rozmiar_mb, 2),
+        "czas_renderu_s": round(time.time() - czas_startu, 2),
+        "utwor": {"plik": utwor.name, "start_s": round(plan["start_audio_s"], 3)},
+    }
+
+    sciezka_podsumowania = wyjscie.with_suffix(".json")
+    with open(sciezka_podsumowania, "w", encoding="utf-8") as plik:
+        json.dump(podsumowanie, plik, ensure_ascii=False, indent=2)
+
+    shutil.rmtree(katalog_pracy)
+    return podsumowanie
+
+
+def glowna(argumenty: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--wzor", required=True)
+    parser.add_argument("--projekt", required=True)
+    parser.add_argument("--utwor", required=True)
+    parser.add_argument("--wyjscie", required=True)
+    parser.add_argument("--szerokosc", type=int, default=1080)
+    parser.add_argument("--wysokosc", type=int, default=1920)
+    parser.add_argument("--fps", type=int, default=30)
+    parser.add_argument("--limit-mb", type=float, default=50)
+    ustalone = parser.parse_args(argumenty)
+    try:
+        renderuj(
+            Path(ustalone.wzor), Path(ustalone.projekt), Path(ustalone.utwor), Path(ustalone.wyjscie),
+            szerokosc=ustalone.szerokosc, wysokosc=ustalone.wysokosc, fps=ustalone.fps, limit_mb=ustalone.limit_mb,
+        )
+    except Exception as blad:
+        print(str(blad), file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(glowna())
