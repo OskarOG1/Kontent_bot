@@ -16,8 +16,8 @@ Stan na 2026-09-22, po wykonaniu części 1 i 2. Projekt: `C:\Dev\edity-bot`, zd
 |---|---|---|---|---|---|
 | 1 | PLAN_EDITY_1_SZKIELET | bot przyjmuje wzór i materiały, tylko Twoje konto, kolejka zadań | wykonana, odbiór OK | nic | Sonnet |
 | 2 | PLAN_EDITY_2_ANALIZA | wzór mp4 zamienia się w `wzor.json`: cięcia, tempo, uderzenia | wykonana, scalona w PR #1, odbiór OK | nic | Sonnet |
-| 7 | PLAN_EDITY_7_WDROZENIE | bot w Dockerze na VPS z lokalnym serwerem Bot API | 7.1 i 7.2 scalone w PR #2; odbiór: poprawki w zadaniu 7.3 (na serwerze nie przechodzi żadne pobranie) | VPS, drugi bot z BotFather do pracy lokalnej, `api_id` i `api_hash` z my.telegram.org | Sonnet pliki, Ty serwer |
-| 3 | PLAN_EDITY_3_RENDER | `/gotowe` zwraca edit 9:16 na stałym utworze, klipy cięte na wstawki | do zrobienia | `dane/muzyka/staly.mp3` | Sonnet |
+| 7 | PLAN_EDITY_7_WDROZENIE | bot w Dockerze na VPS z lokalnym serwerem Bot API | wykonana: PR #2 i #3, serwer na głównym bocie `@cwel54_bot`, wzór 4K pobrany w 9 s i przeanalizowany w 51 s | VPS, drugi bot z BotFather do pracy lokalnej, `api_id` i `api_hash` z my.telegram.org | Sonnet pliki, Ty serwer |
+| 3 | PLAN_EDITY_3_RENDER | `/gotowe` zwraca edit 9:16 na stałym utworze, klipy cięte na wstawki | następna | `dane/muzyka/staly.mp3` | Sonnet |
 | 4 | PLAN_EDITY_4_MUZYKA | biblioteka utworów, dobór po tempie, najmocniejszy fragment | do zrobienia | 5 do 15 utworów, `licencje.csv` opcjonalny (tylko do podpisu) | Sonnet |
 | 5 | PLAN_EDITY_5_KOLOR | lekka kopia wzoru (5.0) i kolorystyka jak we wzorze | do zrobienia | nic | Sonnet |
 | 6 | PLAN_EDITY_6_TEKST | Twoje napisy na ekranie | do zrobienia | akceptacja czcionki | Sonnet |
@@ -26,7 +26,7 @@ Stan na 2026-09-22, po wykonaniu części 1 i 2. Projekt: `C:\Dev\edity-bot`, zd
 
 1. Zrobione 2026-09-22: odbiór części 1 i 2 (OK) i scalenie `analiza-wzoru` do `main` (PR #1).
 2. Część 7 razem z lokalnym serwerem Bot API (zadanie 7.2): scalona w PR #2, a odbiór wymaga zadania 7.3 i kroków właściciela po nim. Powód: oba prawdziwe wzory mają około 150 MB (4K, 60 fps), klipy z telefonu często ponad 20 MB, a zwykłe Bot API pobiera najwyżej 20 MB i wysyła 50 MB. Bez tego żaden test ręczny na prawdziwych plikach nie przejdzie, a przy okazji wyjdzie czas analizy na serwerze.
-3. Jeśli analiza wzoru 4K na serwerze trwa ponad około 150 s: zadanie 5.0 (lekka kopia wzoru) przed częścią 3.
+3. Rozstrzygnięte 2026-09-23: analiza wzoru 4K na serwerze trwa 51 s, więc zadanie 5.0 (lekka kopia wzoru) odpada i zostaje w planie 5 na wypadek dłuższych albo cięższych wzorów.
 4. Część 3, potem 4, 5 i 6 (5 i 6 w dowolnej kolejności), po każdej aktualizacja serwera.
 
 ## Decyzje

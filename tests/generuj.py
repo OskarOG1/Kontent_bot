@@ -1,4 +1,5 @@
 import colorsys
+import shutil
 import subprocess
 import tempfile
 from fractions import Fraction
@@ -6,6 +7,19 @@ from pathlib import Path
 
 import numpy as np
 import soundfile
+from PIL import Image
+
+ODWROTNA_TRANSPOZYCJA_EXIF = {
+    2: Image.Transpose.FLIP_LEFT_RIGHT,
+    3: Image.Transpose.ROTATE_180,
+    4: Image.Transpose.FLIP_TOP_BOTTOM,
+    5: Image.Transpose.TRANSPOSE,
+    6: Image.Transpose.ROTATE_90,
+    7: Image.Transpose.TRANSVERSE,
+    8: Image.Transpose.ROTATE_270,
+}
+
+OBROT_DO_K_ROT90 = {90: -1, 180: 2, 270: 1}
 
 
 def klik(sciezka_wav: Path, bpm: float, czas_s: float, pierwsze_uderzenie_s: float = 0.0, sr: int = 22050) -> list[float]:
@@ -95,6 +109,136 @@ def wideo_z_cieciami(
                     while numer_ujecia < len(granice) and klatka >= granice[numer_ujecia]:
                         numer_ujecia += 1
                     proces.stdin.write(biala if klatka in blyski else klatka_ujecia(numer_ujecia))
+            except BrokenPipeError:
+                pass
+            finally:
+                try:
+                    proces.stdin.close()
+                except BrokenPipeError:
+                    pass
+            kod = proces.wait()
+        if kod != 0:
+            blad = (katalog / "stderr.txt").read_text(encoding="utf-8", errors="replace")
+            raise RuntimeError(f"ffmpeg zakonczyl sie kodem {kod}: {blad}")
+
+
+def zdjecie_testowe(
+    sciezka: Path,
+    rozmiar: tuple[int, int] = (1200, 1600),
+    orientacja_exif: int = 1,
+    alfa: bool = False,
+    kolor: tuple[int, int, int] | None = None,
+) -> None:
+    sciezka = Path(sciezka)
+    szerokosc, wysokosc = rozmiar
+    tryb = "RGBA" if alfa else "RGB"
+    if kolor is not None:
+        piksele = tuple(kolor) + ((255,) if alfa else ())
+        obraz = Image.new(tryb, rozmiar, piksele)
+    else:
+        obraz = Image.new(tryb, rozmiar)
+        polowa = wysokosc // 2
+        gorna = (220, 30, 30) + ((255,) if alfa else ())
+        dolna = (30, 30, 220) + ((255,) if alfa else ())
+        obraz.paste(Image.new(tryb, (szerokosc, polowa), gorna), (0, 0))
+        obraz.paste(Image.new(tryb, (szerokosc, wysokosc - polowa), dolna), (0, polowa))
+    if alfa:
+        maska = Image.new("L", rozmiar, 255)
+        rog = max(1, min(szerokosc, wysokosc) // 4)
+        maska.paste(0, (0, 0, rog, rog))
+        obraz.putalpha(maska)
+    if orientacja_exif in ODWROTNA_TRANSPOZYCJA_EXIF:
+        obraz = obraz.transpose(ODWROTNA_TRANSPOZYCJA_EXIF[orientacja_exif])
+    exif = obraz.getexif()
+    exif[0x0112] = orientacja_exif
+    obraz.save(sciezka, exif=exif)
+
+
+def klip_testowy(
+    sciezka: Path,
+    czas_s: float,
+    rozmiar: tuple[int, int] = (480, 270),
+    obrot: int = 0,
+    fps: float = 30,
+    kolor: tuple[int, int, int] | None = None,
+) -> None:
+    sciezka = Path(sciezka)
+    szerokosc, wysokosc = rozmiar
+    liczba_klatek = max(1, int(round(czas_s * fps)))
+    if kolor is not None:
+        klatka_wyswietlana = np.full((wysokosc, szerokosc, 3), kolor, dtype=np.uint8)
+    else:
+        klatka_wyswietlana = np.zeros((wysokosc, szerokosc, 3), dtype=np.uint8)
+        polowa = wysokosc // 2
+        klatka_wyswietlana[:polowa] = (220, 30, 30)
+        klatka_wyswietlana[polowa:] = (30, 30, 220)
+    if obrot:
+        klatka_surowa = np.rot90(klatka_wyswietlana, k=OBROT_DO_K_ROT90[obrot])
+    else:
+        klatka_surowa = klatka_wyswietlana
+    wysokosc_surowa, szerokosc_surowa = klatka_surowa.shape[:2]
+    dane_klatki = np.ascontiguousarray(klatka_surowa).tobytes()
+
+    with tempfile.TemporaryDirectory() as katalog_tymczasowy:
+        katalog = Path(katalog_tymczasowy)
+        plik_surowy = katalog / "surowy.mp4"
+        argumenty = [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{szerokosc_surowa}x{wysokosc_surowa}",
+            "-framerate", ulamek_fps(fps), "-i", "pipe:0",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p", "-an",
+            "-frames:v", str(liczba_klatek), str(plik_surowy),
+        ]
+        with open(katalog / "stderr_kodowanie.txt", "wb") as plik_bledow:
+            proces = subprocess.Popen(argumenty, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=plik_bledow)
+            try:
+                for _ in range(liczba_klatek):
+                    proces.stdin.write(dane_klatki)
+            except BrokenPipeError:
+                pass
+            finally:
+                try:
+                    proces.stdin.close()
+                except BrokenPipeError:
+                    pass
+            kod = proces.wait()
+        if kod != 0:
+            blad = (katalog / "stderr_kodowanie.txt").read_text(encoding="utf-8", errors="replace")
+            raise RuntimeError(f"ffmpeg zakonczyl sie kodem {kod}: {blad}")
+
+        if obrot:
+            argumenty_remux = [
+                "ffmpeg", "-y", "-loglevel", "error",
+                "-display_rotation", str(obrot), "-i", str(plik_surowy),
+                "-c", "copy", str(sciezka),
+            ]
+            wynik = subprocess.run(argumenty_remux, stdin=subprocess.DEVNULL, capture_output=True)
+            if wynik.returncode != 0:
+                raise RuntimeError(f"ffmpeg zakonczyl sie kodem {wynik.returncode}: {wynik.stderr.decode('utf-8', errors='replace')}")
+        else:
+            shutil.copyfile(plik_surowy, sciezka)
+
+
+def szum(sciezka: Path, czas_s: float, rozmiar: tuple[int, int], fps: float = 30) -> None:
+    sciezka = Path(sciezka)
+    szerokosc, wysokosc = rozmiar
+    liczba_klatek = max(1, int(round(czas_s * fps)))
+    generator = np.random.default_rng(0)
+    argumenty = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{szerokosc}x{wysokosc}",
+        "-framerate", ulamek_fps(fps), "-i", "pipe:0",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p", "-an",
+        "-frames:v", str(liczba_klatek), str(sciezka),
+    ]
+    with tempfile.TemporaryDirectory() as katalog_tymczasowy:
+        katalog = Path(katalog_tymczasowy)
+        with open(katalog / "stderr.txt", "wb") as plik_bledow:
+            proces = subprocess.Popen(argumenty, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=plik_bledow)
+            try:
+                for _ in range(liczba_klatek):
+                    klatka = generator.integers(0, 256, (wysokosc, szerokosc, 3), dtype=np.uint8)
+                    proces.stdin.write(klatka.tobytes())
             except BrokenPipeError:
                 pass
             finally:

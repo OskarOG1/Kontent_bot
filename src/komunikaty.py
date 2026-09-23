@@ -32,6 +32,16 @@ PROJEKT_ANULOWANY = "Projekt anulowany."
 
 STATUS_BRAK_PROJEKTU = "Nie zbierasz teraz żadnego projektu."
 
+BRAK_WZORU = "Najpierw wyślij wzór przez /wzor."
+
+BRAK_UTWORU = "Brak utworu do montażu. Dodaj plik dane/muzyka/staly.mp3."
+
+MATERIAL_NIEPOPRAWNY_TYP = "Nie rozpoznaję tego typu pliku. Wyślij zdjęcie albo klip."
+
+MONTUJE = "Montuję."
+
+BLAD_WYSYLKI = "Nie udało się wysłać wyniku. Spróbuj ponownie /gotowe."
+
 
 def formatuj_mb(wartosc: float) -> str:
     return f"{wartosc:.1f}".replace(".", ",")
@@ -71,8 +81,24 @@ def podsumowanie_wzoru(czas_s: float, liczba_ujec: int, srednia_s: float, tempo_
     )
 
 
-def projekt_w_kolejce(zdjecia: int, klipy: int, linie: int) -> str:
-    return f"Projekt w kolejce: zdjęcia {zdjecia}, klipy {klipy}, linie tekstu {linie}."
+def projekt_w_kolejce(zdjecia: int, klipy: int, linie: int, pozycja: int) -> str:
+    baza = f"Projekt w kolejce: zdjęcia {zdjecia}, klipy {klipy}, linie tekstu {linie}."
+    if pozycja > 1:
+        return f"{baza} Pozycja w kolejce: {pozycja}."
+    return baza
+
+
+def blad_renderu(opis: str) -> str:
+    return f"Montaż nie powiódł się: {opis}"
+
+
+def podsumowanie_renderu(dane: dict) -> str:
+    liczba_pominietych = len(dane.get("materialy_pominiete", []))
+    return (
+        f"Gotowe: {formatuj_liczbe(dane['czas_s'], 1)} s, ujęć {dane['liczba_ujec']}, "
+        f"materiałów użytych {dane['materialy_uzyte']}, pominiętych {liczba_pominietych}, "
+        f"czas renderu {formatuj_liczbe(dane['czas_renderu_s'], 1)} s."
+    )
 
 
 def status_projektu(projekt_id: str, liczba_materialow: int) -> str:

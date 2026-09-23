@@ -294,6 +294,7 @@ async def test_zbyt_duzy_plik_zgloszony_przez_telegram_daje_komunikat_o_limicie(
 
 async def test_gotowe_czeka_na_trwajace_pobrania(srodowisko):
     dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    przygotuj_wzor_i_utwor(konf)
     sesja.opoznienie_pobierania_s = 0.5
     await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
 
@@ -370,6 +371,17 @@ async def wyslij_wzor(dyspozytor, bot_obiekt, nazwa: str = "wzor") -> None:
     await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/wzor")))
     wideo = zbuduj_wiadomosc(video=klip(f"f_{nazwa}", f"u_{nazwa}", file_size=1000))
     await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wideo))
+
+
+def przygotuj_wzor_i_utwor(konf: Konfiguracja) -> Path:
+    katalog_wzoru = konf.katalog_danych / "wzory" / "w1"
+    katalog_wzoru.mkdir(parents=True)
+    wzor_json = katalog_wzoru / "wzor.json"
+    wzor_przygotowany(wzor_json)
+    katalog_muzyki = konf.katalog_danych / "muzyka"
+    katalog_muzyki.mkdir(parents=True, exist_ok=True)
+    (katalog_muzyki / "staly.mp3").write_bytes(b"audio-testowe")
+    return wzor_json
 
 
 def wzor_przygotowany(sciezka: Path) -> None:
@@ -524,3 +536,176 @@ async def test_drugi_wzor_dostaje_pozycje_w_kolejce(z_praca_w_tle, monkeypatch):
     zwolnij.set()
     await czekaj_na_kolejke(kolejka_obiekt)
     assert sum(1 for t in teksty_odpowiedzi(sesja) if "ujęć 3" in t) == 2
+
+
+def podsumowanie_renderu_testowe() -> dict:
+    return {
+        "czas_s": 12.3,
+        "liczba_ujec": 20,
+        "materialy_uzyte": 5,
+        "materialy_pominiete": [],
+        "rozmiar_mb": 8.1,
+        "czas_renderu_s": 3.4,
+        "utwor": {"plik": "staly.mp3", "start_s": 0.5},
+    }
+
+
+async def wyslij_material_i_gotowe(dyspozytor, bot_obiekt) -> None:
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+    wiadomosc = zbuduj_wiadomosc(photo=zdjecie("f_material", "u_material", file_size=1000))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/gotowe")))
+
+
+def jedyny_projekt_id(konf) -> str:
+    projekty = list((konf.katalog_danych / "projekty").iterdir())
+    assert len(projekty) == 1
+    return projekty[0].name
+
+
+def render_udany_podmieniony():
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wyjscie = Path(argumenty[argumenty.index("--wyjscie") + 1])
+        wyjscie.write_bytes(b"wideo-testowe")
+        wyjscie.with_suffix(".json").write_text(json.dumps(podsumowanie_renderu_testowe()), encoding="utf-8")
+        return kolejka.Wynik(kod=0, stdout="", stderr="", czas_s=0.1, przekroczono_czas=False)
+
+    return uruchom_podmienione
+
+
+async def test_render_sukces_jedno_send_document(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+
+    monkeypatch.setattr(kolejka, "uruchom", render_udany_podmieniony())
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    wywolania_wysylki = [m for m in sesja.wywolania if type(m).__name__ == "SendDocument"]
+    assert len(wywolania_wysylki) == 1
+    assert "ujęć 20" in wywolania_wysylki[0].caption
+    projekt_id = jedyny_projekt_id(konf)
+    dane_projektu = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / projekt_id)
+    assert dane_projektu["stan"] == "gotowy"
+    assert dane_projektu["wynik"] == "wynik.mp4"
+
+
+async def test_render_blad_daje_komunikat_i_stan_blad(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        return kolejka.Wynik(kod=1, stdout="", stderr="Brak dobrego materialu\ndruga linia\n", czas_s=0.1, przekroczono_czas=False)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    projekt_id = jedyny_projekt_id(konf)
+    dane_projektu = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / projekt_id)
+    assert dane_projektu["stan"] == "blad"
+    assert dane_projektu["blad"] == "Brak dobrego materialu"
+    assert teksty_odpowiedzi(sesja)[-1] == "Montaż nie powiódł się: Brak dobrego materialu"
+    assert "SendDocument" not in nazwy_wywolan(sesja)
+
+
+async def test_brak_wzoru_nie_dodaje_zadania_do_kolejki(z_praca_w_tle):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+
+    assert kolejka_obiekt.dlugosc() == 0
+    assert teksty_odpowiedzi(sesja)[-1] == "Najpierw wyślij wzór przez /wzor."
+
+
+async def test_brak_utworu_nie_dodaje_zadania_do_kolejki(z_praca_w_tle):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    katalog_wzoru = konf.katalog_danych / "wzory" / "w1"
+    katalog_wzoru.mkdir(parents=True)
+    wzor_przygotowany(katalog_wzoru / "wzor.json")
+
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+
+    assert kolejka_obiekt.dlugosc() == 0
+    assert teksty_odpowiedzi(sesja)[-1] == "Brak utworu do montażu. Dodaj plik dane/muzyka/staly.mp3."
+
+
+async def test_limit_mb_renderu_bez_lokalnego_serwera(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    konf.limit_wysylki_mb = 200
+    przygotuj_wzor_i_utwor(konf)
+    wywolania = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    argumenty = wywolania[0]
+    assert argumenty[argumenty.index("--limit-mb") + 1] == "50"
+
+
+async def test_limit_mb_renderu_z_lokalnym_serwerem(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    konf.limit_wysylki_mb = 200
+    konf.telegram_api_url = "http://bot-api:8081"
+    przygotuj_wzor_i_utwor(konf)
+    wywolania = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    argumenty = wywolania[0]
+    assert argumenty[argumenty.index("--limit-mb") + 1] == "200"
+
+
+async def test_dokument_za_duzy_przy_wysylce_daje_komunikat(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    sesja.dokument_za_duzy = True
+    przygotuj_wzor_i_utwor(konf)
+
+    monkeypatch.setattr(kolejka, "uruchom", render_udany_podmieniony())
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    assert "MB" in teksty_odpowiedzi(sesja)[-1]
+
+
+async def test_pdf_w_trakcie_zbierania_daje_komunikat_i_zero_plikow(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+    wiadomosc = zbuduj_wiadomosc(document=dokument("f_pdf", "u_pdf", nazwa="dokument.pdf", mime="application/pdf", file_size=1000))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+
+    assert "GetFile" not in nazwy_wywolan(sesja)
+    assert teksty_odpowiedzi(sesja)[-1] == "Nie rozpoznaję tego typu pliku. Wyślij zdjęcie albo klip."
+    dane_stanu = await dyspozytor.storage.get_data(key=klucz_stanu(bot_obiekt))
+    projekt_id = dane_stanu["projekt_id"]
+    materialy = magazyn.lista_materialow(konf.katalog_danych / "projekty" / projekt_id)
+    assert len(materialy) == 0
+
+
+async def test_nieudane_pobranie_wzoru_nie_zostawia_katalogu(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    sesja.plik_za_duzy = True
+    await wyslij_wzor(dyspozytor, bot_obiekt)
+
+    katalog_wzorow = konf.katalog_danych / "wzory"
+    assert list(katalog_wzorow.iterdir()) == []
+
+
+async def test_status_nie_liczy_katalogu_bez_wzor_json(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    pusty = konf.katalog_danych / "wzory" / "pusty"
+    pusty.mkdir(parents=True)
+    przygotuj_wzor_i_utwor(konf)
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/status")))
+    assert "wzorów zapisanych: 1" in teksty_odpowiedzi(sesja)[-1]

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from aiogram import Bot
 from aiogram.client.session.base import BaseSession
 from aiogram.exceptions import TelegramEntityTooLarge
-from aiogram.methods import GetFile, SendMessage
+from aiogram.methods import GetFile, SendDocument, SendMessage
 from aiogram.types import (
     Animation,
     Chat,
@@ -99,6 +99,7 @@ class SesjaTestowa(BaseSession):
         self.opoznienie_pobierania_s = 0.0
         self.tresc_pliku = b"zawartosc-testowa"
         self.plik_za_duzy = False
+        self.dokument_za_duzy = False
 
     async def close(self) -> None:
         return None
@@ -117,6 +118,16 @@ class SesjaTestowa(BaseSession):
                 date=datetime.now(timezone.utc),
                 chat=Chat(id=method.chat_id, type="private"),
                 text=method.text,
+            )
+        if isinstance(method, SendDocument):
+            if self.dokument_za_duzy:
+                raise TelegramEntityTooLarge(method=method, message="file is too big")
+            return Message(
+                message_id=nastepny_message_id(),
+                date=datetime.now(timezone.utc),
+                chat=Chat(id=method.chat_id, type="private"),
+                document=Document(file_id="wynik", file_unique_id="wynik_unikalny", file_name="wynik.mp4"),
+                caption=method.caption,
             )
         return True
 
