@@ -253,23 +253,22 @@ def przebieg_koncowy(polaczone_wideo: Path, utwor: Path, start_audio_s: float, l
 
     filtr = (
         "[0:v]setsar=1[v];"
-        f"[1:a]atrim=start={start_audio_s:.6f}:duration={czas_trwania_s:.6f},"
-        "asetpts=PTS-STARTPTS,"
-        f"afade=t=out:st={poczatek_wyciszenia:.6f}:d={wyciszenie_s:.6f}[a]"
+        f"[1:a]afade=t=out:st={poczatek_wyciszenia:.6f}:d={wyciszenie_s:.6f}[a]"
     )
 
     uruchom_ffmpeg([
         "-i", str(polaczone_wideo),
-        "-i", str(utwor),
+        "-ss", f"{start_audio_s:.6f}", "-t", f"{czas_trwania_s:.6f}", "-i", str(utwor),
         "-filter_complex", filtr,
         "-map", "[v]", "-map", "[a]",
         "-r", str(fps),
+        "-frames:v", str(liczba_klatek),
         "-c:v", "libx264", "-profile:v", "high", "-preset", "medium", "-crf", "20",
         "-maxrate", str(maxrate_bps), "-bufsize", str(bufsize_bps), "-x264-params", "vbv-init=0",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", str(bitrate_audio_bps),
         "-movflags", "+faststart",
-        "-shortest",
+        "-t", f"{czas_trwania_s:.6f}",
         str(wyjscie),
     ])
 
