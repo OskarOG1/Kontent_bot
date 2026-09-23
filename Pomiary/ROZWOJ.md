@@ -45,6 +45,13 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-23 (część 3, zadanie 3.1: generator zdjęć i klipów)
+- Gałąź `render` utworzona od `main` (`0e84cba` jest przodkiem, `git diff --stat 0e84cba -- src/ tests/` pokazuje tylko zmiany części 7.2/7.3 w `bot.py`/`konfiguracja.py`, kotwice `magazyn.py` i `analyze.py` z planu bez przesunięć). Baseline przed zadaniem: 75 z 75.
+- Dopisane do `tests/generuj.py`: `zdjecie_testowe` (obrót EXIF 6/8 przez odwrotną transpozycję PIL względem tej, której użyje `ImageOps.exif_transpose`, przezroczysty róg dla `alfa=True`), `klip_testowy`, `szum`. `requirements.txt` dostał `pillow` i `pillow-heif` (część 3 ich potrzebuje, nie doinstalowane wcześniej).
+- **Odkrycie o `-display_rotation` w ffmpeg 8.1.** To opcja wejścia, nie wyjścia (potwierdzone błędem ffmpeg i dokumentacją): podana wprost przy kodowaniu z pipe'a rawvideo powoduje wypieczenie obrotu w pikselach (autorotate podczas filtrowania), a nie zapis metadanych. Żeby dostać plik z samą metadaną obrotu (tak jak prawdziwe wideo z telefonu), potrzebne są dwa przebiegi: najpierw zwykłe kodowanie bez obrotu, potem remux `ffmpeg -display_rotation <kąt> -i posredni.mp4 -c copy wynik.mp4` (bez ponownego kodowania metadane trafiają do `side_data_list` jako `Display Matrix`, zgodnie z tym, co już czyta `analyze.obrocony_o_90`). Stary tag `-metadata:s:v:0 rotate=90` nie działa w tej wersji ffmpeg (sprawdzone empirycznie, zero efektu). `klip_testowy` używa tego dwuprzebiegowego remuxu przy `obrot != 0`.
+- Kierunek obrotu potwierdzony eksperymentalnie (ffmpeg opisuje `-display_rotation` jako kąt przeciwny do ruchu wskazówek zegara, jak stosowany do surowej klatki daje wynik wyświetlania): żeby po autorotacji wyjść na czerwień u góry, surowa klatka dla `obrot=90` to `np.rot90(wyswietlana, k=-1)`, dla `obrot=270` to `k=1`. Sprawdzone ręcznie w scratchpadzie przed wpisaniem do kodu, potem powtórzone jako test w `tests/test_render.py`.
+- Testy: 6 nowych w `tests/test_render.py` (exif_transpose dla orientacji 1/6/8, klip bez obrotu, klip z obrotem 90 i 270, PNG z przezroczystością, szum), razem 81 z 81. Commit `testy: zdjęcia i klipy z obrotem`.
+
 ### 2026-09-23 (punkt g: prawdziwy wzór 4K na serwerze)
 - Właściciel wysłał wzór do `@cwel54_bot`, bot go przyjął i przeanalizował. Liczby z serwera: `zrodlo.mp4` 160 132 475 B (153 MiB) pobrany w 8,98 s (czas obsługi update), `wzor.json` zapisany 51 s później, czyli od wysłania do podsumowania około 60 s. Próg 150 s z mapy nie został przekroczony, więc zadanie 5.0 (lekka kopia wzoru) odpada i idziemy prosto w część 3.
 - Wynik analizy na prawdziwym pliku zgodny z pomiarami lokalnymi: 2160x3840, 60 fps, 31,95 s, tempo 164,1 BPM, 33 wartości w `ciecia_s`.
