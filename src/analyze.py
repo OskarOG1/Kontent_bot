@@ -1,3 +1,4 @@
+import argparse
 import json
 import math
 import os
@@ -10,13 +11,15 @@ from pathlib import Path
 
 import numpy
 
-WERSJA_WZORU = 1
+WERSJA_WZORU = 2
 CZESTOTLIWOSC_ANALIZY = 22050
 KROK_ROZKLADU = 128
 KROK_DOKLADNY = 32
 OKNO_DOKLADNE = 512
 POSZUKIWANIE_S = 0.05
 START_BPM = 150.0
+KROK_CHROMA = 2048
+KROK_OBWIEDNI = 256
 
 
 class BladAnalizy(Exception):
@@ -120,8 +123,7 @@ def zdekoduj_do_wav(sciezka: Path, cel: Path) -> None:
         raise BladAnalizy("Nie udało się zdekodować dźwięku")
 
 
-def analizuj_rytm(sciezka) -> tuple[float | None, list[float]]:
-    warnings.filterwarnings("ignore")
+def analizuj_dzwiek(sciezka) -> dict | None:
     import librosa
 
     sciezka = Path(sciezka)
@@ -130,21 +132,58 @@ def analizuj_rytm(sciezka) -> tuple[float | None, list[float]]:
         try:
             zdekoduj_do_wav(sciezka, wav)
         except BladAnalizy:
-            return None, []
+            return None
         if not wav.exists() or wav.stat().st_size < 1000:
-            return None, []
-        sygnal, sr = librosa.load(str(wav), sr=CZESTOTLIWOSC_ANALIZY, mono=True)
+            return None
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sygnal, sr = librosa.load(str(wav), sr=CZESTOTLIWOSC_ANALIZY, mono=True)
     if len(sygnal) < sr:
+        return None
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        obwiednia_rytmu = librosa.onset.onset_strength(y=sygnal, sr=sr, hop_length=KROK_ROZKLADU)
+        tempo, pozycje_uderzen = librosa.beat.beat_track(
+            onset_envelope=obwiednia_rytmu, sr=sr, hop_length=KROK_ROZKLADU, units="time",
+            start_bpm=START_BPM, trim=False,
+        )
+        uderzenia_s = doprecyzuj_uderzenia(librosa, sygnal, sr, [float(t) for t in pozycje_uderzen])
+        chroma = librosa.feature.chroma_stft(y=sygnal, sr=sr, hop_length=KROK_CHROMA)
+        obwiednia_odcisku = librosa.onset.onset_strength(y=sygnal, sr=sr, hop_length=KROK_OBWIEDNI)
+
+    if len(uderzenia_s) < 2:
+        tempo_bpm = None
+        uderzenia_s = []
+        energia_uderzen = []
+    else:
+        tempo_bpm = round(float(numpy.asarray(tempo).reshape(-1)[0]), 1)
+        energia_uderzen = [
+            round(float(numpy.sqrt(numpy.mean(numpy.square(
+                sygnal[int(round(a * sr)):int(round(b * sr))]
+            )))), 4)
+            for a, b in zip(uderzenia_s, uderzenia_s[1:])
+        ]
+
+    return {
+        "czas_s": round(len(sygnal) / sr, 3),
+        "tempo_bpm": tempo_bpm,
+        "uderzenia_s": uderzenia_s,
+        "energia_uderzen": energia_uderzen,
+        "odcisk": {
+            "krok_chroma_s": round(KROK_CHROMA / sr, 5),
+            "chroma": [[round(float(wartosc), 4) for wartosc in klatka] for klatka in chroma.T],
+            "krok_obwiedni_s": round(KROK_OBWIEDNI / sr, 5),
+            "obwiednia": [round(float(wartosc), 4) for wartosc in obwiednia_odcisku],
+        },
+    }
+
+
+def analizuj_rytm(sciezka) -> tuple[float | None, list[float]]:
+    dzwiek = analizuj_dzwiek(sciezka)
+    if dzwiek is None:
         return None, []
-    obwiednia = librosa.onset.onset_strength(y=sygnal, sr=sr, hop_length=KROK_ROZKLADU)
-    tempo, uderzenia = librosa.beat.beat_track(
-        onset_envelope=obwiednia, sr=sr, hop_length=KROK_ROZKLADU, units="time", start_bpm=START_BPM
-    )
-    czasy = doprecyzuj_uderzenia(librosa, sygnal, sr, [float(t) for t in uderzenia])
-    if len(czasy) < 2:
-        return None, []
-    tempo_bpm = round(float(numpy.asarray(tempo).reshape(-1)[0]), 1)
-    return tempo_bpm, czasy
+    return dzwiek["tempo_bpm"], dzwiek["uderzenia_s"]
 
 
 def doprecyzuj_uderzenia(librosa, sygnal, sr: int, uderzenia: list[float]) -> list[float]:
@@ -219,15 +258,22 @@ def analizuj_wzor(sciezka, wzor_id: str) -> dict:
     ciecia = [c for c in wykryj_ciecia(sciezka) if c < czas_s]
     if not ciecia or ciecia[0] != 0.0:
         ciecia = [0.0] + [c for c in ciecia if c > 0.0]
-    if zrodlo["ma_dzwiek"]:
-        tempo, uderzenia = analizuj_rytm(sciezka)
+    dzwiek = analizuj_dzwiek(sciezka) if zrodlo["ma_dzwiek"] else None
+    if dzwiek is not None:
+        tempo = dzwiek["tempo_bpm"]
+        uderzenia = dzwiek["uderzenia_s"]
+        energia_uderzen = dzwiek["energia_uderzen"] if len(uderzenia) >= 2 else None
+        odcisk_dzwieku = dzwiek["odcisk"]
     else:
         tempo, uderzenia = None, []
+        energia_uderzen = None
+        odcisk_dzwieku = None
     if len(uderzenia) >= 2:
         ciecia_uderzenia = kwantyzuj([pozycja_w_uderzeniach(t, uderzenia) for t in ciecia])
         koniec_uderzenia = kwantyzuj([pozycja_w_uderzeniach(czas_s, uderzenia)])[0]
     else:
         tempo, uderzenia = None, []
+        energia_uderzen = None
         ciecia_uderzenia = None
         koniec_uderzenia = None
     return {
@@ -237,8 +283,10 @@ def analizuj_wzor(sciezka, wzor_id: str) -> dict:
         "ciecia_s": ciecia,
         "tempo_bpm": tempo,
         "uderzenia_s": uderzenia,
+        "energia_uderzen": energia_uderzen,
         "ciecia_uderzenia": ciecia_uderzenia,
         "koniec_uderzenia": koniec_uderzenia,
+        "odcisk_dzwieku": odcisk_dzwieku,
         "kolorystyka": None,
         "tekst": None,
     }
@@ -252,7 +300,36 @@ def zapisz_json(dane: dict, cel: Path) -> None:
     os.replace(tymczasowy, cel)
 
 
+def main_wszystkie(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="analyze.py --wszystkie")
+    parser.add_argument("--katalog-danych", default="dane")
+    ns = parser.parse_args(argv)
+    katalog_wzorow = Path(ns.katalog_danych) / "wzory"
+    przeliczone = pominiete = bledy = 0
+    if katalog_wzorow.is_dir():
+        for katalog in sorted(katalog_wzorow.iterdir()):
+            if not katalog.is_dir():
+                continue
+            zrodla = sorted(katalog.glob("zrodlo.*"))
+            if not zrodla:
+                print(f"Pomijam {katalog.name}: brak zrodlo.*")
+                pominiete += 1
+                continue
+            try:
+                dane = analizuj_wzor(zrodla[0], katalog.name)
+                zapisz_json(dane, katalog / "wzor.json")
+                przeliczone += 1
+            except Exception as blad:
+                opis = str(blad).splitlines()[0] if str(blad) else type(blad).__name__
+                print(f"Blad przy {katalog.name}: {opis}", file=sys.stderr)
+                bledy += 1
+    print(f"Przeliczone: {przeliczone}, pominiete: {pominiete}, bledy: {bledy}")
+    return 0 if bledy == 0 else 1
+
+
 def main(argv: list[str]) -> int:
+    if len(argv) >= 2 and argv[1] == "--wszystkie":
+        return main_wszystkie(argv[2:])
     if len(argv) != 3:
         print("Użycie: analyze.py <wejscie> <wyjscie.json>", file=sys.stderr)
         return 2

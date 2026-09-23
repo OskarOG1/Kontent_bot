@@ -22,6 +22,7 @@ import komunikaty
 import konfiguracja as konfiguracja_modul
 import kolejka as kolejka_modul
 import magazyn
+import music
 from konfiguracja import Konfiguracja
 
 log = logging.getLogger("bot")
@@ -154,7 +155,7 @@ async def renderuj_w_tle(
     message: Message,
     katalog_projektu: Path,
     wzor_json: Path,
-    utwor: Path,
+    katalog_muzyki: Path,
     konf: Konfiguracja,
     zapowiedz: asyncio.Event,
 ) -> None:
@@ -170,7 +171,7 @@ async def renderuj_w_tle(
         [
             sys.executable, str(SKRYPT_RENDERU),
             "--wzor", str(wzor_json), "--projekt", str(katalog_projektu),
-            "--utwor", str(utwor), "--wyjscie", str(wynik_mp4),
+            "--muzyka", str(katalog_muzyki), "--wyjscie", str(wynik_mp4),
             "--limit-mb", str(limit_mb),
         ],
         limit_s=LIMIT_RENDERU_S,
@@ -238,9 +239,9 @@ async def obsluz_cmd_gotowe(
         await message.answer(komunikaty.BRAK_WZORU)
         return
 
-    utwor = konf.katalog_danych / "muzyka" / "staly.mp3"
-    if not utwor.is_file():
-        await message.answer(komunikaty.BRAK_UTWORU)
+    katalog_muzyki = konf.katalog_danych / "muzyka"
+    if not music.pliki_muzyki(katalog_muzyki):
+        await message.answer(komunikaty.BRAK_MUZYKI)
         return
 
     dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
@@ -258,7 +259,7 @@ async def obsluz_cmd_gotowe(
     zapowiedz = asyncio.Event()
 
     async def zadanie() -> None:
-        await renderuj_w_tle(message, katalog_projektu, wzor_json, utwor, konf, zapowiedz)
+        await renderuj_w_tle(message, katalog_projektu, wzor_json, katalog_muzyki, konf, zapowiedz)
 
     pozycja = await kolejka_obiekt.dodaj(zadanie)
     try:
@@ -300,6 +301,7 @@ async def obsluz_cmd_status(
     if katalog_wzorow.exists():
         liczba_wzorow = sum(1 for katalog in katalog_wzorow.iterdir() if katalog.is_dir() and (katalog / "wzor.json").is_file())
     linie.append(komunikaty.status_kolejki(kolejka_obiekt.dlugosc(), liczba_wzorow))
+    linie.append(komunikaty.status_muzyki(len(music.pliki_muzyki(konf.katalog_danych / "muzyka"))))
     await message.answer("\n".join(linie))
 
 

@@ -13,6 +13,7 @@ from PIL import Image, ImageOps
 
 import analyze
 import magazyn
+import music
 
 pillow_heif.register_heif_opener()
 
@@ -179,17 +180,22 @@ def plan_ujec(
     materialy: list[dict],
     fps: int,
     start_uderzenie: int | None = None,
+    przesuniecie_s: float | None = None,
 ) -> dict:
-    ciecia_uderzenia = wzor.get("ciecia_uderzenia") or []
-    if ciecia_uderzenia and len(uderzenia_utworu) >= 2:
-        c0 = ciecia_uderzenia[0]
-        s = start_uderzenie if start_uderzenie is not None else znajdz_start_uderzenia(c0, uderzenia_utworu)
-        pozycje = list(ciecia_uderzenia) + [wzor["koniec_uderzenia"]]
-        czasy = [analyze.czas_z_pozycji(s + p, uderzenia_utworu) for p in pozycje]
-    else:
+    if przesuniecie_s is not None:
         czasy = list(wzor["ciecia_s"]) + [wzor["zrodlo"]["czas_s"]]
+        start_audio_s = przesuniecie_s
+    else:
+        ciecia_uderzenia = wzor.get("ciecia_uderzenia") or []
+        if ciecia_uderzenia and len(uderzenia_utworu) >= 2:
+            c0 = ciecia_uderzenia[0]
+            s = start_uderzenie if start_uderzenie is not None else znajdz_start_uderzenia(c0, uderzenia_utworu)
+            pozycje = list(ciecia_uderzenia) + [wzor["koniec_uderzenia"]]
+            czasy = [analyze.czas_z_pozycji(s + p, uderzenia_utworu) for p in pozycje]
+        else:
+            czasy = list(wzor["ciecia_s"]) + [wzor["zrodlo"]["czas_s"]]
+        start_audio_s = czasy[0]
 
-    start_audio_s = czasy[0]
     liczba_klatek = round((czasy[-1] - czasy[0]) * fps)
     if liczba_klatek <= 0:
         raise ValueError("Utwór za krótki na całe okno wzoru")
@@ -208,6 +214,7 @@ def plan_ujec(
             "klatka_od": klatka_od,
             "liczba_klatek": dlugosc,
             "start_w_klipie_s": kawalek["od_s"] if kawalek["typ"] == "klip" else 0.0,
+            "numer_wzoru": k,
         })
 
     return {
@@ -297,24 +304,45 @@ def zweryfikuj_wynik(wyjscie: Path, szerokosc: int, wysokosc: int, fps: float, l
         raise RuntimeError(f"Plik wynikowy {rozmiar_mb:.2f} MB przekracza limit {limit_mb} MB")
 
 
+def przygotuj_zrodlo_dzwieku(wzor: dict, utwor: Path | None, muzyka: Path | None):
+    if utwor is not None:
+        utwor = Path(utwor)
+        _, uderzenia_utworu = analyze.analizuj_rytm(utwor)
+        return utwor, "staly", uderzenia_utworu, None, None, None
+    if muzyka is not None:
+        muzyka = Path(muzyka)
+        indeks, _ = music.indeksuj(muzyka)
+        wybor = music.wybierz_utwor(wzor, indeks)
+        utwor = muzyka / wybor["plik"]
+        tryb = wybor["tryb"]
+        if tryb == "dzwiek_wzoru":
+            return utwor, tryb, [], None, wybor["przesuniecie_s"], wybor
+        if tryb == "tempo":
+            return utwor, tryb, wybor["uderzenia_s"], wybor["start_uderzenie"], None, wybor
+        return utwor, tryb, [], None, None, wybor
+    raise RuntimeError("Brak utworu i katalogu muzyki")
+
+
 def renderuj(
     wzor_json: Path,
     katalog_projektu: Path,
-    utwor: Path,
+    utwor: Path | None,
     wyjscie: Path,
     szerokosc: int = 1080,
     wysokosc: int = 1920,
     fps: int = 30,
     limit_mb: float = 50,
+    muzyka: Path | None = None,
 ) -> dict:
     czas_startu = time.time()
     wzor_json = Path(wzor_json)
     katalog_projektu = Path(katalog_projektu)
-    utwor = Path(utwor)
     wyjscie = Path(wyjscie)
 
     with open(wzor_json, "r", encoding="utf-8") as plik:
         wzor = json.load(plik)
+
+    utwor, tryb, uderzenia_utworu, start_uderzenie, przesuniecie_s, wybor = przygotuj_zrodlo_dzwieku(wzor, utwor, muzyka)
 
     materialy_surowe = magazyn.lista_materialow(katalog_projektu)
     if not materialy_surowe:
@@ -339,15 +367,19 @@ def renderuj(
     if not dobre:
         raise RuntimeError("Brak dobrego materiału do renderu")
 
-    _, uderzenia_utworu = analyze.analizuj_rytm(utwor)
-
     material_zastepczy = [{"plik": "zastepczy", "typ": "zdjecie", "message_id": 0}]
-    plan_wstepny = plan_ujec(wzor, uderzenia_utworu, material_zastepczy, fps)
+    plan_wstepny = plan_ujec(
+        wzor, uderzenia_utworu, material_zastepczy, fps,
+        start_uderzenie=start_uderzenie, przesuniecie_s=przesuniecie_s,
+    )
     dlugosci_s = [u["liczba_klatek"] / fps for u in plan_wstepny["ujecia"]]
     dlugosc_wstawki_s = min(2.0, max(0.5, statistics.median(dlugosci_s)))
 
     kawalki = wstawki(dobre, dlugosc_wstawki_s)
-    plan = plan_ujec(wzor, uderzenia_utworu, kawalki, fps)
+    plan = plan_ujec(
+        wzor, uderzenia_utworu, kawalki, fps,
+        start_uderzenie=start_uderzenie, przesuniecie_s=przesuniecie_s,
+    )
 
     sciezki_robocze = {str(material["plik"]): material["plik_roboczy"] for material in dobre if material["typ"] == "zdjecie"}
 
@@ -376,7 +408,14 @@ def renderuj(
         "materialy_pominiete": materialy_pominiete,
         "rozmiar_mb": round(rozmiar_mb, 2),
         "czas_renderu_s": round(time.time() - czas_startu, 2),
-        "utwor": {"plik": utwor.name, "start_s": round(plan["start_audio_s"], 3)},
+        "utwor": {
+            "plik": utwor.name,
+            "tryb": tryb,
+            "zgodnosc": wybor.get("zgodnosc") if wybor else None,
+            "start_s": round(plan["start_audio_s"], 3),
+            "tempo_bpm": wybor.get("tempo_bpm") if wybor else None,
+            "mnoznik": wybor.get("mnoznik") if wybor else 1.0,
+        },
     }
 
     sciezka_podsumowania = wyjscie.with_suffix(".json")
@@ -391,7 +430,8 @@ def glowna(argumenty: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--wzor", required=True)
     parser.add_argument("--projekt", required=True)
-    parser.add_argument("--utwor", required=True)
+    parser.add_argument("--utwor")
+    parser.add_argument("--muzyka")
     parser.add_argument("--wyjscie", required=True)
     parser.add_argument("--szerokosc", type=int, default=1080)
     parser.add_argument("--wysokosc", type=int, default=1920)
@@ -400,8 +440,10 @@ def glowna(argumenty: list[str] | None = None) -> int:
     ustalone = parser.parse_args(argumenty)
     try:
         renderuj(
-            Path(ustalone.wzor), Path(ustalone.projekt), Path(ustalone.utwor), Path(ustalone.wyjscie),
+            Path(ustalone.wzor), Path(ustalone.projekt),
+            Path(ustalone.utwor) if ustalone.utwor else None, Path(ustalone.wyjscie),
             szerokosc=ustalone.szerokosc, wysokosc=ustalone.wysokosc, fps=ustalone.fps, limit_mb=ustalone.limit_mb,
+            muzyka=Path(ustalone.muzyka) if ustalone.muzyka else None,
         )
     except Exception as blad:
         print(str(blad), file=sys.stderr)

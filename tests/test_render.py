@@ -213,6 +213,26 @@ def test_plan_ujec_dwa_ciecia_w_tej_samej_klatce_ujecie_wypada():
     assert [(u["klatka_od"], u["liczba_klatek"]) for u in wynik["ujecia"]] == [(0, 10), (10, 10)]
 
 
+def test_plan_ujec_przesuniecie_s_ustawia_start_audio_i_numer_wzoru():
+    wzor = {"ciecia_s": [0.0, 0.9, 2.1], "zrodlo": {"czas_s": 3.0}}
+    materialy = materialy_zdjec(3)
+
+    wynik = render.plan_ujec(wzor, [], materialy, fps=30, przesuniecie_s=5.0)
+
+    assert wynik["start_audio_s"] == 5.0
+    assert wynik["liczba_klatek"] == 90
+    assert [(u["klatka_od"], u["numer_wzoru"]) for u in wynik["ujecia"]] == [(0, 0), (27, 1), (63, 2)]
+
+
+def test_plan_ujec_numer_wzoru_przeskakuje_przy_pustym_ujeciu():
+    wzor = {"ciecia_s": [0.0, 0.03, 1.0], "zrodlo": {"czas_s": 2.0}}
+    materialy = materialy_zdjec(2)
+
+    wynik = render.plan_ujec(wzor, [], materialy, fps=10, przesuniecie_s=0.0)
+
+    assert [(u["klatka_od"], u["numer_wzoru"]) for u in wynik["ujecia"]] == [(0, 1), (10, 2)]
+
+
 def test_plan_ujec_okno_bez_dlugosci_daje_value_error():
     uderzenia_utworu = [round(0.2 + i * 0.5, 6) for i in range(20)]
     wzor = {"ciecia_uderzenia": [5.0], "koniec_uderzenia": 5.0}
@@ -561,6 +581,63 @@ def test_cli_blad_jedna_linia_na_stderr(tmp_path, capsys):
     kod = render.glowna([
         "--wzor", str(tmp_path / "brak.json"), "--projekt", str(tmp_path / "projekt"),
         "--utwor", str(tmp_path / "brak.wav"), "--wyjscie", str(tmp_path / "brak_wyniku.mp4"),
+    ])
+    assert kod != 0
+    assert len(capsys.readouterr().err.strip().splitlines()) == 1
+
+
+def test_renderuj_bez_utworu_wybiera_z_biblioteki_muzyki(tmp_path):
+    katalog_muzyki = tmp_path / "muzyka"
+    katalog_muzyki.mkdir()
+    generuj.melodia(katalog_muzyki / "a.wav", 120, 20.0, ziarno=1)
+    generuj.melodia(katalog_muzyki / "b.wav", 120, 20.0, ziarno=2)
+
+    def dodaj(katalog):
+        for i in range(4):
+            generuj.zdjecie_testowe(katalog / f"000000000{i}_m.jpg", rozmiar=(800, 600), kolor=generuj.kolor_ujecia(i))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    wav_c = tmp_path / "c.wav"
+    generuj.melodia(wav_c, 120, 20.0, ziarno=3)
+    wideo = tmp_path / "wzor.mp4"
+    generuj.wideo_z_cieciami(wideo, [1.0, 5.0, 10.0, 15.0], 20.0, dzwiek=wav_c)
+    wzor = analyze.analizuj_wzor(wideo, "wzor")
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor), encoding="utf-8")
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(
+        wzor_json, projekt, None, wyjscie,
+        szerokosc=270, wysokosc=480, fps=30, limit_mb=50, muzyka=katalog_muzyki,
+    )
+
+    assert podsumowanie["utwor"]["tryb"] == "tempo"
+    assert podsumowanie["utwor"]["plik"] in ("a.wav", "b.wav")
+    dane = uruchom_ffprobe(wyjscie)
+    strumien = strumien_wideo(dane)
+    assert strumien["pix_fmt"] == "yuv420p"
+    assert any(s["codec_type"] == "audio" for s in dane["streams"])
+
+
+def test_renderuj_bez_utworu_i_bez_muzyki_daje_blad(tmp_path):
+    def dodaj(katalog):
+        generuj.zdjecie_testowe(katalog / "0000000001_a.jpg", rozmiar=(800, 600))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_syntetyczny_4_ciecia()), encoding="utf-8")
+    wyjscie = tmp_path / "wynik.mp4"
+
+    with pytest.raises(RuntimeError):
+        render.renderuj(wzor_json, projekt, None, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50)
+
+
+def test_cli_bez_utworu_i_bez_muzyki_jedna_linia_na_stderr(tmp_path, capsys):
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_syntetyczny_4_ciecia()), encoding="utf-8")
+
+    kod = render.glowna([
+        "--wzor", str(wzor_json), "--projekt", str(tmp_path / "projekt"), "--wyjscie", str(tmp_path / "wynik.mp4"),
     ])
     assert kod != 0
     assert len(capsys.readouterr().err.strip().splitlines()) == 1

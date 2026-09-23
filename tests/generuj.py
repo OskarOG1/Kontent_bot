@@ -22,7 +22,26 @@ ODWROTNA_TRANSPOZYCJA_EXIF = {
 OBROT_DO_K_ROT90 = {90: -1, 180: 2, 270: 1}
 
 
-def klik(sciezka_wav: Path, bpm: float, czas_s: float, pierwsze_uderzenie_s: float = 0.0, sr: int = 22050) -> list[float]:
+def profil_glosnosci(czas: float, glosnosc) -> float:
+    if not glosnosc:
+        return 1.0
+    mnoznik = glosnosc[0][1]
+    for od_s, wartosc in glosnosc:
+        if czas >= od_s:
+            mnoznik = wartosc
+        else:
+            break
+    return mnoznik
+
+
+def klik(
+    sciezka_wav: Path,
+    bpm: float,
+    czas_s: float,
+    pierwsze_uderzenie_s: float = 0.0,
+    sr: int = 22050,
+    glosnosc=None,
+) -> list[float]:
     liczba_probek = int(round(czas_s * sr))
     sygnal = np.zeros(liczba_probek, dtype=np.float32)
     dlugosc_klika = int(0.03 * sr)
@@ -38,7 +57,49 @@ def klik(sciezka_wav: Path, bpm: float, czas_s: float, pierwsze_uderzenie_s: flo
         if poczatek >= liczba_probek:
             break
         koniec = min(poczatek + dlugosc_klika, liczba_probek)
-        sygnal[poczatek:koniec] += ziarno[: koniec - poczatek].astype(np.float32)
+        mnoznik = profil_glosnosci(czas, glosnosc)
+        sygnal[poczatek:koniec] += (ziarno[: koniec - poczatek] * mnoznik).astype(np.float32)
+        czasy.append(czas)
+        k += 1
+    sygnal = np.clip(sygnal * 0.9, -1.0, 1.0)
+    soundfile.write(str(sciezka_wav), sygnal, sr, subtype="PCM_16")
+    return czasy
+
+
+def melodia(
+    sciezka_wav: Path,
+    bpm: float,
+    czas_s: float,
+    ziarno: int = 0,
+    sr: int = 22050,
+    glosnosc=None,
+) -> list[float]:
+    liczba_probek = int(round(czas_s * sr))
+    sygnal = np.zeros(liczba_probek, dtype=np.float32)
+    dlugosc_klika = int(0.03 * sr)
+    tk = np.arange(dlugosc_klika) / sr
+    generator = np.random.default_rng(ziarno)
+    tlo = generator.uniform(-1.0, 1.0, dlugosc_klika)
+    ziarno_klika = (0.7 * np.cos(2 * np.pi * 1500 * tk) + 0.3 * tlo) * np.exp(-tk / 0.006)
+    odstep = 60.0 / bpm
+    dlugosc_tonu = max(1, int(round(0.5 * odstep * sr)))
+    tt = np.arange(dlugosc_tonu) / sr
+    obwiednia_tonu = np.exp(-tt / max(1e-6, 0.5 * odstep * 0.3))
+    czasy = []
+    k = 0
+    while True:
+        czas = k * odstep
+        poczatek = int(round(czas * sr))
+        if poczatek >= liczba_probek:
+            break
+        mnoznik = profil_glosnosci(czas, glosnosc)
+        koniec_klika = min(poczatek + dlugosc_klika, liczba_probek)
+        sygnal[poczatek:koniec_klika] += (ziarno_klika[: koniec_klika - poczatek] * mnoznik).astype(np.float32)
+        polton = int(generator.integers(0, 24))
+        czestotliwosc = 220.0 * (2 ** (polton / 12))
+        ton = np.sin(2 * np.pi * czestotliwosc * tt) * obwiednia_tonu
+        koniec_tonu = min(poczatek + dlugosc_tonu, liczba_probek)
+        sygnal[poczatek:koniec_tonu] += (ton[: koniec_tonu - poczatek] * mnoznik * 0.5).astype(np.float32)
         czasy.append(czas)
         k += 1
     sygnal = np.clip(sygnal * 0.9, -1.0, 1.0)
@@ -68,6 +129,7 @@ def wideo_z_cieciami(
     bpm: float | None = None,
     pierwsze_uderzenie_s: float = 0.0,
     blyski_s=(),
+    dzwiek: Path | None = None,
 ) -> None:
     sciezka = Path(sciezka)
     szerokosc, wysokosc = rozmiar
@@ -90,12 +152,15 @@ def wideo_z_cieciami(
             "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{szerokosc}x{wysokosc}",
             "-framerate", ulamek_fps(fps), "-i", "pipe:0",
         ]
-        if bpm is not None:
+        ma_dzwiek = dzwiek is not None or bpm is not None
+        if dzwiek is not None:
+            argumenty += ["-i", str(dzwiek)]
+        elif bpm is not None:
             sciezka_wav = katalog / "klik.wav"
             klik(sciezka_wav, bpm, czas_s, pierwsze_uderzenie_s)
             argumenty += ["-i", str(sciezka_wav)]
         argumenty += ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p"]
-        if bpm is not None:
+        if ma_dzwiek:
             argumenty += ["-c:a", "aac", "-b:a", "128k"]
         else:
             argumenty += ["-an"]

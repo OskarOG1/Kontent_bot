@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -8,7 +9,7 @@ import pytest
 import soundfile
 
 import analyze
-from generuj import klik, wideo_z_cieciami
+from generuj import klik, melodia, wideo_z_cieciami
 
 
 def ffprobe_json(sciezka, *argumenty) -> dict:
@@ -195,11 +196,13 @@ def test_wideo_bez_dzwieku_ma_puste_pola_rytmu(tmp_path):
     assert wynik.returncode == 0
     dane = json.loads(wyjscie.read_text(encoding="utf-8"))
     assert dane["id"] == "20260921_153012"
-    assert dane["wersja"] == 1
+    assert dane["wersja"] == 2
     assert dane["tempo_bpm"] is None
     assert dane["uderzenia_s"] == []
+    assert dane["energia_uderzen"] is None
     assert dane["ciecia_uderzenia"] is None
     assert dane["koniec_uderzenia"] is None
+    assert dane["odcisk_dzwieku"] is None
     assert dane["zrodlo"] == {"czas_s": 2.0, "szerokosc": 270, "wysokosc": 480, "fps": 30.0, "ma_dzwiek": False}
     assert dane["kolorystyka"] is None and dane["tekst"] is None
 
@@ -230,3 +233,82 @@ def test_cli_na_pliku_bez_wideo_konczy_sie_bledem(tmp_path):
     wynik = uruchom_cli(wav, tmp_path / "wzor.json")
     assert wynik.returncode != 0
     assert len(wynik.stderr.strip().splitlines()) == 1
+
+
+def test_odcisk_dzwieku_ma_oczekiwany_ksztalt_i_typy(tmp_path):
+    wav = tmp_path / "melodia.wav"
+    melodia(wav, 120, 20.0, ziarno=1)
+    dzwiek = analyze.analizuj_dzwiek(wav)
+    odcisk = dzwiek["odcisk"]
+    oczekiwane_chroma = 20 / 0.09288
+    oczekiwane_obwiednia = 20 / 0.01161
+    assert abs(len(odcisk["chroma"]) - oczekiwane_chroma) <= 2
+    assert all(len(klatka) == 12 for klatka in odcisk["chroma"])
+    assert abs(len(odcisk["obwiednia"]) - oczekiwane_obwiednia) <= 2
+    assert all(type(wartosc) is float for klatka in odcisk["chroma"] for wartosc in klatka)
+    assert all(type(wartosc) is float for wartosc in odcisk["obwiednia"])
+
+
+def test_energia_uderzen_odzwierciedla_glosnosc(tmp_path):
+    wav = tmp_path / "melodia.wav"
+    melodia(wav, 120, 20.0, ziarno=1, glosnosc=[(0, 0.1), (10, 1.0)])
+    dzwiek = analyze.analizuj_dzwiek(wav)
+    uderzenia = dzwiek["uderzenia_s"]
+    energia = dzwiek["energia_uderzen"]
+    assert len(energia) == len(uderzenia) - 1
+    przed = [e for u, e in zip(uderzenia, energia) if u < 10.0]
+    po = [e for u, e in zip(uderzenia, energia) if u >= 10.0]
+    assert przed and po
+    assert (sum(po) / len(po)) >= 5 * (sum(przed) / len(przed))
+
+
+def test_analizuj_dzwiek_bez_dzwieku_daje_none(tmp_path):
+    sciezka = tmp_path / "bez_dzwieku.mp4"
+    wideo_z_cieciami(sciezka, [1.0], 2.0)
+    assert analyze.analizuj_dzwiek(sciezka) is None
+    wzor = analyze.analizuj_wzor(sciezka, "abc")
+    assert wzor["odcisk_dzwieku"] is None
+    assert wzor["energia_uderzen"] is None
+
+
+def test_analizuj_wzor_z_melodia_daje_wersje_2(tmp_path):
+    sciezka = tmp_path / "wzor.mp4"
+    wav = tmp_path / "melodia.wav"
+    melodia(wav, 120, 8.0, ziarno=2)
+    wideo_z_cieciami(sciezka, [1.0, 4.0], 8.0, dzwiek=wav)
+    wzor = analyze.analizuj_wzor(sciezka, "abc")
+    assert wzor["wersja"] == 2
+    assert wzor["odcisk_dzwieku"] is not None
+    assert wzor["energia_uderzen"] is not None
+
+
+def test_wszystkie_przelicza_tylko_katalogi_ze_zrodlem(tmp_path):
+    katalog_danych = tmp_path / "dane"
+    wzor_a = katalog_danych / "wzory" / "aaa"
+    wzor_b = katalog_danych / "wzory" / "bbb"
+    wzor_a.mkdir(parents=True)
+    wzor_b.mkdir(parents=True)
+    wideo_z_cieciami(wzor_a / "zrodlo.mp4", [1.0], 2.0)
+    stary = {"wersja": 1, "id": "bbb", "cos": "nietkniete"}
+    (wzor_b / "wzor.json").write_text(json.dumps(stary), encoding="utf-8")
+
+    wynik = subprocess.run(
+        [sys.executable, str(SKRYPT), "--wszystkie", "--katalog-danych", str(katalog_danych)],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+    )
+    assert wynik.returncode == 0
+    dane_a = json.loads((wzor_a / "wzor.json").read_text(encoding="utf-8"))
+    assert dane_a["id"] == "aaa"
+    assert dane_a["wersja"] == 2
+    dane_b = json.loads((wzor_b / "wzor.json").read_text(encoding="utf-8"))
+    assert dane_b == stary
+
+
+def test_analizuj_rytm_nie_zmienia_globalnych_filtrow_warnings(tmp_path):
+    wav = tmp_path / "klik.wav"
+    klik(wav, 120, 4.0)
+    przed = list(warnings.filters)
+    analyze.analizuj_rytm(wav)
+    assert list(warnings.filters) == przed

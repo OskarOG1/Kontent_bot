@@ -1,3 +1,5 @@
+from pathlib import Path
+
 POMOC = (
     "Cześć! Montuję edity wideo 9:16 według Twojego wzoru.\n"
     "/wzor, żeby wysłać nowy wzorcowy edit.\n"
@@ -34,7 +36,7 @@ STATUS_BRAK_PROJEKTU = "Nie zbierasz teraz żadnego projektu."
 
 BRAK_WZORU = "Najpierw wyślij wzór przez /wzor."
 
-BRAK_UTWORU = "Brak utworu do montażu. Dodaj plik dane/muzyka/staly.mp3."
+BRAK_MUZYKI = "Biblioteka muzyki jest pusta. Dodaj utwory do dane/muzyka."
 
 MATERIAL_NIEPOPRAWNY_TYP = "Nie rozpoznaję tego typu pliku. Wyślij zdjęcie albo klip."
 
@@ -92,13 +94,24 @@ def blad_renderu(opis: str) -> str:
     return f"Montaż nie powiódł się: {opis}"
 
 
+def linia_muzyki(dane_utworu: dict) -> str:
+    nazwa = Path(dane_utworu["plik"]).stem
+    tryb = dane_utworu.get("tryb")
+    if tryb == "dzwiek_wzoru":
+        return f"Muzyka: {nazwa}, dźwięk wzoru od {formatuj_liczbe(dane_utworu['start_s'], 1)} s."
+    if tryb == "tempo":
+        return f"Muzyka: {nazwa}, dobór po tempie {formatuj_liczbe(dane_utworu['tempo_bpm'], 1)} BPM, od {formatuj_liczbe(dane_utworu['start_s'], 1)} s."
+    return f"Muzyka: {nazwa}, od początku."
+
+
 def podsumowanie_renderu(dane: dict) -> str:
     liczba_pominietych = len(dane.get("materialy_pominiete", []))
-    return (
+    pierwsza_linia = (
         f"Gotowe: {formatuj_liczbe(dane['czas_s'], 1)} s, ujęć {dane['liczba_ujec']}, "
         f"materiałów użytych {dane['materialy_uzyte']}, pominiętych {liczba_pominietych}, "
         f"czas renderu {formatuj_liczbe(dane['czas_renderu_s'], 1)} s."
     )
+    return f"{pierwsza_linia}\n{linia_muzyki(dane['utwor'])}"
 
 
 def status_projektu(projekt_id: str, liczba_materialow: int) -> str:
@@ -107,3 +120,7 @@ def status_projektu(projekt_id: str, liczba_materialow: int) -> str:
 
 def status_kolejki(dlugosc_kolejki: int, liczba_wzorow: int) -> str:
     return f"Kolejka zadań: {dlugosc_kolejki}, wzorów zapisanych: {liczba_wzorow}."
+
+
+def status_muzyki(liczba_utworow: int) -> str:
+    return f"Muzyka: {liczba_utworow} utworów."
