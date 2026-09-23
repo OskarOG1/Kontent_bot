@@ -1,5 +1,7 @@
 # Część 3: render z jednym stałym utworem
 
+**Status (2026-09-23):** część 7 wdrożona i zamknięta, `main` zawiera `wdroz.ps1` pakujący `main` oraz lokalny serwer Bot API; zadanie 5.0 odpada (analiza wzoru 4K na serwerze 51 s). Materiały gotowe: `dane/muzyka/staly.mp3` (164,1 BPM, to samo tempo co wzór `0915`) lokalnie i na serwerze, próbki wzorów w `dane/probki/wzory/`. Można zaczynać.
+
 **Zależy od:** części 1 i 2 razem z poprawką `analiza: start_bpm 150 dla rytmu` (commit bazowy `0e84cba`, w `main` od PR #1, `4b929c9`) oraz części 7 z zadaniem 7.3 (lokalny serwer Bot API, scalone do `main`).
 **Gałąź:** `render` od `main` (po scaleniu zadania 7.3).
 **Efekt:** po `/gotowe` bot kolejkuje montaż i odsyła plik mp4 9:16, w którym cięcia wzoru padają na uderzenia stałego utworu.

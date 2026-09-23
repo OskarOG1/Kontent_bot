@@ -8,7 +8,7 @@ Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym
 |---|---|
 | 1 szkielet | kod gotowy, testy 33 z 33, pomiar w progach. Odbiór 2026-09-22 (Opus): OK. Test ręczny na Telegramie: materiały działają, wzór nie (limit 20 MB, patrz „Znane problemy") |
 | 2 analiza | kod gotowy, scalony do `main` w PR #1 (`4b929c9`), testy 62 z 62, pomiar A w progach (100% cięć, błąd tempa maks 0,35%), pomiar B na dwóch prawdziwych wzorach. Odbiór 2026-09-22 (Opus): OK, domyślny ContentDetector potwierdzony. Brak testu ręcznego na prawdziwym wzorze (czeka na lokalny serwer Bot API) |
-| 7 wdrożenie | 7.1 i 7.2 scalone do `main` w PR #2 (`e9a4755`), na `46.62.151.181` działa bot testowy, testy w kontenerze 71 z 71. 7.3 wykonane na gałęzi `wdrozenie-poprawki` (2026-09-23), testy lokalnie 75 z 75, pomiar w progach. Odbiór 7.3 (Opus) 2026-09-23: OK, scalone w PR #3. `Pomiary/` zostaje w repozytorium (decyzja właściciela 2026-09-23). Serwer przełączony na głównego bota `@cwel54_bot`, punkty a do f i h zrobione 2026-09-23: pobieranie przez serwer lokalny odblokowane, limit pamięci 3 GB działa, cron ustawiony. Zostaje punkt g: próba z prawdziwym wzorem 4K i pomiar |
+| 7 wdrożenie | 7.1 i 7.2 scalone do `main` w PR #2 (`e9a4755`), na `46.62.151.181` działa bot testowy, testy w kontenerze 71 z 71. 7.3 wykonane na gałęzi `wdrozenie-poprawki` (2026-09-23), testy lokalnie 75 z 75, pomiar w progach. Odbiór 7.3 (Opus) 2026-09-23: OK, scalone w PR #3. `Pomiary/` zostaje w repozytorium (decyzja właściciela 2026-09-23). Serwer przełączony na głównego bota `@cwel54_bot`, punkty a do f i h zrobione 2026-09-23: pobieranie przez serwer lokalny odblokowane, limit pamięci 3 GB działa, cron ustawiony. Punkt g zrobiony 2026-09-23: wzór 153 MB pobrany w 9 s, analiza 51 s, szczyt pamięci 894 MB przy limicie 3 GB, wolumen serwera Bot API po skopiowaniu pusty. Część 7 zamknięta |
 | 3 render | nie ruszona |
 | 4 do 6 | nie ruszone |
 
@@ -44,6 +44,13 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 - Pomiary i wyniki (`Pomiary/`, `outputs/`), dane (`dane/`) i `.env` są poza gitem.
 
 ## Dziennik
+
+### 2026-09-23 (punkt g: prawdziwy wzór 4K na serwerze)
+- Właściciel wysłał wzór do `@cwel54_bot`, bot go przyjął i przeanalizował. Liczby z serwera: `zrodlo.mp4` 160 132 475 B (153 MiB) pobrany w 8,98 s (czas obsługi update), `wzor.json` zapisany 51 s później, czyli od wysłania do podsumowania około 60 s. Próg 150 s z mapy nie został przekroczony, więc zadanie 5.0 (lekka kopia wzoru) odpada i idziemy prosto w część 3.
+- Wynik analizy na prawdziwym pliku zgodny z pomiarami lokalnymi: 2160x3840, 60 fps, 31,95 s, tempo 164,1 BPM, 33 wartości w `ciecia_s`.
+- Szczyt pamięci kontenera bota (`/sys/fs/cgroup/memory.peak`) to 937 455 616 B, czyli 894 MiB przy limicie 3 GB. Zapas duży, limit zostaje.
+- Wolumen serwera Bot API po pobraniu ma 40 KB, więc usuwanie źródła z zadania 7.3 działa na produkcji: plik 153 MB nie leży na dysku drugi raz.
+- Właściciel potwierdził, że reguły 1 do 5 znikają z `CLAUDE.md` celowo (commit `f0780fc`). Zasady stylu, pomiarów i commitów zostają w blokach WSPÓLNE planów i stamtąd obowiązują wykonawców.
 
 ### 2026-09-23 (przełączenie serwera na głównego bota, punkty a do f i h)
 - Wykonane przeze mnie (Opus) na prośbę właściciela, na serwerze `46.62.151.181`: wylogowanie bota testowego z serwera lokalnego (`{"ok":true}`), `docker compose down` i usunięcie wolumenu `edity-bot_bot_api_dane`, `.env` głównego bota na serwer z `TELEGRAM_API_URL=http://bot-api:8081`, `logOut` głównego bota na zwykłym API (`{"ok":true}`), wdrożenie przez `wdroz.ps1`, weryfikacja, cron sprzątający.
@@ -136,7 +143,7 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Następne kroki
 
-1. Odbiór zadania 7.3 (gałąź `wdrozenie-poprawki`), potem scalenie do `main`.
-2. Właściciel po scaleniu 7.3: punkty a do h z planu 7 (sekcja „Po zadaniu 7.3”), w tym przełączenie serwera na głównego bota (decyzja właściciela), potem próba z prawdziwym wzorem 4K i pomiar czasu oraz pamięci. Ponad około 150 s oznacza zadanie 5.0 przed częścią 3.
-3. Właściciel przed częścią 4: 5 do 15 utworów w różnych tempach w `dane/muzyka/`; dziś biblioteka ma 164 i 175 BPM oraz za krótki `MR.mp4`. `staly.mp3` i przeniesienie próbek zrobione 2026-09-23, zostaje kopia muzyki na serwer przed testem części 3.
-4. Część 3.
+1. Część 3 według `PLAN_EDITY_3_RENDER.md` (prompt startowy w planie). Zadanie 5.0 odpada, bo analiza wzoru 4K na serwerze trwa 51 s.
+2. Po odbiorze części 3: scalenie do `main`, `wdroz.ps1`, potem test właściciela na `@cwel54_bot` (`/nowy`, kilka zdjęć i klip, `/gotowe`).
+3. Właściciel przed częścią 4: 5 do 15 utworów w różnych tempach w `dane/muzyka/`; dziś biblioteka ma 164 i 175 BPM oraz za krótki `MR.mp4`.
+4. Części 4, 5 i 6 (5 i 6 w dowolnej kolejności).
