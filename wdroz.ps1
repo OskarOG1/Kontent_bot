@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$Serwer,
+    [string]$Galaz = "main",
     [switch]$Wymus
 )
 
@@ -10,16 +11,16 @@ $celKatalog = "/opt/edity-bot"
 $archiwumLokalne = Join-Path $env:TEMP "edity-bot-main.tar"
 $archiwumZdalne = "$celKatalog/edity-bot-main.tar"
 
-git fetch origin main
+git fetch origin $Galaz
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "git fetch origin main nie powiodlo sie"
+    Write-Error "git fetch origin $Galaz nie powiodlo sie"
     exit 1
 }
 
-$commitLokalny = git rev-parse main
-$commitZdalny = git rev-parse origin/main
+$commitLokalny = git rev-parse $Galaz
+$commitZdalny = git rev-parse origin/$Galaz
 if ($commitLokalny -ne $commitZdalny -and -not $Wymus) {
-    Write-Error "main i origin/main wskazuja rozne commity: zsynchronizuj main (git checkout main, git pull), albo podaj -Wymus"
+    Write-Error "$Galaz i origin/$Galaz wskazuja rozne commity: zsynchronizuj galaz (git checkout $Galaz, git pull), albo podaj -Wymus"
     exit 1
 }
 
@@ -29,9 +30,9 @@ if ($zmiany) {
     $zmiany | ForEach-Object { Write-Warning $_ }
 }
 
-git archive main --output $archiwumLokalne
+git archive $Galaz --output $archiwumLokalne
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "git archive main nie powiodlo sie"
+    Write-Error "git archive $Galaz nie powiodlo sie"
     exit 1
 }
 
