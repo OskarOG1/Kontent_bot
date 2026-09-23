@@ -8,7 +8,7 @@ Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym
 |---|---|
 | 1 szkielet | kod gotowy, testy 33 z 33, pomiar w progach. Odbiór 2026-09-22 (Opus): OK. Test ręczny na Telegramie: materiały działają, wzór nie (limit 20 MB, patrz „Znane problemy") |
 | 2 analiza | kod gotowy, scalony do `main` w PR #1 (`4b929c9`), testy 62 z 62, pomiar A w progach (100% cięć, błąd tempa maks 0,35%), pomiar B na dwóch prawdziwych wzorach. Odbiór 2026-09-22 (Opus): OK, domyślny ContentDetector potwierdzony. Brak testu ręcznego na prawdziwym wzorze (czeka na lokalny serwer Bot API) |
-| 7 wdrożenie | 7.1 i 7.2 scalone do `main` w PR #2 (`e9a4755`), na `46.62.151.181` działa bot testowy, testy w kontenerze 71 z 71. 7.3 wykonane na gałęzi `wdrozenie-poprawki` (2026-09-23), testy lokalnie 75 z 75, pomiar w progach. Odbiór 7.3 (Opus) 2026-09-23: OK, jedna uwaga do decyzji (commit `b573d5c` dołożył `Pomiary/` do repozytorium poza zakresem zadania). Zostają: scalenie, potem punkty a do h właściciela z planu 7 (w tym przełączenie na głównego bota), próba z prawdziwym wzorem, cron |
+| 7 wdrożenie | 7.1 i 7.2 scalone do `main` w PR #2 (`e9a4755`), na `46.62.151.181` działa bot testowy, testy w kontenerze 71 z 71. 7.3 wykonane na gałęzi `wdrozenie-poprawki` (2026-09-23), testy lokalnie 75 z 75, pomiar w progach. Odbiór 7.3 (Opus) 2026-09-23: OK, scalone w PR #3. `Pomiary/` zostaje w repozytorium (decyzja właściciela 2026-09-23). Serwer przełączony na głównego bota `@cwel54_bot`, punkty a do f i h zrobione 2026-09-23: pobieranie przez serwer lokalny odblokowane, limit pamięci 3 GB działa, cron ustawiony. Zostaje punkt g: próba z prawdziwym wzorem 4K i pomiar |
 | 3 render | nie ruszona |
 | 4 do 6 | nie ruszone |
 
@@ -44,6 +44,14 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 - Pomiary i wyniki (`Pomiary/`, `outputs/`), dane (`dane/`) i `.env` są poza gitem.
 
 ## Dziennik
+
+### 2026-09-23 (przełączenie serwera na głównego bota, punkty a do f i h)
+- Wykonane przeze mnie (Opus) na prośbę właściciela, na serwerze `46.62.151.181`: wylogowanie bota testowego z serwera lokalnego (`{"ok":true}`), `docker compose down` i usunięcie wolumenu `edity-bot_bot_api_dane`, `.env` głównego bota na serwer z `TELEGRAM_API_URL=http://bot-api:8081`, `logOut` głównego bota na zwykłym API (`{"ok":true}`), wdrożenie przez `wdroz.ps1`, weryfikacja, cron sprzątający.
+- **Błąd w obrazie `bot-api` złapany przy pierwszym budowaniu.** `deluser` w busyboksie kasuje też grupę o tej samej nazwie, więc `delgroup telegram-bot-api` przerywał build komunikatem „unknown group”. Poprawka w `bot-api/Dockerfile` (commit `1611573`): kasowanie użytkownika i grupy jest tolerancyjne (`2>/dev/null` i `;`, działa niezależnie od tego, czy grupa została), tworzenie i `chown` dalej twarde (`&&`). Drugie wdrożenie (`-Wymus`, bo poprawka nie była jeszcze na GitHubie) zbudowało oba obrazy.
+- Stan po wdrożeniu: `@cwel54_bot` poluje przez serwer lokalny, `bot-api` działa jako UID i GID 1000, katalog roboczy i tymczasowy należą do 1000, kontener `bot` czyta katalog bota bez błędu (blokada z odbioru zniknęła), `docker inspect` pokazuje `mem=3221225472`, `cpus=2`, użytkownik `bot`.
+- **Końce linii.** `.env` skopiowany z Windows miał CRLF we wszystkich 8 liniach. Poprawione na serwerze (`sed -i "s/\r$//"`) i w źródle `C:\Dev\edity-bot-serwer.env`. Przy każdej kolejnej kopii `.env` sprawdzać, bo token z `\r` na końcu dałby 401 przy starcie.
+- Sprzątanie: `/etc/cron.d/edity-bot` (4:10, projekty starsze niż 7 dni), celowo osobny plik zamiast `crontab -e`, żeby nie dotykać crona drugiego projektu na tym serwerze.
+- Zostaje punkt g: właściciel wysyła prawdziwy wzór 4K do `@cwel54_bot`, mierzymy czas od wysłania do podsumowania i szczyt pamięci (`docker stats`). Ponad około 150 s oznacza zadanie 5.0 przed częścią 3.
 
 ### 2026-09-23 (odbiór zadania 7.3, Opus)
 - Werdykt: OK, do scalenia. Testy 75 z 75 (38,8 s), pomiar kopiowania w progach z zapasem (maks opóźnienie pętli 14,2 ms przy progu 50 ms, kopia 1 GB 2,3 do 2,5 s), decyzja o `ROZMIAR_KAWALKA_KOPII_B` oparta na rozrzucie powtórzeń, a nie na pojedynczym przebiegu.
