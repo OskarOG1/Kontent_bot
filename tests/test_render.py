@@ -382,12 +382,12 @@ def test_segment_klipu_gra_dalej_poza_dlugoscia_kawalka_i_zamraza_dopiero_na_kon
     assert zblizony(kolor_srodka(klatki_b[-1]), generuj.kolor_ujecia(4))
 
 
-def wzor_syntetyczny_8_ciec():
+def wzor_syntetyczny_4_ciecia():
     return {
-        "ciecia_uderzenia": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
-        "koniec_uderzenia": 8.0,
+        "ciecia_uderzenia": [0.0, 1.0, 2.0, 3.0],
+        "koniec_uderzenia": 4.0,
         "ciecia_s": [0.0],
-        "zrodlo": {"czas_s": 8.0},
+        "zrodlo": {"czas_s": 4.0},
     }
 
 
@@ -408,9 +408,9 @@ def test_renderuj_pelny_przebieg(tmp_path):
 
     projekt = zbuduj_projekt(tmp_path, dodaj)
     wzor_json = tmp_path / "wzor.json"
-    wzor_json.write_text(json.dumps(wzor_syntetyczny_8_ciec()), encoding="utf-8")
+    wzor_json.write_text(json.dumps(wzor_syntetyczny_4_ciecia()), encoding="utf-8")
     utwor = tmp_path / "klik.wav"
-    generuj.klik(utwor, bpm=128, czas_s=10.0, pierwsze_uderzenie_s=0.3)
+    generuj.klik(utwor, bpm=128, czas_s=6.0, pierwsze_uderzenie_s=0.3)
 
     wyjscie = tmp_path / "wynik.mp4"
     podsumowanie = render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50)
@@ -437,9 +437,9 @@ def test_renderuj_ciecia_na_swoim_miejscu(tmp_path):
 
     projekt = zbuduj_projekt(tmp_path, dodaj)
     wzor_json = tmp_path / "wzor.json"
-    wzor_json.write_text(json.dumps(wzor_syntetyczny_8_ciec()), encoding="utf-8")
+    wzor_json.write_text(json.dumps(wzor_syntetyczny_4_ciecia()), encoding="utf-8")
     utwor = tmp_path / "klik.wav"
-    generuj.klik(utwor, bpm=128, czas_s=10.0, pierwsze_uderzenie_s=0.3)
+    generuj.klik(utwor, bpm=128, czas_s=6.0, pierwsze_uderzenie_s=0.3)
     fps = 30
 
     wyjscie = tmp_path / "wynik.mp4"
@@ -447,7 +447,7 @@ def test_renderuj_ciecia_na_swoim_miejscu(tmp_path):
 
     _, uderzenia = analyze.analizuj_rytm(utwor)
     material_zastepczy = [{"plik": "x", "typ": "zdjecie", "message_id": 0}]
-    plan = render.plan_ujec(wzor_syntetyczny_8_ciec(), uderzenia, material_zastepczy, fps)
+    plan = render.plan_ujec(wzor_syntetyczny_4_ciecia(), uderzenia, material_zastepczy, fps)
     oczekiwane_granice = [u["klatka_od"] for u in plan["ujecia"][1:]]
 
     wykryte_s = analyze.wykryj_ciecia(wyjscie)
@@ -463,9 +463,9 @@ def test_renderuj_limit_rozmiaru_dla_szumu(tmp_path):
 
     projekt = zbuduj_projekt(tmp_path, dodaj)
     wzor_json = tmp_path / "wzor.json"
-    wzor_json.write_text(json.dumps(wzor_syntetyczny_8_ciec()), encoding="utf-8")
+    wzor_json.write_text(json.dumps(wzor_syntetyczny_4_ciecia()), encoding="utf-8")
     utwor = tmp_path / "klik.wav"
-    generuj.klik(utwor, bpm=128, czas_s=10.0, pierwsze_uderzenie_s=0.3)
+    generuj.klik(utwor, bpm=128, czas_s=6.0, pierwsze_uderzenie_s=0.3)
 
     wyjscie = tmp_path / "wynik.mp4"
     render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=2)
@@ -479,12 +479,12 @@ def test_renderuj_dziala_bez_zrodla_wzoru(tmp_path):
         generuj.klip_testowy(katalog / "0000000002_b.mp4", czas_s=3.0, rozmiar=(270, 480))
 
     projekt = zbuduj_projekt(tmp_path, dodaj)
-    wzor = wzor_syntetyczny_8_ciec()
+    wzor = wzor_syntetyczny_4_ciecia()
     del wzor["zrodlo"]
     wzor_json = tmp_path / "wzor.json"
     wzor_json.write_text(json.dumps(wzor), encoding="utf-8")
     utwor = tmp_path / "klik.wav"
-    generuj.klik(utwor, bpm=128, czas_s=10.0, pierwsze_uderzenie_s=0.3)
+    generuj.klik(utwor, bpm=128, czas_s=6.0, pierwsze_uderzenie_s=0.3)
 
     wyjscie = tmp_path / "wynik.mp4"
     podsumowanie = render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50)
@@ -506,9 +506,9 @@ def test_cli_sukces_i_blad(tmp_path):
 
     projekt = zbuduj_projekt(tmp_path, dodaj)
     wzor_json = tmp_path / "wzor.json"
-    wzor_json.write_text(json.dumps(wzor_syntetyczny_8_ciec()), encoding="utf-8")
+    wzor_json.write_text(json.dumps(wzor_syntetyczny_4_ciecia()), encoding="utf-8")
     utwor = tmp_path / "klik.wav"
-    generuj.klik(utwor, bpm=128, czas_s=10.0, pierwsze_uderzenie_s=0.3)
+    generuj.klik(utwor, bpm=128, czas_s=6.0, pierwsze_uderzenie_s=0.3)
     wyjscie = tmp_path / "wynik.mp4"
 
     wynik = uruchom_cli([

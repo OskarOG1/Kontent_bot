@@ -16,7 +16,7 @@ from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand, Message, ReactionTypeEmoji
+from aiogram.types import BotCommand, FSInputFile, Message, ReactionTypeEmoji
 
 import komunikaty
 import konfiguracja as konfiguracja_modul
@@ -31,9 +31,11 @@ LIMIT_SERWERA_TELEGRAM_LOKALNY_MB = 2500
 LIMIT_WYSYLKI_TELEGRAM_MB = 50
 LIMIT_WYSYLKI_TELEGRAM_LOKALNY_MB = 2000
 LIMIT_ANALIZY_S = 300
+LIMIT_RENDERU_S = 900
 LIMIT_GETFILE_LOKALNY_S = 1800
 ROZMIAR_KAWALKA_KOPII_B = 64 * 1024
 SKRYPT_ANALIZY = Path(__file__).resolve().parent / "analyze.py"
+SKRYPT_RENDERU = Path(__file__).resolve().parent / "render.py"
 
 
 class Stany(StatesGroup):
@@ -148,12 +150,71 @@ async def obsluz_cmd_nowy(message: Message, state: FSMContext, konf: Konfiguracj
     await message.answer(komunikaty.NOWY_PROJEKT)
 
 
+async def renderuj_w_tle(
+    message: Message,
+    katalog_projektu: Path,
+    wzor_json: Path,
+    utwor: Path,
+    konf: Konfiguracja,
+    zapowiedz: asyncio.Event,
+) -> None:
+    await zapowiedz.wait()
+    dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
+    dane_projektu["stan"] = "renderowanie"
+    magazyn.zapisz_projekt(katalog_projektu, dane_projektu)
+    await bezpiecznie_odpisz(message, komunikaty.MONTUJE)
+
+    limit_mb = efektywny_limit_wysylki_mb(konf)
+    wynik_mp4 = katalog_projektu / "wynik.mp4"
+    wynik = await kolejka_modul.uruchom(
+        [
+            sys.executable, str(SKRYPT_RENDERU),
+            "--wzor", str(wzor_json), "--projekt", str(katalog_projektu),
+            "--utwor", str(utwor), "--wyjscie", str(wynik_mp4),
+            "--limit-mb", str(limit_mb),
+        ],
+        limit_s=LIMIT_RENDERU_S,
+    )
+    if wynik.przekroczono_czas or wynik.kod != 0:
+        opis = "przekroczono limit czasu" if wynik.przekroczono_czas else (pierwsza_linia(wynik.stderr) or f"kod {wynik.kod}")
+        dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
+        dane_projektu["stan"] = "blad"
+        dane_projektu["blad"] = opis
+        magazyn.zapisz_projekt(katalog_projektu, dane_projektu)
+        await bezpiecznie_odpisz(message, komunikaty.blad_renderu(opis))
+        return
+
+    try:
+        podsumowanie = json.loads(wynik_mp4.with_suffix(".json").read_text(encoding="utf-8"))
+        podpis = komunikaty.podsumowanie_renderu(podsumowanie)
+    except (OSError, ValueError, KeyError):
+        log.exception("nie udalo sie odczytac podsumowania renderu, wynik=%s", wynik_mp4)
+        podpis = None
+
+    try:
+        await message.answer_document(FSInputFile(wynik_mp4), caption=podpis)
+    except TelegramEntityTooLarge:
+        rozmiar = wynik_mp4.stat().st_size if wynik_mp4.exists() else None
+        await bezpiecznie_odpisz(message, komunikaty.limit_rozmiaru(rozmiar, limit_mb))
+        return
+    except Exception:
+        log.exception("wysylka wyniku nie powiodla sie")
+        await bezpiecznie_odpisz(message, komunikaty.BLAD_WYSYLKI)
+        return
+
+    dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
+    dane_projektu["stan"] = "gotowy"
+    dane_projektu["wynik"] = wynik_mp4.name
+    magazyn.zapisz_projekt(katalog_projektu, dane_projektu)
+
+
 async def obsluz_cmd_gotowe(
     message: Message,
     state: FSMContext,
     konf: Konfiguracja,
     projekt_aktywny: dict,
     pobrania_w_toku: dict,
+    kolejka_obiekt: kolejka_modul.Kolejka,
 ) -> None:
     dane_stanu = await state.get_data()
     projekt_id = dane_stanu.get("projekt_id")
@@ -172,7 +233,18 @@ async def obsluz_cmd_gotowe(
         await message.answer(komunikaty.BRAK_MATERIALOW)
         return
 
+    wzor_json = magazyn.najnowszy_wzor(konf.katalog_danych)
+    if wzor_json is None:
+        await message.answer(komunikaty.BRAK_WZORU)
+        return
+
+    utwor = konf.katalog_danych / "muzyka" / "staly.mp3"
+    if not utwor.is_file():
+        await message.answer(komunikaty.BRAK_UTWORU)
+        return
+
     dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
+    dane_projektu["wzor_id"] = wzor_json.parent.name
     dane_projektu["stan"] = "w_kolejce"
     magazyn.zapisz_projekt(katalog_projektu, dane_projektu)
 
@@ -182,7 +254,17 @@ async def obsluz_cmd_gotowe(
     zdjecia = sum(1 for wpis in materialy if wpis["typ"] == "zdjecie")
     klipy = sum(1 for wpis in materialy if wpis["typ"] == "klip")
     linie = len(dane_projektu.get("teksty", []))
-    await message.answer(komunikaty.projekt_w_kolejce(zdjecia, klipy, linie))
+
+    zapowiedz = asyncio.Event()
+
+    async def zadanie() -> None:
+        await renderuj_w_tle(message, katalog_projektu, wzor_json, utwor, konf, zapowiedz)
+
+    pozycja = await kolejka_obiekt.dodaj(zadanie)
+    try:
+        await message.answer(komunikaty.projekt_w_kolejce(zdjecia, klipy, linie, pozycja))
+    finally:
+        zapowiedz.set()
 
 
 async def obsluz_cmd_anuluj(message: Message, state: FSMContext, konf: Konfiguracja, projekt_aktywny: dict) -> None:
@@ -214,7 +296,9 @@ async def obsluz_cmd_status(
     else:
         linie.append(komunikaty.STATUS_BRAK_PROJEKTU)
     katalog_wzorow = konf.katalog_danych / "wzory"
-    liczba_wzorow = len(list(katalog_wzorow.iterdir())) if katalog_wzorow.exists() else 0
+    liczba_wzorow = 0
+    if katalog_wzorow.exists():
+        liczba_wzorow = sum(1 for katalog in katalog_wzorow.iterdir() if katalog.is_dir() and (katalog / "wzor.json").is_file())
     linie.append(komunikaty.status_kolejki(kolejka_obiekt.dlugosc(), liczba_wzorow))
     await message.answer("\n".join(linie))
 
@@ -289,10 +373,12 @@ async def obsluz_wzor_plik(
     try:
         await pobierz_plik(message.bot, file_id, cel)
     except TelegramEntityTooLarge:
+        shutil.rmtree(katalog_wzoru, ignore_errors=True)
         await message.answer(komunikaty.limit_rozmiaru(None, limit_mb))
         return
     except Exception:
         log.exception("pobieranie wzoru nie powiodlo sie, file_id=%s", file_id)
+        shutil.rmtree(katalog_wzoru, ignore_errors=True)
         await message.answer(komunikaty.BLAD_POBIERANIA)
         return
 
@@ -326,6 +412,7 @@ async def obsluz_material(
     try:
         zalacznik = rozpoznaj_zalacznik(message)
         if zalacznik is None:
+            await message.answer(komunikaty.MATERIAL_NIEPOPRAWNY_TYP)
             return
         _, rozszerzenie, file_id, file_unique_id, rozmiar = zalacznik
         limit_mb = efektywny_limit_mb(konf)
