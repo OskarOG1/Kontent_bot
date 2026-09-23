@@ -2,9 +2,12 @@ import json
 import subprocess
 
 import numpy as np
+import pytest
 from PIL import Image, ImageOps
 
+import analyze
 import generuj
+import render
 
 
 def uruchom_ffprobe(sciezka):
@@ -111,3 +114,148 @@ def test_szum_generuje_rozny_material(tmp_path):
     dane = uruchom_ffprobe(sciezka)
     strumien = strumien_wideo(dane)
     assert int(strumien["width"]) == 120 and int(strumien["height"]) == 80
+
+
+def materialy_zdjec(n):
+    return [{"plik": f"zdjecie_{i}.jpg", "typ": "zdjecie", "message_id": i} for i in range(n)]
+
+
+def test_plan_ujec_granice_z_czasow_bezwzglednych_bez_dryfu():
+    bpm = 123.0
+    odstep = 60.0 / bpm
+    uderzenia_utworu = [round(0.2 + i * odstep, 6) for i in range(200)]
+    ciecia_uderzenia = [round(i * 0.5, 6) for i in range(64)]
+    koniec_uderzenia = 32.0
+    wzor = {"ciecia_uderzenia": ciecia_uderzenia, "koniec_uderzenia": koniec_uderzenia}
+    fps = 30
+    materialy = materialy_zdjec(5)
+
+    wynik = render.plan_ujec(wzor, uderzenia_utworu, materialy, fps)
+
+    s = 0
+    while analyze.czas_z_pozycji(s + ciecia_uderzenia[0], uderzenia_utworu) < 0:
+        s += 1
+    pozycje = ciecia_uderzenia + [koniec_uderzenia]
+    czasy = [analyze.czas_z_pozycji(s + p, uderzenia_utworu) for p in pozycje]
+    granice = [round((t - czasy[0]) * fps) for t in czasy]
+    oczekiwane = [(granice[k], granice[k + 1] - granice[k]) for k in range(len(granice) - 1) if granice[k + 1] - granice[k] > 0]
+
+    assert wynik["liczba_klatek"] == granice[-1]
+    assert [(u["klatka_od"], u["liczba_klatek"]) for u in wynik["ujecia"]] == oczekiwane
+    assert sum(u["liczba_klatek"] for u in wynik["ujecia"]) == wynik["liczba_klatek"]
+
+
+def test_plan_ujec_przypadek_reczny():
+    uderzenia_utworu = [round(0.3 + i * 0.6, 6) for i in range(10)]
+    wzor = {"ciecia_uderzenia": [-0.25, 0.75, 1.75, 2.25], "koniec_uderzenia": 3.75}
+    fps = 10
+    materialy = materialy_zdjec(2)
+
+    wynik = render.plan_ujec(wzor, uderzenia_utworu, materialy, fps)
+
+    assert wynik["start_audio_s"] == pytest.approx(0.15, abs=1e-6)
+    assert wynik["liczba_klatek"] == 24
+    assert [(u["klatka_od"], u["liczba_klatek"]) for u in wynik["ujecia"]] == [(0, 6), (6, 6), (12, 3), (15, 9)]
+
+
+def test_plan_ujec_pierwsze_uderzenie_blisko_zera_daje_nieujemny_start():
+    uderzenia_utworu = [round(0.1 + i * 0.5, 6) for i in range(20)]
+    wzor = {"ciecia_uderzenia": [-0.25, 0.25], "koniec_uderzenia": 1.0}
+    materialy = materialy_zdjec(2)
+
+    wynik = render.plan_ujec(wzor, uderzenia_utworu, materialy, fps=10)
+
+    assert wynik["start_audio_s"] >= 0
+
+
+def test_plan_ujec_wzor_bez_uderzen_uzywa_ciecia_s():
+    wzor = {"ciecia_uderzenia": [], "ciecia_s": [0.0, 1.0, 2.0], "zrodlo": {"czas_s": 3.0}}
+    materialy = materialy_zdjec(2)
+
+    wynik = render.plan_ujec(wzor, [], materialy, fps=10)
+
+    assert wynik["start_audio_s"] == 0
+    assert wynik["liczba_klatek"] == 30
+    assert [(u["klatka_od"], u["liczba_klatek"]) for u in wynik["ujecia"]] == [(0, 10), (10, 10), (20, 10)]
+
+
+def test_plan_ujec_material_rundy_modulo():
+    wzor = {"ciecia_uderzenia": [], "ciecia_s": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0], "zrodlo": {"czas_s": 7.0}}
+    materialy = materialy_zdjec(3)
+
+    wynik = render.plan_ujec(wzor, [], materialy, fps=1)
+
+    assert [u["material"] for u in wynik["ujecia"]] == [
+        "zdjecie_0.jpg", "zdjecie_1.jpg", "zdjecie_2.jpg", "zdjecie_0.jpg", "zdjecie_1.jpg", "zdjecie_2.jpg", "zdjecie_0.jpg",
+    ]
+
+
+def test_wstawki_potem_plan_ujec_kawalek_krotszy_od_ujecia_gra_dalej():
+    material = [{"plik": "a.mp4", "typ": "klip", "message_id": 1, "czas_s": 2.0}]
+    kawalki = render.wstawki(material, dlugosc_wstawki_s=0.6)
+
+    assert [(k["od_s"], k["czas_s"]) for k in kawalki] == [(0.0, 0.6), (0.6, 0.6), (1.2, 0.8)]
+
+    wzor = {"ciecia_uderzenia": [], "ciecia_s": [0.0, 0.6, 1.2, 1.8, 2.4], "zrodlo": {"czas_s": 3.0}}
+    wynik = render.plan_ujec(wzor, [], kawalki, fps=10)
+
+    assert [u["start_w_klipie_s"] for u in wynik["ujecia"]] == [0.0, 0.6, 1.2, 0.0, 0.6]
+
+
+def test_plan_ujec_dwa_ciecia_w_tej_samej_klatce_ujecie_wypada():
+    wzor = {"ciecia_uderzenia": [], "ciecia_s": [0.0, 0.03, 1.0], "zrodlo": {"czas_s": 2.0}}
+    materialy = materialy_zdjec(2)
+
+    wynik = render.plan_ujec(wzor, [], materialy, fps=10)
+
+    assert [(u["klatka_od"], u["liczba_klatek"]) for u in wynik["ujecia"]] == [(0, 10), (10, 10)]
+
+
+def test_plan_ujec_okno_bez_dlugosci_daje_value_error():
+    uderzenia_utworu = [round(0.2 + i * 0.5, 6) for i in range(20)]
+    wzor = {"ciecia_uderzenia": [5.0], "koniec_uderzenia": 5.0}
+    materialy = materialy_zdjec(1)
+
+    with pytest.raises(ValueError):
+        render.plan_ujec(wzor, uderzenia_utworu, materialy, fps=30)
+
+
+def test_wstawki_dzieli_klip_na_kawalki_stalej_dlugosci_z_ogonem():
+    material = [{"plik": "a.mp4", "typ": "klip", "message_id": 1, "czas_s": 5.0}]
+    kawalki = render.wstawki(material, dlugosc_wstawki_s=1.0)
+    assert [(k["od_s"], k["czas_s"]) for k in kawalki] == [(0.0, 1.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0), (4.0, 1.0)]
+
+    material = [{"plik": "b.mp4", "typ": "klip", "message_id": 2, "czas_s": 2.2}]
+    kawalki = render.wstawki(material, dlugosc_wstawki_s=1.0)
+    assert [(k["od_s"], k["czas_s"]) for k in kawalki] == [(0.0, 1.0), (1.0, 1.2)]
+
+    material = [{"plik": "c.mp4", "typ": "klip", "message_id": 3, "czas_s": 0.6}]
+    kawalki = render.wstawki(material, dlugosc_wstawki_s=1.0)
+    assert [(k["od_s"], k["czas_s"]) for k in kawalki] == [(0.0, 0.6)]
+
+    zdjecie = [{"plik": "z.jpg", "typ": "zdjecie", "message_id": 4}]
+    assert render.wstawki(zdjecie, dlugosc_wstawki_s=1.0) == zdjecie
+
+
+def test_wstawki_kolejnosc_rundami_po_materialach():
+    materialy = [
+        {"plik": "a.mp4", "typ": "klip", "message_id": 1, "czas_s": 3.0},
+        {"plik": "z.jpg", "typ": "zdjecie", "message_id": 2},
+        {"plik": "b.mp4", "typ": "klip", "message_id": 3, "czas_s": 2.0},
+    ]
+    kawalki = render.wstawki(materialy, dlugosc_wstawki_s=1.0)
+    identyfikatory = [(k["plik"], k["od_s"]) if k["typ"] == "klip" else (k["plik"], None) for k in kawalki]
+    assert identyfikatory == [
+        ("a.mp4", 0.0), ("z.jpg", None), ("b.mp4", 0.0),
+        ("a.mp4", 1.0), ("b.mp4", 1.0),
+        ("a.mp4", 2.0),
+    ]
+
+
+def test_plan_ujec_start_w_klipie_niezalezny_od_dlugosci_ujecia():
+    materialy = [{"plik": "a.mp4", "typ": "klip", "message_id": 1, "od_s": 3.0}]
+    wzor = {"ciecia_uderzenia": [], "ciecia_s": [0.0], "zrodlo": {"czas_s": 5.0}}
+
+    wynik = render.plan_ujec(wzor, [], materialy, fps=10)
+
+    assert wynik["ujecia"][0]["start_w_klipie_s"] == 3.0
