@@ -108,9 +108,11 @@ def sprawdz_format(sciezka: Path, fps: int) -> tuple[bool, dict]:
         "pix_fmt": wideo.get("pix_fmt"),
         "sar": wideo.get("sample_aspect_ratio"),
         "fps_zgloszony": wideo.get("r_frame_rate"),
+        "czas_strumienia_wideo_s": float(wideo["duration"]) if wideo.get("duration") else None,
         "kodek_audio": audio.get("codec_name") if audio else None,
         "audio_sr": audio.get("sample_rate") if audio else None,
         "audio_kanaly": audio.get("channels") if audio else None,
+        "czas_strumienia_audio_s": float(audio["duration"]) if audio and audio.get("duration") else None,
     }
     ok = (
         wideo.get("codec_name") == "h264"

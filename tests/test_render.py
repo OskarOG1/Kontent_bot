@@ -457,6 +457,43 @@ def test_renderuj_ciecia_na_swoim_miejscu(tmp_path):
         assert any(abs(oczekiwana - wykryta) <= 1 for wykryta in wykryte_klatki)
 
 
+def test_renderuj_utwor_wielokrotnie_dluzszy_od_editu_ma_pelna_dlugosc(tmp_path):
+    def dodaj(katalog):
+        for i in range(4):
+            generuj.zdjecie_testowe(katalog / f"000000000{i}_m.jpg", rozmiar=(800, 600))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    wzor = wzor_syntetyczny_4_ciecia()
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=128, czas_s=60.0, pierwsze_uderzenie_s=0.3)
+    fps = 30
+
+    wyjscie = tmp_path / "wynik.mp4"
+    render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50)
+
+    _, uderzenia = analyze.analizuj_rytm(utwor)
+    material_zastepczy = [{"plik": "x", "typ": "zdjecie", "message_id": 0}]
+    plan = render.plan_ujec(wzor, uderzenia, material_zastepczy, fps)
+    liczba_klatek_oczekiwana = plan["liczba_klatek"]
+
+    wynik_klatek = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames",
+         "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", str(wyjscie)],
+        stdin=subprocess.DEVNULL, capture_output=True,
+    )
+    assert int(wynik_klatek.stdout.decode().strip()) == liczba_klatek_oczekiwana
+
+    dane = uruchom_ffprobe(wyjscie)
+    czas_strumienia_wideo_s = float(strumien_wideo(dane)["duration"])
+    strumien_audio = next(s for s in dane["streams"] if s["codec_type"] == "audio")
+    czas_strumienia_audio_s = float(strumien_audio["duration"])
+    oczekiwany_czas_s = liczba_klatek_oczekiwana / fps
+    assert abs(czas_strumienia_wideo_s - oczekiwany_czas_s) <= 1.0 / fps + 0.02
+    assert abs(czas_strumienia_audio_s - oczekiwany_czas_s) <= 1.0 / fps + 0.02
+
+
 def test_renderuj_limit_rozmiaru_dla_szumu(tmp_path):
     def dodaj(katalog):
         generuj.szum(katalog / "0000000001_n.mp4", czas_s=10.0, rozmiar=(270, 480))

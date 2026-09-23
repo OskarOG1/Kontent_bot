@@ -17,7 +17,7 @@ Stan na 2026-09-22, po wykonaniu części 1 i 2. Projekt: `C:\Dev\edity-bot`, zd
 | 1 | PLAN_EDITY_1_SZKIELET | bot przyjmuje wzór i materiały, tylko Twoje konto, kolejka zadań | wykonana, odbiór OK | nic | Sonnet |
 | 2 | PLAN_EDITY_2_ANALIZA | wzór mp4 zamienia się w `wzor.json`: cięcia, tempo, uderzenia | wykonana, scalona w PR #1, odbiór OK | nic | Sonnet |
 | 7 | PLAN_EDITY_7_WDROZENIE | bot w Dockerze na VPS z lokalnym serwerem Bot API | wykonana: PR #2 i #3, serwer na głównym bocie `@cwel54_bot`, wzór 4K pobrany w 9 s i przeanalizowany w 51 s | VPS, drugi bot z BotFather do pracy lokalnej, `api_id` i `api_hash` z my.telegram.org | Sonnet pliki, Ty serwer |
-| 3 | PLAN_EDITY_3_RENDER | `/gotowe` zwraca edit 9:16 na stałym utworze, klipy cięte na wstawki | następna | `dane/muzyka/staly.mp3` | Sonnet |
+| 3 | PLAN_EDITY_3_RENDER | `/gotowe` zwraca edit 9:16 na stałym utworze, klipy cięte na wstawki | wykonana, PR #4, odbiór OK, wdrożona | `dane/muzyka/staly.mp3` | Sonnet |
 | 4 | PLAN_EDITY_4_MUZYKA | biblioteka utworów, dobór po tempie, najmocniejszy fragment | do zrobienia | 5 do 15 utworów, `licencje.csv` opcjonalny (tylko do podpisu) | Sonnet |
 | 5 | PLAN_EDITY_5_KOLOR | lekka kopia wzoru (5.0) i kolorystyka jak we wzorze | do zrobienia | nic | Sonnet |
 | 6 | PLAN_EDITY_6_TEKST | Twoje napisy na ekranie | do zrobienia | akceptacja czcionki | Sonnet |
