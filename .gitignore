@@ -1,6 +1,5 @@
 dane/
 outputs/
-Pomiary/
 .env
 venv/
 __pycache__/
