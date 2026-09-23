@@ -1,13 +1,27 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string]$Serwer
+    [string]$Serwer,
+    [switch]$Wymus
 )
 
 $ErrorActionPreference = "Stop"
 
 $celKatalog = "/opt/edity-bot"
-$archiwumLokalne = Join-Path $env:TEMP "edity-bot-head.tar"
-$archiwumZdalne = "$celKatalog/edity-bot-head.tar"
+$archiwumLokalne = Join-Path $env:TEMP "edity-bot-main.tar"
+$archiwumZdalne = "$celKatalog/edity-bot-main.tar"
+
+git fetch origin main
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "git fetch origin main nie powiodlo sie"
+    exit 1
+}
+
+$commitLokalny = git rev-parse main
+$commitZdalny = git rev-parse origin/main
+if ($commitLokalny -ne $commitZdalny -and -not $Wymus) {
+    Write-Error "main i origin/main wskazuja rozne commity: zsynchronizuj main (git checkout main, git pull), albo podaj -Wymus"
+    exit 1
+}
 
 $zmiany = git status --porcelain
 if ($zmiany) {
@@ -15,9 +29,9 @@ if ($zmiany) {
     $zmiany | ForEach-Object { Write-Warning $_ }
 }
 
-git archive HEAD --output $archiwumLokalne
+git archive main --output $archiwumLokalne
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "git archive HEAD nie powiodlo sie"
+    Write-Error "git archive main nie powiodlo sie"
     exit 1
 }
 
@@ -30,7 +44,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Remove-Item $archiwumLokalne -Force
 
-$komendaZdalna = "cd $celKatalog && rm -rf src tests zasoby && tar -xf edity-bot-head.tar && rm -f edity-bot-head.tar && docker compose up -d --build && docker compose logs --tail 20"
+$komendaZdalna = "cd $celKatalog && rm -rf src tests zasoby && tar -xf edity-bot-main.tar && rm -f edity-bot-main.tar && docker compose up -d --build && docker compose logs --tail 20"
 
 ssh $Serwer $komendaZdalna
 if ($LASTEXITCODE -ne 0) {

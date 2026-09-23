@@ -20,7 +20,7 @@ Materiały, projekty i wzory trzymane są w katalogu `dane/` (poza gitem, ście�
 
 ## Wdrożenie
 
-Bot działa na VPS w Dockerze (obraz `python:3.13-slim` z ffmpeg, `libgl1` i `libglib2.0-0`), uruchomiony jako `docker compose` z jedną usługą `bot`. Kod trafia na serwer bez GitHuba: skrypt `wdroz.ps1` pakuje stan ostatniego commita (`git archive HEAD`), kopiuje archiwum na serwer i tam je rozpakowuje, po czym uruchamia `docker compose up -d --build`.
+Bot działa na VPS w Dockerze (obraz `python:3.13-slim` z ffmpeg, `libgl1` i `libglib2.0-0`), uruchomiony jako `docker compose` z usługami `bot` i `bot-api`. Kod trafia na serwer bez GitHuba: skrypt `wdroz.ps1` pakuje gałąź `main` (`git archive main`), kopiuje archiwum na serwer i tam je rozpakowuje, po czym uruchamia `docker compose up -d --build`. Przed pakowaniem skrypt porównuje lokalny `main` z `origin/main` i zatrzymuje się, gdy się różnią (synchronizuj przez `git checkout main`, `git pull`), chyba że podano `-Wymus`.
 
 ```powershell
 .\wdroz.ps1 -Serwer root@<adres>

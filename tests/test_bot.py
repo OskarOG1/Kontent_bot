@@ -189,6 +189,92 @@ async def test_pobierz_plik_w_trybie_lokalnym_kopiuje_sciezke_z_getfile(tmp_path
 
     assert cel.read_bytes() == b"zawartosc-lokalna"
     assert "GetFile" not in nazwy_wywolan(sesja)
+    assert not zrodlo.exists()
+
+
+async def test_get_file_lokalny_dostaje_dlugi_limit_czasu(tmp_path, monkeypatch):
+    zrodlo = tmp_path / "zrodlowy.mp4"
+    zrodlo.write_bytes(b"zawartosc")
+    sesja = SesjaTestowa(api=TelegramAPIServer.from_base("http://bot-api:8081", is_local=True))
+    bot_obiekt = Bot(token=TOKEN_TESTOWY, session=sesja)
+    limity_czasu = []
+
+    async def get_file_podmieniony(file_id, request_timeout=None):
+        limity_czasu.append(request_timeout)
+        return File(file_id=file_id, file_unique_id="u_lokalny", file_path=str(zrodlo))
+
+    monkeypatch.setattr(bot_obiekt, "get_file", get_file_podmieniony)
+
+    await bot.pobierz_plik(bot_obiekt, "f_lokalny", tmp_path / "cel.mp4")
+
+    assert limity_czasu == [bot.LIMIT_GETFILE_LOKALNY_S]
+
+
+async def test_pobierz_plik_zwykle_api_nic_nie_usuwa(tmp_path, monkeypatch):
+    bot_obiekt = zbuduj_bota()
+    oryginalny_unlink = Path.unlink
+    usuniecia = []
+
+    def unlink_liczony(self, missing_ok=False):
+        usuniecia.append(self)
+        return oryginalny_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", unlink_liczony)
+
+    cel = tmp_path / "cel.mp4"
+    await bot.pobierz_plik(bot_obiekt, "f_zdalny", cel)
+
+    assert cel.read_bytes() == b"zawartosc-testowa"
+    assert usuniecia == []
+
+
+async def test_blad_usuwania_zrodla_nie_przerywa_pobrania(tmp_path, monkeypatch, caplog):
+    zrodlo = tmp_path / "zrodlowy.mp4"
+    zrodlo.write_bytes(b"zawartosc-lokalna")
+    sesja = SesjaTestowa(api=TelegramAPIServer.from_base("http://bot-api:8081", is_local=True))
+    bot_obiekt = Bot(token=TOKEN_TESTOWY, session=sesja)
+
+    async def get_file_podmieniony(file_id, request_timeout=None):
+        return File(file_id=file_id, file_unique_id="u_lokalny", file_path=str(zrodlo))
+
+    monkeypatch.setattr(bot_obiekt, "get_file", get_file_podmieniony)
+
+    def unlink_z_bledem(self, missing_ok=False):
+        raise PermissionError("brak uprawnien")
+
+    monkeypatch.setattr(Path, "unlink", unlink_z_bledem)
+
+    cel = tmp_path / "cel.mp4"
+    with caplog.at_level("WARNING", logger="bot"):
+        await bot.pobierz_plik(bot_obiekt, "f_lokalny", cel)
+
+    assert cel.read_bytes() == b"zawartosc-lokalna"
+    assert any("usun" in rekord.message for rekord in caplog.records)
+
+
+async def test_blad_kopiowania_zostawia_zrodlo(tmp_path, monkeypatch):
+    zrodlo = tmp_path / "zrodlowy.mp4"
+    zrodlo.write_bytes(b"zawartosc-lokalna")
+    sesja = SesjaTestowa(api=TelegramAPIServer.from_base("http://bot-api:8081", is_local=True))
+    bot_obiekt = Bot(token=TOKEN_TESTOWY, session=sesja)
+
+    async def get_file_podmieniony(file_id, request_timeout=None):
+        return File(file_id=file_id, file_unique_id="u_lokalny", file_path=str(zrodlo))
+
+    monkeypatch.setattr(bot_obiekt, "get_file", get_file_podmieniony)
+
+    def kopiuj_z_bledem(zrodlo_sciezka, cel_sciezka, rozmiar_kawalka):
+        raise OSError("dysk pelny")
+
+    monkeypatch.setattr(bot, "kopiuj_plik", kopiuj_z_bledem)
+
+    cel = tmp_path / "cel.mp4"
+    with pytest.raises(OSError):
+        await bot.pobierz_plik(bot_obiekt, "f_lokalny", cel)
+
+    assert zrodlo.exists()
+    assert not cel.exists()
+    assert not cel.with_name(cel.name + ".part").exists()
 
 
 async def test_zbyt_duzy_plik_zgloszony_przez_telegram_daje_komunikat_o_limicie(srodowisko):
