@@ -46,6 +46,7 @@ def test_typ_pliku_z_nazwy_i_z_mime():
     assert magazyn.typ_pliku("IMG_1.HEIC", None) == "zdjecie"
     assert magazyn.typ_pliku(None, "video/quicktime") == "klip"
     assert magazyn.typ_pliku(None, "application/pdf") is None
+    assert magazyn.typ_pliku("a.gif", None) == "klip"
 
 
 def test_typ_pliku_nieznane_rozszerzenie_bez_mime():

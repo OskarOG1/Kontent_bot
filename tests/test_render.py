@@ -259,3 +259,122 @@ def test_plan_ujec_start_w_klipie_niezalezny_od_dlugosci_ujecia():
     wynik = render.plan_ujec(wzor, [], materialy, fps=10)
 
     assert wynik["ujecia"][0]["start_w_klipie_s"] == 3.0
+
+
+def dekoduj_klatki(sciezka, tmp_path, nazwa):
+    dane = uruchom_ffprobe(sciezka)
+    strumien = strumien_wideo(dane)
+    szerokosc, wysokosc = int(strumien["width"]), int(strumien["height"])
+    surowy = tmp_path / nazwa
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(sciezka), "-pix_fmt", "rgb24", "-f", "rawvideo", str(surowy)],
+        stdin=subprocess.DEVNULL, check=True,
+    )
+    dane_surowe = np.fromfile(surowy, dtype=np.uint8)
+    liczba_klatek = dane_surowe.size // (szerokosc * wysokosc * 3)
+    return dane_surowe.reshape(liczba_klatek, wysokosc, szerokosc, 3)
+
+
+def test_segment_klipu_z_obrotem_90_ma_czerwien_na_gorze(tmp_path):
+    klip = tmp_path / "klip.mp4"
+    generuj.klip_testowy(klip, czas_s=1.0, rozmiar=(270, 480), obrot=90)
+    wyjscie = tmp_path / "segment.mp4"
+    render.segment_klipu(klip, wyjscie, start_s=0.0, liczba_klatek=20, fps=30, szerokosc=270, wysokosc=480)
+    klatki = dekoduj_klatki(wyjscie, tmp_path, "dek.raw")
+    assert klatki.shape == (20, 480, 270, 3)
+    assert gora_czerwona(klatki[0])
+
+
+def test_segment_zdjecia_z_exif_6_ma_czerwien_na_gorze(tmp_path):
+    zdjecie = tmp_path / "zdjecie.jpg"
+    generuj.zdjecie_testowe(zdjecie, rozmiar=(1600, 900), orientacja_exif=6)
+    praca = tmp_path / "praca"
+    praca.mkdir()
+    przygotowana = render.przygotuj_zdjecie(zdjecie, praca, 0, 270, 480)
+    wyjscie = tmp_path / "segment.mp4"
+    render.segment_zdjecia(przygotowana, wyjscie, numer_ujecia=0, liczba_klatek=15, fps=30, szerokosc=270, wysokosc=480)
+    klatki = dekoduj_klatki(wyjscie, tmp_path, "dek.raw")
+    assert klatki.shape == (15, 480, 270, 3)
+    assert gora_czerwona(klatki[0])
+
+
+def test_segment_zdjecia_z_przezroczystoscia_sie_renderuje(tmp_path):
+    zdjecie = tmp_path / "zdjecie.png"
+    generuj.zdjecie_testowe(zdjecie, rozmiar=(1200, 1600), alfa=True)
+    praca = tmp_path / "praca"
+    praca.mkdir()
+    przygotowana = render.przygotuj_zdjecie(zdjecie, praca, 0, 270, 480)
+    wyjscie = tmp_path / "segment.mp4"
+    render.segment_zdjecia(przygotowana, wyjscie, numer_ujecia=1, liczba_klatek=10, fps=30, szerokosc=270, wysokosc=480)
+    dane = uruchom_ffprobe(wyjscie)
+    strumien = strumien_wideo(dane)
+    assert int(strumien["width"]) == 270 and int(strumien["height"]) == 480
+
+
+def test_segment_klipu_krotszego_niz_ujecie_daje_dokladna_liczbe_klatek(tmp_path):
+    klip = tmp_path / "krotki.mp4"
+    generuj.klip_testowy(klip, czas_s=0.4, rozmiar=(270, 480), fps=30)
+    wyjscie = tmp_path / "segment.mp4"
+    render.segment_klipu(klip, wyjscie, start_s=0.0, liczba_klatek=30, fps=30, szerokosc=270, wysokosc=480)
+    wynik = subprocess.run(
+        ["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", str(wyjscie)],
+        stdin=subprocess.DEVNULL, capture_output=True,
+    )
+    assert int(wynik.stdout.decode().strip()) == 30
+
+
+def test_segment_zdjecia_poziomego_daje_docelowy_rozmiar_i_sar(tmp_path):
+    zdjecie = tmp_path / "poziome.jpg"
+    generuj.zdjecie_testowe(zdjecie, rozmiar=(1600, 900))
+    praca = tmp_path / "praca"
+    praca.mkdir()
+    przygotowana = render.przygotuj_zdjecie(zdjecie, praca, 0, 270, 480)
+    wyjscie = tmp_path / "segment.mp4"
+    render.segment_zdjecia(przygotowana, wyjscie, numer_ujecia=0, liczba_klatek=10, fps=30, szerokosc=270, wysokosc=480)
+    dane = uruchom_ffprobe(wyjscie)
+    strumien = strumien_wideo(dane)
+    assert int(strumien["width"]) == 270 and int(strumien["height"]) == 480
+    assert strumien["sample_aspect_ratio"] == "1:1"
+
+
+def test_przygotuj_materialy_uszkodzony_trafia_do_pominietych(tmp_path):
+    uszkodzony = tmp_path / "zly.mp4"
+    uszkodzony.write_bytes(b"to nie jest wideo" * 50)
+    dobry = tmp_path / "dobry.mp4"
+    generuj.klip_testowy(dobry, czas_s=0.5, rozmiar=(270, 480))
+    materialy = [
+        {"plik": uszkodzony, "typ": "klip", "message_id": 1},
+        {"plik": dobry, "typ": "klip", "message_id": 2},
+    ]
+    praca = tmp_path / "praca"
+    praca.mkdir()
+
+    dobre, pominiete = render.przygotuj_materialy(materialy, praca, 270, 480)
+
+    assert len(dobre) == 1
+    assert dobre[0]["plik"] == dobry
+    assert pominiete == [{"plik": "zly.mp4", "powod": "brak strumienia wideo"}]
+
+
+def test_segment_klipu_gra_dalej_poza_dlugoscia_kawalka_i_zamraza_dopiero_na_koncu_pliku(tmp_path):
+    klip = tmp_path / "wieloujeciowy.mp4"
+    generuj.wideo_z_cieciami(klip, ciecia_s=[1, 2, 3, 4], czas_s=5.0, fps=30, rozmiar=(270, 480))
+
+    def kolor_srodka(klatka):
+        return klatka.reshape(-1, 3).mean(axis=0)
+
+    def zblizony(kolor, oczekiwany, tolerancja=6):
+        return all(abs(float(kolor[i]) - oczekiwany[i]) <= tolerancja for i in range(3))
+
+    wyjscie_a = tmp_path / "a.mp4"
+    render.segment_klipu(klip, wyjscie_a, start_s=3.0, liczba_klatek=45, fps=30, szerokosc=270, wysokosc=480)
+    klatki_a = dekoduj_klatki(wyjscie_a, tmp_path, "a.raw")
+    assert klatki_a.shape[0] == 45
+    assert zblizony(kolor_srodka(klatki_a[0]), generuj.kolor_ujecia(3))
+    assert zblizony(kolor_srodka(klatki_a[-1]), generuj.kolor_ujecia(4))
+
+    wyjscie_b = tmp_path / "b.mp4"
+    render.segment_klipu(klip, wyjscie_b, start_s=4.5, liczba_klatek=30, fps=30, szerokosc=270, wysokosc=480)
+    klatki_b = dekoduj_klatki(wyjscie_b, tmp_path, "b.raw")
+    assert klatki_b.shape[0] == 30
+    assert zblizony(kolor_srodka(klatki_b[-1]), generuj.kolor_ujecia(4))

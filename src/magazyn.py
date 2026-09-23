@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 ROZSZERZENIA_ZDJECIE = {"jpg", "jpeg", "png", "webp", "heic", "heif"}
-ROZSZERZENIA_KLIP = {"mp4", "mov", "m4v", "webm", "mkv"}
+ROZSZERZENIA_KLIP = {"mp4", "mov", "m4v", "webm", "mkv", "gif"}
 
 
 def teraz() -> datetime:
