@@ -500,7 +500,7 @@ def uruchom_cli(argumenty):
     )
 
 
-def test_cli_sukces_i_blad(tmp_path):
+def test_cli_sukces(tmp_path):
     def dodaj(katalog):
         generuj.zdjecie_testowe(katalog / "0000000001_a.jpg", rozmiar=(800, 600))
 
@@ -519,8 +519,11 @@ def test_cli_sukces_i_blad(tmp_path):
     assert wyjscie.exists()
     assert wyjscie.with_suffix(".json").exists()
 
-    wynik_bledu = uruchom_cli([
-        "--wzor", str(tmp_path / "brak.json"), "--projekt", str(projekt), "--utwor", str(utwor), "--wyjscie", str(tmp_path / "brak_wyniku.mp4"),
+
+def test_cli_blad_jedna_linia_na_stderr(tmp_path, capsys):
+    kod = render.glowna([
+        "--wzor", str(tmp_path / "brak.json"), "--projekt", str(tmp_path / "projekt"),
+        "--utwor", str(tmp_path / "brak.wav"), "--wyjscie", str(tmp_path / "brak_wyniku.mp4"),
     ])
-    assert wynik_bledu.returncode != 0
-    assert len(wynik_bledu.stderr.decode("utf-8", errors="replace").strip().splitlines()) == 1
+    assert kod != 0
+    assert len(capsys.readouterr().err.strip().splitlines()) == 1
