@@ -187,6 +187,69 @@ def wideo_z_cieciami(
             raise RuntimeError(f"ffmpeg zakonczyl sie kodem {kod}: {blad}")
 
 
+def nakladka_testowa(
+    sciezka: Path,
+    czas_s: float,
+    tryb: str,
+    rozmiar: tuple[int, int] = (270, 480),
+    fps: float = 30,
+) -> None:
+    sciezka = Path(sciezka)
+    szerokosc, wysokosc = rozmiar
+    polowa = wysokosc // 2
+    liczba_klatek = max(1, int(round(czas_s * fps)))
+
+    if tryb == "png":
+        obraz = Image.new("RGBA", rozmiar, (0, 0, 0, 0))
+        obraz.paste(Image.new("RGBA", (szerokosc, polowa), (220, 30, 30, 255)), (0, 0))
+        obraz.save(sciezka)
+        return
+
+    if tryb == "alfa":
+        klatka = np.zeros((wysokosc, szerokosc, 4), dtype=np.uint8)
+        klatka[:polowa] = (220, 30, 30, 255)
+        klatka[polowa:] = (0, 0, 0, 0)
+        dane_klatki = klatka.tobytes()
+        argumenty_wejscia = ["-f", "rawvideo", "-pix_fmt", "rgba", "-s", f"{szerokosc}x{wysokosc}", "-framerate", ulamek_fps(fps), "-i", "pipe:0"]
+        argumenty_kodowania = ["-c:v", "png", "-pix_fmt", "rgba"]
+    elif tryb == "zielen":
+        klatka = np.zeros((wysokosc, szerokosc, 3), dtype=np.uint8)
+        klatka[:polowa] = (220, 30, 30)
+        klatka[polowa:] = (0, 255, 0)
+        dane_klatki = klatka.tobytes()
+        argumenty_wejscia = ["-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{szerokosc}x{wysokosc}", "-framerate", ulamek_fps(fps), "-i", "pipe:0"]
+        argumenty_kodowania = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p"]
+    elif tryb == "ekran":
+        klatka = np.zeros((wysokosc, szerokosc, 3), dtype=np.uint8)
+        klatka[:polowa] = (255, 255, 255)
+        klatka[polowa:] = (0, 0, 0)
+        dane_klatki = klatka.tobytes()
+        argumenty_wejscia = ["-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{szerokosc}x{wysokosc}", "-framerate", ulamek_fps(fps), "-i", "pipe:0"]
+        argumenty_kodowania = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p"]
+    else:
+        raise ValueError(f"Nieznany tryb nakladki: {tryb}")
+
+    argumenty = ["ffmpeg", "-y", "-loglevel", "error", *argumenty_wejscia, *argumenty_kodowania, "-an", "-frames:v", str(liczba_klatek), str(sciezka)]
+    with tempfile.TemporaryDirectory() as katalog_tymczasowy:
+        katalog = Path(katalog_tymczasowy)
+        with open(katalog / "stderr.txt", "wb") as plik_bledow:
+            proces = subprocess.Popen(argumenty, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=plik_bledow)
+            try:
+                for _ in range(liczba_klatek):
+                    proces.stdin.write(dane_klatki)
+            except BrokenPipeError:
+                pass
+            finally:
+                try:
+                    proces.stdin.close()
+                except BrokenPipeError:
+                    pass
+            kod = proces.wait()
+        if kod != 0:
+            blad = (katalog / "stderr.txt").read_text(encoding="utf-8", errors="replace")
+            raise RuntimeError(f"ffmpeg zakonczyl sie kodem {kod}: {blad}")
+
+
 def zdjecie_testowe(
     sciezka: Path,
     rozmiar: tuple[int, int] = (1200, 1600),

@@ -8,6 +8,7 @@ import tempfile
 import time
 from pathlib import Path
 
+import numpy
 import pillow_heif
 from PIL import Image, ImageOps
 
@@ -20,6 +21,18 @@ pillow_heif.register_heif_opener()
 MNOZNIK_ROBOCZY_ZOOM = 2
 ZOOM_MAKSYMALNY = 1.12
 PARAMETRY_KODOWANIA_SEGMENTU = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"]
+PROMIEN_ROZMYCIA_PLANSZY = 20
+PIX_FMT_Z_ALFA = {
+    "rgba", "bgra", "argb", "abgr",
+    "yuva420p", "yuva422p", "yuva444p",
+    "yuva420p9le", "yuva420p9be", "yuva420p10le", "yuva420p10be",
+    "yuva420p16le", "yuva420p16be",
+    "yuva422p9le", "yuva422p10le", "yuva444p9le", "yuva444p10le",
+    "ya8", "ya16le", "ya16be",
+    "gbrap", "gbrap10le", "gbrap10be", "gbrap12le", "gbrap12be", "gbrap16le", "gbrap16be",
+    "rgba64le", "rgba64be", "bgra64le", "bgra64be",
+}
+PROG_ZIELENI = 0.3
 
 
 def uruchom_ffmpeg(argumenty: list[str]) -> None:
@@ -106,6 +119,100 @@ def segment_klipu(sciezka_zrodlowa, wyjscie: Path, start_s: float, liczba_klatek
         *PARAMETRY_KODOWANIA_SEGMENTU,
         str(wyjscie),
     ])
+
+
+def segment_planszy(sciezka, wyjscie: Path, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int) -> None:
+    sciezka = Path(sciezka)
+    wyjscie = Path(wyjscie)
+    jest_zdjeciem = magazyn.typ_pliku(sciezka.name, None) == "zdjecie"
+
+    tlo = f"scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,crop={szerokosc}:{wysokosc},boxblur={PROMIEN_ROZMYCIA_PLANSZY}:2"
+    pierwszy_plan = f"scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=decrease,setsar=1"
+    ogon = f",fps={fps}"
+    if not jest_zdjeciem:
+        ogon += ",tpad=stop_mode=clone:stop=-1"
+    ogon += ",setsar=1[out]"
+    filtr = f"[0:v]split=2[a][b];[a]{tlo}[tlo];[b]{pierwszy_plan}[fg];[tlo][fg]overlay=(W-w)/2:(H-h)/2{ogon}"
+
+    if jest_zdjeciem:
+        with tempfile.TemporaryDirectory() as katalog_tymczasowy:
+            przygotowany = przygotuj_zdjecie(sciezka, Path(katalog_tymczasowy), 0, szerokosc, wysokosc)
+            uruchom_ffmpeg([
+                "-loop", "1", "-i", str(przygotowany),
+                "-filter_complex", filtr,
+                "-map", "[out]",
+                "-frames:v", str(liczba_klatek),
+                "-an",
+                *PARAMETRY_KODOWANIA_SEGMENTU,
+                str(wyjscie),
+            ])
+    else:
+        uruchom_ffmpeg([
+            "-i", str(sciezka),
+            "-filter_complex", filtr,
+            "-map", "[out]",
+            "-frames:v", str(liczba_klatek),
+            "-an",
+            *PARAMETRY_KODOWANIA_SEGMENTU,
+            str(wyjscie),
+        ])
+
+
+def ma_alfa_z_pil(sciezka: Path) -> bool:
+    with Image.open(sciezka) as obraz:
+        if obraz.mode in ("RGBA", "LA"):
+            return True
+        return "transparency" in obraz.info
+
+
+def strumien_wideo_nakladki(sciezka: Path) -> dict | None:
+    wynik = subprocess.run(
+        ["ffprobe", "-v", "error", "-of", "json", "-show_streams", str(sciezka)],
+        stdin=subprocess.DEVNULL, capture_output=True,
+    )
+    if wynik.returncode != 0:
+        return None
+    dane = json.loads(wynik.stdout.decode("utf-8", errors="replace"))
+    for strumien in dane.get("streams", []):
+        if strumien.get("codec_type") == "video":
+            return strumien
+    return None
+
+
+def wymaga_dekodera_vp9_alfa(strumien: dict) -> bool:
+    return strumien.get("codec_name") == "vp9" and str(strumien.get("tags", {}).get("alpha_mode")) == "1"
+
+
+def pierwsza_klatka_zielona(sciezka: Path) -> bool:
+    with tempfile.TemporaryDirectory() as katalog_tymczasowy:
+        klatka = Path(katalog_tymczasowy) / "klatka.png"
+        wynik = subprocess.run(
+            ["ffmpeg", "-y", "-nostdin", "-loglevel", "error", "-i", str(sciezka), "-frames:v", "1", str(klatka)],
+            stdin=subprocess.DEVNULL, capture_output=True,
+        )
+        if wynik.returncode != 0 or not klatka.exists():
+            return False
+        with Image.open(klatka) as obraz:
+            tablica = numpy.array(obraz.convert("RGB")).reshape(-1, 3)
+    if tablica.size == 0:
+        return False
+    zielone = numpy.count_nonzero((tablica[:, 1] > 150) & (tablica[:, 0] < 100) & (tablica[:, 2] < 100))
+    return zielone / len(tablica) >= PROG_ZIELENI
+
+
+def tryb_nakladki(sciezka) -> str:
+    sciezka = Path(sciezka)
+    if sciezka.suffix.lower() in (".png", ".gif") and ma_alfa_z_pil(sciezka):
+        return "alfa"
+    strumien = strumien_wideo_nakladki(sciezka)
+    if strumien is not None:
+        if strumien.get("pix_fmt") in PIX_FMT_Z_ALFA:
+            return "alfa"
+        if wymaga_dekodera_vp9_alfa(strumien):
+            return "alfa"
+    if pierwsza_klatka_zielona(sciezka):
+        return "zielen"
+    return "ekran"
 
 
 def przygotuj_materialy(materialy: list[dict], katalog_pracy: Path, szerokosc: int, wysokosc: int) -> tuple[list[dict], list[dict]]:
@@ -248,7 +355,21 @@ def sklej_segmenty(sciezki_segmentow: list[Path], wyjscie: Path) -> None:
         uruchom_ffmpeg(["-f", "concat", "-safe", "0", "-i", str(lista), "-c", "copy", str(wyjscie)])
 
 
-def przebieg_koncowy(polaczone_wideo: Path, utwor: Path, start_audio_s: float, liczba_klatek: int, fps: float, wyjscie: Path, limit_mb: float) -> None:
+def przebieg_koncowy(
+    polaczone_wideo: Path,
+    utwor: Path,
+    start_audio_s: float,
+    liczba_klatek: int,
+    fps: float,
+    wyjscie: Path,
+    limit_mb: float,
+    szerokosc: int | None = None,
+    wysokosc: int | None = None,
+    nakladka: Path | None = None,
+    tryb_nakladki_wartosc: str | None = None,
+    nakladka_od_s: float | None = None,
+    nakladka_do_s: float | None = None,
+) -> None:
     czas_trwania_s = liczba_klatek / fps
     wyciszenie_s = min(0.5, czas_trwania_s)
     poczatek_wyciszenia = max(0.0, czas_trwania_s - wyciszenie_s)
@@ -258,16 +379,53 @@ def przebieg_koncowy(polaczone_wideo: Path, utwor: Path, start_audio_s: float, l
     maxrate_bps = max(100_000, int(limit_bitow / czas_trwania_s) - bitrate_audio_bps)
     bufsize_bps = maxrate_bps
 
-    filtr = (
-        "[0:v]setsar=1[v];"
-        f"[1:a]afade=t=out:st={poczatek_wyciszenia:.6f}:d={wyciszenie_s:.6f}[a]"
-    )
+    wejscia = ["-i", str(polaczone_wideo), "-ss", f"{start_audio_s:.6f}", "-t", f"{czas_trwania_s:.6f}", "-i", str(utwor)]
+
+    if nakladka is None:
+        filtr = (
+            "[0:v]setsar=1[v];"
+            f"[1:a]afade=t=out:st={poczatek_wyciszenia:.6f}:d={wyciszenie_s:.6f}[a]"
+        )
+        mapa_wideo = "[v]"
+    else:
+        okno_s = round(nakladka_do_s - nakladka_od_s, 6)
+        nakladka = Path(nakladka)
+        if nakladka.suffix.lower() == ".png":
+            wejscia += ["-loop", "1", "-t", f"{okno_s:.6f}", "-i", str(nakladka)]
+        else:
+            strumien = strumien_wideo_nakladki(nakladka)
+            if strumien is not None and wymaga_dekodera_vp9_alfa(strumien):
+                wejscia += ["-c:v", "libvpx-vp9"]
+            wejscia += ["-stream_loop", "-1", "-t", f"{okno_s:.6f}", "-i", str(nakladka)]
+
+        przygotowanie_nakladki = (
+            f"[2:v]scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,"
+            f"crop={szerokosc}:{wysokosc},fps={fps}"
+        )
+        warunek = f"between(t,{nakladka_od_s:.6f},{nakladka_do_s:.6f})"
+        if tryb_nakladki_wartosc == "alfa":
+            przygotowanie_nakladki += f",format=rgba,setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
+            kompozycja = f"[0:v][nak]overlay=eval=frame:enable='{warunek}',setsar=1[v]"
+        elif tryb_nakladki_wartosc == "zielen":
+            przygotowanie_nakladki += f",format=rgba,colorkey=0x00FF00:0.3:0.1,setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
+            kompozycja = f"[0:v][nak]overlay=eval=frame:enable='{warunek}',setsar=1[v]"
+        else:
+            przygotowanie_nakladki += f",format=rgb24,setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
+            kompozycja = (
+                f"[0:v]format=rgb24[glowne];[glowne][nak]blend=all_mode=screen:enable='{warunek}',"
+                f"scale=out_range=full,setsar=1[v]"
+            )
+
+        filtr = (
+            f"{przygotowanie_nakladki};{kompozycja};"
+            f"[1:a]afade=t=out:st={poczatek_wyciszenia:.6f}:d={wyciszenie_s:.6f}[a]"
+        )
+        mapa_wideo = "[v]"
 
     uruchom_ffmpeg([
-        "-i", str(polaczone_wideo),
-        "-ss", f"{start_audio_s:.6f}", "-t", f"{czas_trwania_s:.6f}", "-i", str(utwor),
+        *wejscia,
         "-filter_complex", filtr,
-        "-map", "[v]", "-map", "[a]",
+        "-map", mapa_wideo, "-map", "[a]",
         "-r", str(fps),
         "-frames:v", str(liczba_klatek),
         "-c:v", "libx264", "-profile:v", "high", "-preset", "medium", "-crf", "20",
@@ -323,6 +481,26 @@ def przygotuj_zrodlo_dzwieku(wzor: dict, utwor: Path | None, muzyka: Path | None
     raise RuntimeError("Brak utworu i katalogu muzyki")
 
 
+def pozycja_dropu_w_planie(wzor: dict, plan_ujecia: list[dict], fps: float) -> float | None:
+    sekcje = wzor.get("sekcje")
+    if not sekcje or sekcje.get("drop_ujecie") is None:
+        return None
+    for ujecie in plan_ujecia:
+        if ujecie["numer_wzoru"] >= sekcje["drop_ujecie"]:
+            return round(ujecie["klatka_od"] / fps, 3)
+    return None
+
+
+def okno_nakladki(wzor: dict, plan_ujecia: list[dict], liczba_klatek: int, fps: float, plansza_uzyta: bool) -> tuple[float, float]:
+    sekcje = wzor.get("sekcje")
+    if sekcje and sekcje.get("drop_ujecie") is not None:
+        klatka_start = next((u["klatka_od"] for u in plan_ujecia if u["numer_wzoru"] >= sekcje["drop_ujecie"]), 0)
+    else:
+        klatka_start = 0
+    klatka_koniec = plan_ujecia[-1]["klatka_od"] if plansza_uzyta else liczba_klatek
+    return round(klatka_start / fps, 6), round(klatka_koniec / fps, 6)
+
+
 def renderuj(
     wzor_json: Path,
     katalog_projektu: Path,
@@ -333,6 +511,8 @@ def renderuj(
     fps: int = 30,
     limit_mb: float = 50,
     muzyka: Path | None = None,
+    nakladka: Path | None = None,
+    plansza: Path | None = None,
 ) -> dict:
     czas_startu = time.time()
     wzor_json = Path(wzor_json)
@@ -383,10 +563,14 @@ def renderuj(
 
     sciezki_robocze = {str(material["plik"]): material["plik_roboczy"] for material in dobre if material["typ"] == "zdjecie"}
 
+    plansza_uzyta = plansza is not None and len(plan["ujecia"]) > 1
+
     sciezki_segmentow = []
     for indeks, ujecie in enumerate(plan["ujecia"]):
         sciezka_segmentu = katalog_pracy / f"segment_{indeks:06d}.mp4"
-        if ujecie["typ"] == "zdjecie":
+        if plansza_uzyta and indeks == len(plan["ujecia"]) - 1:
+            segment_planszy(plansza, sciezka_segmentu, ujecie["liczba_klatek"], fps, szerokosc, wysokosc)
+        elif ujecie["typ"] == "zdjecie":
             segment_zdjecia(sciezki_robocze[ujecie["material"]], sciezka_segmentu, indeks, ujecie["liczba_klatek"], fps, szerokosc, wysokosc)
         else:
             segment_klipu(ujecie["material"], sciezka_segmentu, ujecie["start_w_klipie_s"], ujecie["liczba_klatek"], fps, szerokosc, wysokosc)
@@ -395,7 +579,18 @@ def renderuj(
     polaczone = katalog_pracy / "polaczone.mp4"
     sklej_segmenty(sciezki_segmentow, polaczone)
 
-    przebieg_koncowy(polaczone, utwor, plan["start_audio_s"], plan["liczba_klatek"], fps, wyjscie, limit_mb)
+    tryb_nak = None
+    nakladka_od_s = nakladka_do_s = None
+    if nakladka is not None:
+        tryb_nak = tryb_nakladki(nakladka)
+        nakladka_od_s, nakladka_do_s = okno_nakladki(wzor, plan["ujecia"], plan["liczba_klatek"], fps, plansza_uzyta)
+
+    przebieg_koncowy(
+        polaczone, utwor, plan["start_audio_s"], plan["liczba_klatek"], fps, wyjscie, limit_mb,
+        szerokosc=szerokosc, wysokosc=wysokosc,
+        nakladka=nakladka, tryb_nakladki_wartosc=tryb_nak,
+        nakladka_od_s=nakladka_od_s, nakladka_do_s=nakladka_do_s,
+    )
     zweryfikuj_wynik(wyjscie, szerokosc, wysokosc, fps, plan["liczba_klatek"], limit_mb)
 
     materialy_uzyte = len({u["material"] for u in plan["ujecia"]})
@@ -416,6 +611,12 @@ def renderuj(
             "tempo_bpm": wybor.get("tempo_bpm") if wybor else None,
             "mnoznik": wybor.get("mnoznik") if wybor else 1.0,
         },
+        "nakladka": (
+            {"plik": Path(nakladka).name, "tryb": tryb_nak, "od_s": nakladka_od_s, "do_s": nakladka_do_s}
+            if nakladka is not None else None
+        ),
+        "plansza": Path(plansza).name if plansza_uzyta else None,
+        "drop_s": pozycja_dropu_w_planie(wzor, plan["ujecia"], fps),
     }
 
     sciezka_podsumowania = wyjscie.with_suffix(".json")
@@ -437,6 +638,8 @@ def glowna(argumenty: list[str] | None = None) -> int:
     parser.add_argument("--wysokosc", type=int, default=1920)
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--limit-mb", type=float, default=50)
+    parser.add_argument("--nakladka")
+    parser.add_argument("--plansza")
     ustalone = parser.parse_args(argumenty)
     try:
         renderuj(
@@ -444,6 +647,8 @@ def glowna(argumenty: list[str] | None = None) -> int:
             Path(ustalone.utwor) if ustalone.utwor else None, Path(ustalone.wyjscie),
             szerokosc=ustalone.szerokosc, wysokosc=ustalone.wysokosc, fps=ustalone.fps, limit_mb=ustalone.limit_mb,
             muzyka=Path(ustalone.muzyka) if ustalone.muzyka else None,
+            nakladka=Path(ustalone.nakladka) if ustalone.nakladka else None,
+            plansza=Path(ustalone.plansza) if ustalone.plansza else None,
         )
     except Exception as blad:
         print(str(blad), file=sys.stderr)
