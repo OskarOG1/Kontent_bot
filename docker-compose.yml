@@ -7,6 +7,7 @@ services:
       - bot_api_dane:/var/lib/telegram-bot-api
     restart: unless-stopped
     cpus: "2"
+    mem_limit: "3g"
     logging:
       driver: json-file
       options:
@@ -14,7 +15,7 @@ services:
         max-file: "3"
 
   bot-api:
-    image: aiogram/telegram-bot-api:latest
+    build: ./bot-api
     env_file: .env
     environment:
       TELEGRAM_LOCAL: "1"
