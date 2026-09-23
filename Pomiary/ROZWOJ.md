@@ -9,7 +9,7 @@ Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym
 | 1 szkielet | kod gotowy, testy 33 z 33, pomiar w progach. Odbiór 2026-09-22 (Opus): OK. Test ręczny na Telegramie: materiały działają, wzór nie (limit 20 MB, patrz „Znane problemy") |
 | 2 analiza | kod gotowy, scalony do `main` w PR #1 (`4b929c9`), testy 62 z 62, pomiar A w progach (100% cięć, błąd tempa maks 0,35%), pomiar B na dwóch prawdziwych wzorach. Odbiór 2026-09-22 (Opus): OK, domyślny ContentDetector potwierdzony. Brak testu ręcznego na prawdziwym wzorze (czeka na lokalny serwer Bot API) |
 | 7 wdrożenie | 7.1 i 7.2 scalone do `main` w PR #2 (`e9a4755`), na `46.62.151.181` działa bot testowy, testy w kontenerze 71 z 71. 7.3 wykonane na gałęzi `wdrozenie-poprawki` (2026-09-23), testy lokalnie 75 z 75, pomiar w progach. Odbiór 7.3 (Opus) 2026-09-23: OK, scalone w PR #3. `Pomiary/` zostaje w repozytorium (decyzja właściciela 2026-09-23). Serwer przełączony na głównego bota `@cwel54_bot`, punkty a do f i h zrobione 2026-09-23: pobieranie przez serwer lokalny odblokowane, limit pamięci 3 GB działa, cron ustawiony. Punkt g zrobiony 2026-09-23: wzór 153 MB pobrany w 9 s, analiza 51 s, szczyt pamięci 894 MB przy limicie 3 GB, wolumen serwera Bot API po skopiowaniu pusty. Część 7 zamknięta |
-| 3 render | nie ruszona |
+| 3 render | następna, plan gotowy (), materiały i muzyka na miejscu |
 | 4 do 6 | nie ruszone |
 
 Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`). Wdrożenie na serwer nadal przez `wdroz.ps1` (część 7).
