@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import sys
 from pathlib import Path
 from time import monotonic
@@ -30,6 +31,8 @@ LIMIT_SERWERA_TELEGRAM_LOKALNY_MB = 2500
 LIMIT_WYSYLKI_TELEGRAM_MB = 50
 LIMIT_WYSYLKI_TELEGRAM_LOKALNY_MB = 2000
 LIMIT_ANALIZY_S = 300
+LIMIT_GETFILE_LOKALNY_S = 1800
+ROZMIAR_KAWALKA_KOPII_B = 64 * 1024
 SKRYPT_ANALIZY = Path(__file__).resolve().parent / "analyze.py"
 
 
@@ -91,11 +94,29 @@ def rozpoznaj_zalacznik(message: Message):
     return None
 
 
+def kopiuj_plik(zrodlo: Path, cel: Path, rozmiar_kawalka: int) -> None:
+    with open(zrodlo, "rb") as plik_zrodlowy, open(cel, "wb") as plik_docelowy:
+        shutil.copyfileobj(plik_zrodlowy, plik_docelowy, length=rozmiar_kawalka)
+
+
+async def pobierz_plik_lokalnie(bot: Bot, file_id: str, tymczasowy: Path) -> None:
+    plik = await bot.get_file(file_id, request_timeout=LIMIT_GETFILE_LOKALNY_S)
+    zrodlo = Path(plik.file_path)
+    await asyncio.to_thread(kopiuj_plik, zrodlo, tymczasowy, ROZMIAR_KAWALKA_KOPII_B)
+    try:
+        zrodlo.unlink()
+    except OSError:
+        log.warning("nie udalo sie usunac pliku zrodlowego na serwerze lokalnym, sciezka=%s", zrodlo)
+
+
 async def pobierz_plik(bot: Bot, file_id: str, cel: Path) -> None:
     cel.parent.mkdir(parents=True, exist_ok=True)
     tymczasowy = cel.with_name(cel.name + ".part")
     try:
-        await bot.download(file_id, destination=tymczasowy)
+        if bot.session.api.is_local:
+            await pobierz_plik_lokalnie(bot, file_id, tymczasowy)
+        else:
+            await bot.download(file_id, destination=tymczasowy)
     except Exception:
         tymczasowy.unlink(missing_ok=True)
         raise
