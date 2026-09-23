@@ -66,7 +66,7 @@ b. `docker compose down`, potem `docker volume rm edity-bot_bot_api_dane`. Stary
 c. W `C:\Dev\edity-bot-serwer.env` zamień komentarz na `TELEGRAM_API_URL=http://bot-api:8081`, potem z komputera `scp C:\Dev\edity-bot-serwer.env root@46.62.151.181:/opt/edity-bot/.env`.
 d. `logOut` głównego bota na serwerze Telegrama (`https://api.telegram.org/bot<token głównego bota>/logOut` w przeglądarce) i zatrzymanie każdej jego lokalnej instancji.
 e. Na komputerze `git checkout main`, `git pull`, `.\wdroz.ps1 -Serwer root@46.62.151.181`. W logu `Run polling for bot @...` z nazwą właściwego bota.
-f. Uprawnienia, po starcie pollingu (katalog bota powstaje przy jego pierwszym zapytaniu): `docker compose exec -T bot-api id -u telegram-bot-api` daje `1000`, a `docker compose exec -T bot sh -c 'ls /var/lib/telegram-bot-api/*/ >/dev/null 2>&1 && echo odczyt OK || echo BRAK ODCZYTU'` daje `odczyt OK`.
+f. Uprawnienia, po starcie pollingu (katalog bota powstaje przy jego pierwszym zapytaniu): `docker compose exec -T bot-api id -u telegram-bot-api` daje `1000`, a `docker compose exec -T bot sh -c 'ls /var/lib/telegram-bot-api/*/ >/dev/null 2>&1 && echo odczyt OK || echo BRAK ODCZYTU'` daje `odczyt OK`. Przy okazji limit pamięci: `docker inspect -f '{{.HostConfig.Memory}}' edity-bot-bot-1` ma dać `3221225472`, a nie `0` (zero znaczy, że `mem_limit` nie zadziałał).
 g. Krok 8 z prawdziwym wzorem 4K. W trakcie analizy kilka razy `docker stats --no-stream edity-bot-bot-1 edity-bot-bot-api-1`: szczyt pamięci obu usług trafia do `ROZWOJ.md` obok czasu. Szczyt bota blisko 3 GB oznacza podniesienie `mem_limit`.
 h. Krok 10 (cron dla `dane/projekty`) nadal do zrobienia. Wolumenu serwera Bot API nie trzeba już sprzątać, bo bot usuwa plik po skopiowaniu.
 

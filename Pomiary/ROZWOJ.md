@@ -8,7 +8,7 @@ Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym
 |---|---|
 | 1 szkielet | kod gotowy, testy 33 z 33, pomiar w progach. Odbiór 2026-09-22 (Opus): OK. Test ręczny na Telegramie: materiały działają, wzór nie (limit 20 MB, patrz „Znane problemy") |
 | 2 analiza | kod gotowy, scalony do `main` w PR #1 (`4b929c9`), testy 62 z 62, pomiar A w progach (100% cięć, błąd tempa maks 0,35%), pomiar B na dwóch prawdziwych wzorach. Odbiór 2026-09-22 (Opus): OK, domyślny ContentDetector potwierdzony. Brak testu ręcznego na prawdziwym wzorze (czeka na lokalny serwer Bot API) |
-| 7 wdrożenie | 7.1 i 7.2 scalone do `main` w PR #2 (`e9a4755`), na `46.62.151.181` działa bot testowy, testy w kontenerze 71 z 71. 7.3 wykonane na gałęzi `wdrozenie-poprawki` (2026-09-23), testy lokalnie 75 z 75, pomiar w progach. Zostają: odbiór 7.3, potem punkty a do h właściciela z planu 7 (w tym przełączenie na głównego bota), próba z prawdziwym wzorem, cron |
+| 7 wdrożenie | 7.1 i 7.2 scalone do `main` w PR #2 (`e9a4755`), na `46.62.151.181` działa bot testowy, testy w kontenerze 71 z 71. 7.3 wykonane na gałęzi `wdrozenie-poprawki` (2026-09-23), testy lokalnie 75 z 75, pomiar w progach. Odbiór 7.3 (Opus) 2026-09-23: OK, jedna uwaga do decyzji (commit `b573d5c` dołożył `Pomiary/` do repozytorium poza zakresem zadania). Zostają: scalenie, potem punkty a do h właściciela z planu 7 (w tym przełączenie na głównego bota), próba z prawdziwym wzorem, cron |
 | 3 render | nie ruszona |
 | 4 do 6 | nie ruszone |
 
@@ -44,6 +44,13 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 - Pomiary i wyniki (`Pomiary/`, `outputs/`), dane (`dane/`) i `.env` są poza gitem.
 
 ## Dziennik
+
+### 2026-09-23 (odbiór zadania 7.3, Opus)
+- Werdykt: OK, do scalenia. Testy 75 z 75 (38,8 s), pomiar kopiowania w progach z zapasem (maks opóźnienie pętli 14,2 ms przy progu 50 ms, kopia 1 GB 2,3 do 2,5 s), decyzja o `ROZMIAR_KAWALKA_KOPII_B` oparta na rozrzucie powtórzeń, a nie na pojedynczym przebiegu.
+- Sprawdzone punkt po punkcie: `bot-api/Dockerfile` przypięty do `10.3` z UID i GID 1000 oraz `chown` na katalogu roboczym i tymczasowym; `pobierz_plik` w trybie lokalnym z limitem 1800 s, kopią w wątku i usunięciem źródła dopiero po sukcesie; pięć testów pokrywa wszystkie przypadki z planu, w tym błąd usuwania i błąd kopiowania; `wdroz.ps1` z `git fetch origin main`, porównaniem commitów, przełącznikiem `-Wymus` i `git archive main`; `mem_limit: "3g"`; `CLAUDE.md` bez „royalty free”.
+- Uwaga do decyzji właściciela: commit `b573d5c` („wdrożenie: Pomiary do repozytorium”) wykracza poza zadanie 7.3. Dołożył cały katalog `Pomiary/` do repozytorium, usunął go z `.gitignore` i zmienił regułę 9 w `CLAUDE.md`. Repo jest prywatne, a w plikach nie ma tokenu, `api_id` ani hasha (sprawdzone `git grep` po wzorcach), więc nic nie wyciekło. Skutki uboczne: `wdroz.ps1` wysyła teraz `Pomiary/` na serwer (do obrazu nie wchodzą, `.dockerignore` je pomija), a każda zmiana planu albo dziennika jest od teraz zmianą w gicie do scommitowania. Zostawić albo cofnąć ten jeden commit przed scaleniem.
+- Niepotwierdzone lokalnie, bo brak Dockera: budowa obrazu `bot-api` i działanie `mem_limit`. Do sprawdzenia w punkcie f (`docker inspect` ma pokazać 3221225472 bajty i UID 1000).
+- `README.md` linia 3 nadal mówi o muzyce royalty free (poza zakresem zadania, wychwycone przez wykonawcę): do poprawki przy najbliższym commicie.
 
 ### 2026-09-23 (zadanie 7.3, poprawki po odbiorze)
 - Wykonane na gałęzi `wdrozenie-poprawki` od `origin/main` (lokalny `main` był już zgodny z `origin/main`, bez potrzeby synchronizacji). Cztery commity zgodne z listą planu.
