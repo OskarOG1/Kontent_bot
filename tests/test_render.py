@@ -9,6 +9,7 @@ from PIL import Image, ImageOps
 
 import analyze
 import generuj
+import kolor
 import render
 
 
@@ -641,3 +642,130 @@ def test_cli_bez_utworu_i_bez_muzyki_jedna_linia_na_stderr(tmp_path, capsys):
     ])
     assert kod != 0
     assert len(capsys.readouterr().err.strip().splitlines()) == 1
+
+
+def wzor_kolorowy_2_sekcje():
+    return {
+        "ciecia_uderzenia": [0.0, 1.0, 2.0, 3.0],
+        "koniec_uderzenia": 4.0,
+        "ciecia_s": [0.0],
+        "zrodlo": {"czas_s": 4.0},
+        "sekcje": {"drop_s": 2.0, "drop_ujecie": 2, "koniec_haka_uderzenia": None},
+        "kolorystyka": {
+            "probki_na_s": 10,
+            "ujecia": [
+                {"lab_srednia": [50.0, 0.0, 30.0], "lab_odchylenie": [15.0, 5.0, 5.0], "probki": 10},
+                {"lab_srednia": [50.0, 0.0, 30.0], "lab_odchylenie": [15.0, 5.0, 5.0], "probki": 10},
+                {"lab_srednia": [50.0, 0.0, -30.0], "lab_odchylenie": [15.0, 5.0, 5.0], "probki": 10},
+                {"lab_srednia": [50.0, 0.0, -30.0], "lab_odchylenie": [15.0, 5.0, 5.0], "probki": 10},
+            ],
+        },
+    }
+
+
+def zbuduj_projekt_materialow_szarych(tmp_path):
+    def dodaj(katalog):
+        for i in range(4):
+            generuj.zdjecie_testowe(katalog / f"000000000{i}_m.jpg", rozmiar=(800, 600), kolor=(128, 128, 128))
+
+    return zbuduj_projekt(tmp_path, dodaj)
+
+
+def test_renderuj_kolor_hak_i_montaz_maja_przeciwny_znak_b(tmp_path):
+    projekt = zbuduj_projekt_materialow_szarych(tmp_path)
+    wzor = wzor_kolorowy_2_sekcje()
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=128, czas_s=6.0, pierwsze_uderzenie_s=0.3)
+    fps = 30
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(
+        wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50, sila_koloru=1.0,
+    )
+    assert podsumowanie["kolor"] == {"sila": 1.0, "sekcje": True}
+
+    _, uderzenia = analyze.analizuj_rytm(utwor)
+    material_zastepczy = [{"plik": "x", "typ": "zdjecie", "message_id": 0}]
+    plan = render.plan_ujec(wzor, uderzenia, material_zastepczy, fps)
+    klatki = dekoduj_klatki(wyjscie, tmp_path, "kolor.raw")
+
+    def srednie_b(klatka):
+        return float(kolor.rgb_do_lab(klatka)[..., 2].mean())
+
+    klatka_hak = klatki[plan["ujecia"][0]["klatka_od"]]
+    klatka_montaz = klatki[plan["ujecia"][2]["klatka_od"]]
+    assert srednie_b(klatka_hak) > 10
+    assert srednie_b(klatka_montaz) < -10
+
+
+def test_renderuj_plansza_bez_zmian_kolorystyki_przy_sile_1(tmp_path):
+    projekt = zbuduj_projekt_materialow_szarych(tmp_path)
+    wzor = wzor_kolorowy_2_sekcje()
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=128, czas_s=6.0, pierwsze_uderzenie_s=0.3)
+    plansza = tmp_path / "plansza.jpg"
+    generuj.zdjecie_testowe(plansza, rozmiar=(600, 800), kolor=(10, 200, 30))
+    fps = 30
+
+    wyjscie = tmp_path / "wynik.mp4"
+    render.renderuj(
+        wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50,
+        plansza=plansza, sila_koloru=1.0,
+    )
+    klatki = dekoduj_klatki(wyjscie, tmp_path, "plansza.raw")
+    ostatnia = klatki[-1].reshape(-1, 3).astype(np.int32).mean(axis=0)
+    assert abs(ostatnia[0] - 10) <= 6
+    assert abs(ostatnia[1] - 200) <= 6
+    assert abs(ostatnia[2] - 30) <= 6
+
+
+def zbieraj_polecenia_ffmpeg(monkeypatch):
+    polecenia = []
+    oryginalny = render.uruchom_ffmpeg
+
+    def podmieniony(argumenty, katalog=None):
+        polecenia.append(argumenty)
+        return oryginalny(argumenty, katalog=katalog)
+
+    monkeypatch.setattr(render, "uruchom_ffmpeg", podmieniony)
+    return polecenia
+
+
+def test_renderuj_sila_zero_zaden_segment_bez_lut3d(tmp_path, monkeypatch):
+    projekt = zbuduj_projekt_materialow_szarych(tmp_path)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_kolorowy_2_sekcje()), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=128, czas_s=6.0, pierwsze_uderzenie_s=0.3)
+    polecenia = zbieraj_polecenia_ffmpeg(monkeypatch)
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(
+        wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50, sila_koloru=0.0,
+    )
+
+    assert not any("lut3d" in " ".join(polecenie) for polecenie in polecenia)
+    assert podsumowanie["kolor"] is None
+
+
+def test_renderuj_bez_kolorystyki_nie_uzywa_lut(tmp_path, monkeypatch):
+    def dodaj(katalog):
+        generuj.zdjecie_testowe(katalog / "0000000001_a.jpg", rozmiar=(800, 600))
+        generuj.klip_testowy(katalog / "0000000002_b.mp4", czas_s=3.0, rozmiar=(270, 480))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_syntetyczny_4_ciecia()), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=128, czas_s=6.0, pierwsze_uderzenie_s=0.3)
+    polecenia = zbieraj_polecenia_ffmpeg(monkeypatch)
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50)
+
+    assert not any("lut3d" in " ".join(polecenie) for polecenie in polecenia)
+    assert podsumowanie["kolor"] is None
