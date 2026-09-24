@@ -769,3 +769,93 @@ def test_renderuj_bez_kolorystyki_nie_uzywa_lut(tmp_path, monkeypatch):
 
     assert not any("lut3d" in " ".join(polecenie) for polecenie in polecenia)
     assert podsumowanie["kolor"] is None
+
+
+def test_statystyki_klipu_krotszego_niz_ujecie_bez_wyjatku(tmp_path):
+    klip = tmp_path / "pomaranczowy.mp4"
+    generuj.klip_testowy(klip, czas_s=1.0, rozmiar=(270, 480), kolor=(255, 140, 0))
+    for start_s, dlugosc_s in ((0.0, 2.4), (0.9, 1.0)):
+        statystyki = render.statystyki_klipu(klip, start_s, dlugosc_s, czas_klipu_s=1.0)
+        assert statystyki is not None
+        assert statystyki["lab_srednia"][2] > 20
+
+
+def wzor_dwa_ujecia_po_2s():
+    return {
+        "ciecia_uderzenia": [], "ciecia_s": [0.0, 2.0], "zrodlo": {"czas_s": 4.0},
+        "sekcje": None,
+        "kolorystyka": {
+            "probki_na_s": 10,
+            "ujecia": [
+                {"lab_srednia": [50.0, 0.0, -40.0], "lab_odchylenie": [10.0, 5.0, 5.0], "probki": 10},
+                {"lab_srednia": [50.0, 0.0, -40.0], "lab_odchylenie": [10.0, 5.0, 5.0], "probki": 10},
+            ],
+        },
+    }
+
+
+def test_renderuj_klip_krotszy_od_ujecia_konczy_sie_bez_bledu(tmp_path):
+    def dodaj(katalog):
+        generuj.klip_testowy(katalog / "0000000001_a.mp4", czas_s=1.0, rozmiar=(270, 480))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    wzor = wzor_dwa_ujecia_po_2s()
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=128, czas_s=6.0, pierwsze_uderzenie_s=0.3)
+    fps = 30
+
+    wyjscie = tmp_path / "wynik.mp4"
+    render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50, sila_koloru=1.0)
+
+    material_zastepczy = [{"plik": "x", "typ": "zdjecie", "message_id": 0}]
+    plan = render.plan_ujec(wzor, [], material_zastepczy, fps)
+    wynik_klatek = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames",
+         "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", str(wyjscie)],
+        stdin=subprocess.DEVNULL, capture_output=True,
+    )
+    assert int(wynik_klatek.stdout.decode().strip()) == plan["liczba_klatek"]
+
+
+def test_renderuj_zdjecie_z_alfa_pomija_lut_szare_dostaje(tmp_path, monkeypatch):
+    def dodaj(katalog):
+        generuj.zdjecie_kwadrat_na_przezroczystym(katalog / "0000000001_a.png", kolor=(220, 30, 30))
+        generuj.zdjecie_testowe(katalog / "0000000002_b.jpg", rozmiar=(800, 600), kolor=(128, 128, 128))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    wzor = wzor_dwa_ujecia_po_2s()
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=128, czas_s=6.0, pierwsze_uderzenie_s=0.3)
+    fps = 30
+
+    polecenia = zbieraj_polecenia_ffmpeg(monkeypatch)
+    wyjscie = tmp_path / "wynik.mp4"
+    render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50, sila_koloru=1.0)
+
+    klatki = dekoduj_klatki(wyjscie, tmp_path, "alfa_kolor.raw")
+    material_zastepczy = [{"plik": "x", "typ": "zdjecie", "message_id": 0}]
+    plan = render.plan_ujec(wzor, [], material_zastepczy, fps)
+
+    klatka_alfa = klatki[plan["ujecia"][0]["klatka_od"] + 1]
+    rogi = np.concatenate([
+        klatka_alfa[:10, :10].reshape(-1, 3),
+        klatka_alfa[:10, -10:].reshape(-1, 3),
+        klatka_alfa[-10:, :10].reshape(-1, 3),
+        klatka_alfa[-10:, -10:].reshape(-1, 3),
+    ]).astype(np.int32)
+    assert (rogi <= 6).all()
+    wys, szer = klatka_alfa.shape[:2]
+    srodek = klatka_alfa[wys // 2, szer // 2].astype(np.int32)
+    assert abs(int(srodek[0]) - 220) <= 6
+    assert abs(int(srodek[1]) - 30) <= 6
+    assert abs(int(srodek[2]) - 30) <= 6
+
+    klatka_szara = klatki[plan["ujecia"][1]["klatka_od"] + 1]
+    b_szara = float(kolor.rgb_do_lab(klatka_szara)[..., 2].mean())
+    assert b_szara < -10
+
+    assert "lut3d" not in " ".join(polecenia[0])

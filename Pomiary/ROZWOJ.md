@@ -2,7 +2,7 @@
 
 Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym zadaniu, decyzji, odkryciu albo nowym wymaganiu od właściciela. Najnowsze wpisy na górze sekcji „Dziennik". Plany części: `PLAN_EDITY_0_MAPA.md` i kolejne. Ten plik nie zastępuje planów, tylko zapisuje to, czego w planach nie ma: co faktycznie się stało, co odkryliśmy i czego właściciel zażądał po drodze.
 
-## Stan na 2026-09-23
+## Stan na 2026-09-24
 
 | Część | Status |
 |---|---|
@@ -10,9 +10,9 @@ Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym
 | 2 analiza | kod gotowy, scalony do `main` w PR #1 (`4b929c9`), testy 62 z 62, pomiar A w progach (100% cięć, błąd tempa maks 0,35%), pomiar B na dwóch prawdziwych wzorach. Odbiór 2026-09-22 (Opus): OK, domyślny ContentDetector potwierdzony. Brak testu ręcznego na prawdziwym wzorze (czeka na lokalny serwer Bot API) |
 | 7 wdrożenie | 7.1 i 7.2 scalone do `main` w PR #2 (`e9a4755`), na `46.62.151.181` działa bot testowy, testy w kontenerze 71 z 71. 7.3 wykonane na gałęzi `wdrozenie-poprawki` (2026-09-23), testy lokalnie 75 z 75, pomiar w progach. Odbiór 7.3 (Opus) 2026-09-23: OK, scalone w PR #3. `Pomiary/` zostaje w repozytorium (decyzja właściciela 2026-09-23). Serwer przełączony na głównego bota `@cwel54_bot`, punkty a do f i h zrobione 2026-09-23: pobieranie przez serwer lokalny odblokowane, limit pamięci 3 GB działa, cron ustawiony. Punkt g zrobiony 2026-09-23: wzór 153 MB pobrany w 9 s, analiza 51 s, szczyt pamięci 894 MB przy limicie 3 GB, wolumen serwera Bot API po skopiowaniu pusty. Część 7 zamknięta |
 | 3 render | scalona w PR #4, testy 116 z 116, pomiar A i B w progach (100% granic, mediana 8 ms; B 36,5 MB). Pomiar C tylko ręcznie zweryfikowany kodem, bez arkuszy PNG. Odbiór 2026-09-23 (Opus): OK. Test ręczny 2026-09-23: montaż odrzucony przez weryfikację długości (dźwięk ucięty przez `atrim`+`-shortest`), naprawa w zadaniu 3.7 (przycinanie opcjami wejścia, wymuszona długość wyjścia), wdrożona na serwer, powtórzona na projekcie `20260923_163553`: 32,0 s obraz i dźwięk zgodnie. Właściciel potwierdził wynik. Część 3 zamknięta, naprawa scalona w PR #5 |
-| 4 muzyka | kod gotowy na gałęzi `muzyka`, 2026-09-23. Testy 144 z 144, pomiar A/B/C w progach, arkusze D powstały. Tryb `dzwiek_wzoru` wyłączony decyzją właściciela (dziennik zadania 4.2 i 4.4): `wybierz_utwor` zawsze idzie po tempie. Scalona w PR #7 (`dc46f0b`) bez odbioru oceniającego. Zadanie 4.5 (pamięć analizy utworu) wykonane 2026-09-24 na gałęzi `pamiec`: testy 189 z 189, pomiar A i B w progach (szczyt analizy najdłuższego utworu 727,9 MB, szczyt renderu 737,5 MB). Bez wdrożenia i bez odbioru oceniającego |
+| 4 muzyka | kod gotowy na gałęzi `muzyka`, 2026-09-23. Testy 144 z 144, pomiar A/B/C w progach, arkusze D powstały. Tryb `dzwiek_wzoru` wyłączony decyzją właściciela (dziennik zadania 4.2 i 4.4): `wybierz_utwor` zawsze idzie po tempie. Scalona w PR #7 (`dc46f0b`) bez odbioru oceniającego. Zadanie 4.5 (pamięć analizy utworu) wykonane 2026-09-24 na gałęzi `pamiec`: testy 189 z 189, pomiar A i B w progach (szczyt analizy najdłuższego utworu 727,9 MB, szczyt renderu 737,5 MB). Wdrożona 2026-09-24. Test na serwerze: montaż z pustym indeksem (6 utworów do przeliczenia) kończy się kodem 0 w 190 s, szczyt renderu 981 MB, szczyt kontenera 1567 MB przy limicie 5 GB (wcześniej kod -9 przy 2,96 GB) |
 | 8 nakładka | scalona w PR #9 i #10 (2026-09-24), wdrożona. Testy 187 z 187 (190 s). Odbiór ponowny 2026-09-24 (Opus): OK. Pomiar A 5 z 5 wzorów w granicy 0,5 s (maks 0,1 s), arkusze C poprawne (hak czysty, nakładka od dropu, plansza bez nakładki i bez znaku, znak wodny jak w `0914`). Pomiar B niewiarygodny (narzut ujemny), zasada czasu procesora dopisana do bloku WSPÓLNE. Test ręczny: kod -9 przez brak pamięci w analizie utworów z części 4, nie przez nakładkę (znany problem 9) |
-| 5 kolor | kod gotowy na gałęzi `kolor`, 2026-09-24. Testy 214 z 214 (225 s). Pomiar A i B w progach (ΔE przy sile 0,6 mniejsze niż przy 0 w każdej sekcji wszystkich 5 prawdziwych wzorów), arkusze C (15) powstały. Narzut renderu 44 do 112% (bez ustalonego progu, do decyzji właściciela). Czas próbkowania „niepewny" (rozrzut przebiegów bazowych nad progiem 20%, na jednym, największym wzorze). Bez wdrożenia i bez odbioru oceniającego |
+| 5 kolor | kod gotowy na gałęzi `kolor`, 2026-09-24. Testy 214 z 214 (225 s). Pomiar A i B w progach (ΔE przy sile 0,6 mniejsze niż przy 0 w każdej sekcji wszystkich 5 prawdziwych wzorów), arkusze C (15) powstały. Narzut renderu 44 do 112% (bez ustalonego progu, do decyzji właściciela). Czas próbkowania „niepewny" (rozrzut przebiegów bazowych nad progiem 20%, na jednym, największym wzorze). Odbiór 2026-09-24 (Opus): poprawki w zadaniu 5.5 (klip krótszy od ujęcia wywraca montaż, wzór z jednym ujęciem, ciche nieudane próbkowanie). Siła domyślna 0,6 potwierdzona na arkuszach. Bez wdrożenia |
 | 6, 9 | plany przepisane 2026-09-23 po przeglądzie wzorów (9 nowy), kod nie ruszony. Kolejność po części 5: 6, 9 |
 
 Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`). Wdrożenie na serwer nadal przez `wdroz.ps1` (część 7).
@@ -44,6 +44,7 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 7. **`energia_uderzen` na syntetycznych klikach (odbiór 2026-09-24).** Uderzenia wypadają 2 do 3 ms po początku kliku, więc odcinek przed uderzeniem łapie początek następnego kliku. Na klikach 120 BPM ze skokiem w 9 s wygrywa uderzenie 8,503 s zamiast 9,002 s, a cięcie 9,0 wychodzi z zapasem 3 ms. Testy dropu idą więc na 150 BPM, gdzie uderzenia leżą 0,2 s od cięć. Na prawdziwej muzyce energia jest rozłożona i to nie ma znaczenia.
 8. **Pliki w `dane/zdjęcia_bez_tła/` bez prawdziwej przezroczystości (2026-09-24).** Trzy pliki `Firefly_usun tło` są w RGB, bez kanału alfa: `32317` ma szachownicę wklejoną w obraz, `749723` białe tło, a `132215` czarne. Szachownica i biel wejdą do editu tak, jak są. Render kładzie prawdziwą przezroczystość na czarnym tle, więc czarne tło z `132215` wygląda tak samo. Pomiar bierze z tego katalogu tylko pliki z alfą. **Rozwiązane 2026-09-24:** właściciel usunął `32317` i `749723`. `132215` z czarnym tłem zostaje, bo wychodzi tak samo jak przezroczysty.
 9. **Brak pamięci przy analizie utworu (2026-09-24, odbiór części 8).** Kod -9 na serwerze to `render.py` zabity przy 2,96 GB. `render.py` sam indeksuje nowe utwory, a `librosa.beat.beat_track` szacuje tempo na całej obwiedni z krokiem 128. Szczyt lokalnie: 2,8 do 3,0 GB dla utworów 2,5 min, około 4,0 GB dla 4 min 11 s. Limit 5 GB tylko odsuwa problem przy dłuższych utworach. Poprawka w zadaniu 4.5: tempogram liczony kawałkami, tempo przekazane do `beat_track`. Sprawdzona prototypem na 10 plikach: tempo i uderzenia identyczne, szczyt kroku rytmu 2871 MB wobec 507 MB. **Kod scalony 2026-09-24 na gałęzi `pamiec`:** `analizuj_dzwiek` na melodii 120 s ma szczyt 350,5 MB wobec 1509,8 MB przed poprawką, tempo bez zmian. Pomiar `Pomiary/measure_pamiec.py` (sekcje A i B) jeszcze do uruchomienia, limit `mem_limit: "5g"` zostaje do czasu wdrożenia.
+   **Zamknięte 2026-09-24:** wdrożone, a montaż na serwerze z przeliczeniem całej biblioteki miał szczyt kontenera 1567 MB (dziennik, odbiór części 5). Limit 5 GB zostaje do sprawdzenia analizy wzoru po wdrożeniu części 5, potem powrót do 3 GB.
 10. **`/znak` przyjmuje PNG bez przezroczystości** i wtedy w edycie wychodzi półprzezroczysty prostokąt. Drobne; do ostrzeżenia w bocie przy okazji części 9.
 
 ## Decyzje techniczne podjęte przy realizacji
@@ -54,6 +55,44 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 - Błąd pobierania: `TelegramEntityTooLarge` daje komunikat o limicie, każdy inny wyjątek jest logowany (`log.exception`) i daje ogólny komunikat „nie udało się pobrać". Wcześniej każdy błąd był mylnie opisywany jako „za duży plik".
 - Pobieranie przez `pobierz_plik` do `<cel>.part` z podmianą po sukcesie. To jedyne miejsce pobierania, część 7 je podmieni.
 - Wyniki (`outputs/`), dane (`dane/`) i `.env` są poza gitem. Katalog `Pomiary/` od 2026-09-23 jest w repozytorium (decyzja właściciela), więc zmiany planów i dziennika trzeba commitować.
+
+## Dziennik
+
+### 2026-09-24 (zadanie 5.5: poprawki z odbioru, gałąź `kolor`)
+- `src/render.py`:
+  - `statystyki_klipu` dostała `czas_klipu_s` i próbkuje z `min(dlugosc_s, czas_klipu_s - start_s)` zamiast z `dlugosc_s` wprost. Każda z trzech klatek (25/50/75%) idzie przez nowy `probuj_klatke_klipu`, który łapie `RuntimeError` z `uruchom_ffmpeg` i brak pliku, i po prostu pomija tę klatkę zamiast wywalać `Image.open`. Gdy żadna z trzech nie wyjdzie, próbuje ostatniej klatki klipu (`-sseof -0.1`, to samo skalowanie). Gdy i to zawiedzie, zwraca `None` zamiast rzucać.
+  - Pętla segmentów w `renderuj`: `zrodlo = None` (czyli brak LUT dla tego segmentu, bez przerywania montażu) w trzech przypadkach: `statystyki_klipu` zwróciła `None`, `sila_koloru == 0` albo brak `kolorystyka`, oraz nowy przypadek z decyzji właściciela — zdjęcie, dla którego `ma_alfa_z_pil` na oryginalnym pliku (nie na przygotowanym PNG, bo ten już ma czarne tło) daje `True`. Nowa mapa `czasy_klipow` (z `dobre`, analogiczna do istniejącej `sciezki_robocze`) dostarcza `czas_klipu_s` do `statystyki_klipu`.
+- `src/kolor.py`: nowa `indeksy_calosci(liczba_ujec)` — bez ostatniego ujęcia, a gdy to daje pustą listę (wzór z jednym ujęciem), bierze wszystkie. Używana zarówno w `indeksy_sekcji`, jak i w `cel_sekcji` (dotąd liczyły to niezależnie dwoma kopiami tego samego kodu, co dawało pustą listę dla jednego ujęcia i `ValueError` w `lut_transferu`). `polacz_statystyki`: gdy suma `probki` wynosi 0, wagi zamieniają się na same jedynki (średnia zwykła zamiast ważonej), zamiast dzielić przez 0 i dawać NaN.
+- `src/analyze.py`: `uruchom_probkowanie` zapisuje stderr do `<cel>.stderr` w tym samym katalogu tymczasowym co `probki.rgb` (przez zwykłe `open`, nie `tempfile.NamedTemporaryFile(delete=False)` w globalnym katalogu tymczasowym), więc znika razem z nim po wyjściu z `with tempfile.TemporaryDirectory()`. `analizuj_wzor` przy kodzie próbkowania różnym od 0 (albo po przekroczeniu limitu) wypisuje na stderr jedną linię z przyczyną i ostatnimi 300 znakami tego pliku (znaki nowej linii zamienione na spacje, żeby naprawdę była jedna linia).
+- `tests/generuj.py`: `zdjecie_kwadrat_na_przezroczystym` (nowa) — kolorowy kwadrat na środku w pełni przezroczystego obrazu. Istniejąca `zdjecie_testowe(alfa=True)` się nie nadawała: jej mały przezroczysty róg w rogu zdjęcia poziomego wypada poza kadrowaniem 9:16 (scale increase + crop na środku zostawia tylko środkowy pionowy pasek oryginału), więc test nie miał czego zmierzyć w rogach wyniku. Nowy generator trzyma kwadrat głęboko na środku kadru zbliżonego proporcjami do wyniku, więc przezroczyste tło zostaje w rogach niezależnie od zoompana (maks. 12%).
+- Testy: `tests/test_render.py` +3 (`statystyki_klipu` na klipie 1 s przy `dlugosc_s` 2,4 i 1,0 od 0,9 s bez wyjątku; pełny render z jedynym materiałem 1 s i ujęciami po 2 s kończy się poprawną liczbą klatek; zdjęcie z alfa dostaje tło ±6 od czerni i swój kolor w środku bez `lut3d` w poleceniu, sąsiednie szare zdjęcie dalej dostaje LUT), `tests/test_kolor.py` +3 (`cel_sekcji` z jednym ujęciem zwraca jego statystyki, same `probki: 0` bez NaN i ze średnią zwykłą, `lut_transferu` na obu tych celach bez NaN i w zakresie), `tests/test_analiza.py` +1 (próbkowanie kończące się kodem 1 daje jedną linię na stderr, `kolorystyka: null`, zero plików w `tempfile.tempdir` ustawionym na `tmp_path`).
+- Pomiar nie powtórzony (zgodnie z planem): żadna z tych ścieżek nie wystąpiła w `outputs/pomiar_kolor.json` z zadania 5.4, więc jego liczby się nie zmieniają.
+- Cały zestaw: 221 z 221 w 254 s (214 + 7 nowych, zero regresji).
+- Do commita dołączone niezacommitowane zmiany w `Pomiary/` sprzed tego zadania (odbiór części 5 w `ROZWOJ.md`, aktualizacja `PLAN_EDITY_0_MAPA.md` i `PLAN_EDITY_5_KOLOR.md` o zadanie 5.5, przywrócony wpis o skalowaniu nakładki w `PLAN_EDITY_9_FABRYKA.md`) na wyraźną prośbę właściciela, zamiast chowania ich do stash.
+- Commit `kolor: poprawki z odbioru`.
+
+### 2026-09-24 (odbiór części 5 i test pamięci na serwerze, Opus)
+- **Werdykt części 5: poprawki, zadanie 5.5.**
+  - Testy 214 z 214 (200 s).
+  - Pomiar w progach: ΔE przy sile 0,6 od 7,6 do 19,4 wobec 18,4 do 48,8 przy 0, w każdej sekcji 5 wzorów.
+  - Punkty 4 do 6 odbioru zgodne z kontraktem: próbkowanie idzie równolegle i zawsze się kończy, Lab ze sRGB (L od 0 do 100), w `.cube` czerwony zmienia się najszybciej, stosunek odchyleń 0,5 do 2, ostatnie ujęcie poza statystykami, `lut3d` tylko w segmentach, plansza bez LUT, ścieżka LUT względna, przy sile 0 polecenia bez zmian.
+- **Błędy do poprawki w 5.5:**
+  - `statystyki_klipu` przy ujęciu dłuższym niż reszta klipu rzuca `FileNotFoundError` i wywraca montaż (sprawdzone na klipie 1 s i ujęciu 2,4 s). Pomiar tego nie łapie, bo 4 długie nagrania nigdy nie dochodzą do końca;
+  - wzór z jednym ujęciem daje pusty cel i `ValueError` w `lut_transferu`, a same `probki: 0` dają NaN w LUT;
+  - nieudane próbkowanie nie zostawia śladu, a plik stderr zostaje w katalogu tymczasowym.
+- **Siła domyślna: 0,6.**
+  - Wzory mają podniesioną czerń: 1. percentyl jasności od 6 do 36, 5. percentyl od 20 do 47.
+  - Wynik przy sile 0 ma czerń 0. Przy 0,6 5. percentyl wynosi od 18 do 47, czyli tyle co we wzorach. Przy 1,0 dochodzi do 67 i widać zabarwienie: niebieska arena w `0914`, brąz w `0921`.
+  - Czarne tło zdjęć bez tła przy 0,6 robi się ciemnobrązowe albo granatowe (składowe do około 60), zgodnie z cieniami wzoru, a produkt zmienia barwy.
+  - **Decyzja właściciela (2026-09-24):** kolory są mało ważne, a łatwa poprawka jest w porządku. Zdjęcia z przezroczystością (czapki) idą bez LUT, żeby produkt wyglądał jak prawdziwy i tło zostało czarne (zadanie 5.5, punkt 4).
+- **Czas analizy.** `0922` to 4K 120 fps, więc 111 do 152 s bez próbkowania na laptopie wynika z liczby klatek, a nie z regresji. Na serwerze (2 procesory) drugie dekodowanie 4K konkuruje z wykrywaniem cięć, więc czas trzeba zmierzyć po wdrożeniu. Sam czas nie ma dla właściciela znaczenia, liczy się tylko limit bota 300 s (`LIMIT_ANALIZY_S`), który w razie potrzeby się podnosi.
+- **Narzut renderu 44 do 112%** czasu procesora: 3 dodatkowe dekodowania źródła na segment klipu kosztują prawie tyle, co sam segment. Plan nie stawia tu progu. **Decyzja właściciela (2026-09-24):** koszt przyjęty, czas montażu i analizy nie ma znaczenia.
+- **Plansza** nie była podana w pomiarze B, więc ostatnie klatki arkuszy mają LUT jak zwykłe ujęcie. Zachowanie planszy sprawdza tylko test 3 zadania 5.3.
+- **Test pamięci zadania 4.5 na serwerze** (po `wdroz.ps1` o 20:42, skrypt uruchomiony przez właściciela w kontenerze):
+  - kopia projektu `20260924_145749` i biblioteki bez `indeks.json` w `/tmp/test45`, render z argumentami bota: wzór `20260923_143107`, jego nakładka i plansza, znak wodny;
+  - kod 0 w 190 s razem z przeliczeniem 6 utworów, szczyt procesu renderu 981 MB, szczyt kontenera 1567 MB (sam bot około 350 MB) przy limicie 5 GB;
+  - przed poprawką proces był zabijany przy 2,96 GB. Znany problem 9 zamknięty.
+- Zmiany w `Pomiary/` sprzed sesji części 5 (flaga, skalowanie contain w 9.5) Sonnet odłożył do `git stash`. Przywrócone ręcznie do plików. Wpis `stash@{0}` na gałęzi `kolor` jest już zbędny i można go usunąć (`git stash drop`). Wrócił też nagłówek „## Dziennik”, który zniknął przy wpisie 5.4.
 
 ### 2026-09-24 (zadanie 5.4: pomiar koloru, gałąź `kolor`, część 5 zamknięta pod względem kodu)
 - `Pomiary/measure_kolor.py` (nowy, wzorowany na `measure_muzyka.py`):
@@ -104,6 +143,13 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 - Narzut renderu przy sile 0,6 wobec 0 (zadanie 5.4, sekcja B) liczony z czasu procesora ffmpeg (`-benchmark`, `render.uruchom_ffmpeg` podmienione w pomiarze), jak w bloku WSPÓLNE.
 - Stan przed startem: `main` zaktualizowany do `3108718` (PR #11, gałąź `pamiec` scalona), `python -m pytest -q` 189 z 189 (184 s). Gałąź `kolor` utworzona od `main`.
 - Przy aktualizacji `main` w working tree pojawiły się niescommitowane zmiany `Pomiary/ROZWOJ.md` i `Pomiary/PLAN_EDITY_9_FABRYKA.md` (dopisek o zadaniu 9.5, skalowanie nakładki contain) sprzed sesji, niezwiązane z częścią 5. Odłożone na `git stash` (nie usunięte), żeby nie wmieszać ich w commity części 5.
+
+### 2026-09-24 (flaga na serwerze, skalowanie nakładki, Opus)
+- **Flaga UE na serwerze:** na prośbę właściciela skopiowana przez scp do `/opt/edity-bot/dane/nakladki/domyslna.mp4`, właściciel 1000:1000. Suma SHA-256 zgodna z plikiem lokalnym `dane/nakladki/domyslna.mp4`. Plik ma 102 MB, 200 s, 1920x1080.
+- **Na razie nieużywana przy jedynym wzorze na serwerze (`20260923_143107`):**
+  - ten wzór ma własną nakładkę `20260923_143107.png` (pierścień 12 gwiazd, 600x600, alfa), wysłaną 14:57, a `plik_zasobu` woli plik wzoru;
+  - sprawdzone w kontenerze: bot wybiera PNG w trybie `alfa`, a flaga dostałaby dziś tryb `ekran`.
+- **Pierścień jest przycinany:** skalowanie cover z części 8 zostawia 6 wielkich gwiazd u góry i u dołu. Skalowanie contain dla trybu `alfa` dopisane do zadania 9.5 z testem 3a.
 
 ### 2026-09-24 (zadanie 4.5: tempo liczone kawałkami, gałąź `pamiec`)
 - `analyze.tempogram_sredni(obwiednia, sr)` liczy `librosa.feature.tempogram` kawałkami po `KAWALEK_TEMPOGRAMU = 4096` klatek obwiedni z zakładką `OKNO_TEMPOGRAMU // 2 = 192` z każdej strony, odciętą przed sumowaniem. `analizuj_dzwiek` liczy tempo z tego uśrednionego tempogramu (`librosa.feature.tempo`), a `beat_track` dostaje je jako `bpm=`, więc nie liczy własnego tempogramu na całej obwiedni.
@@ -475,7 +521,7 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Następne kroki
 
-1. Zadanie 4.5 gotowe na gałęzi `pamiec` (testy 189 z 189, pomiar A i B w progach). Zostaje: PR, scalenie, `wdroz.ps1`, potem na serwerze sprawdzić `docker stats` przy montażu z nowym utworem w bibliotece (indeksu nie trzeba przeliczać). Bez tego każdy dłuższy nowy utwór w bibliotece może znów zabić montaż.
-2. Zadanie 9.5 (nakładka z kryciem) na gałęzi `krycie`, osobnym PR-em. Przed nim klip flagi do `dane/nakladki/domyslna.mp4` albo przez `/nakladka`.
-3. Części 5 i 6, potem 9 (9.1 do 9.4 oraz 9.6 do 9.8, napisy w rytmie). Po każdej odbiór na arkuszach i `wdroz.ps1`, a po części 5 na serwerze `docker compose exec bot python src/analyze.py --wszystkie`.
-4. Właściciel: własny znak wodny przez `/znak` (PNG z przezroczystością), jeśli ma być inny niż plik z `dane/promocyjne/`.
+1. Zadanie 5.5 (poprawki z odbioru koloru) na gałęzi `kolor`, potem PR części 5, scalenie i `wdroz.ps1`. Na serwerze `time docker compose exec bot python src/analyze.py --wszystkie` z `docker stats` obok: czas i szczyt pamięci do dziennika. Czas nie jest progiem; gdy analiza trwa ponad 240 s, podnieść `LIMIT_ANALIZY_S` w `src/bot.py`. Przy szczycie poniżej 2 GB limit pamięci wraca z 5g do 3g.
+2. Zadanie 9.5 (nakładka z kryciem i skalowanie contain dla nakładek z przezroczystością) na gałęzi `krycie` od `main` po scaleniu części 5, osobnym PR-em. Flaga jest w `dane/nakladki/domyslna.mp4` lokalnie i na serwerze. Przy wzorze `20260923_143107` wygrywa jego pierścień, a flagę da dopiero `/nakladka usun`.
+3. Część 6, potem 9 (9.1 do 9.4 oraz 9.6 do 9.8, napisy w rytmie). Po każdej odbiór na arkuszach i `wdroz.ps1`.
+4. Właściciel: test ręczny części 5 (`--sila-koloru 0` i `0.6`; czapki na czarnym tle mają zostać bez zmian) i własny znak wodny przez `/znak` (PNG z przezroczystością), jeśli ma być inny niż plik z `dane/promocyjne/`.

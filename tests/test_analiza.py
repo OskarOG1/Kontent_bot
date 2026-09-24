@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import tempfile
 import tracemalloc
 import warnings
 from pathlib import Path
@@ -450,3 +451,31 @@ def test_wykryj_drop_przyciaga_do_najblizszego_ciecia(tmp_path):
     assert wzor["sekcje"] is not None
     assert wzor["sekcje"]["drop_s"] == pytest.approx(9.0, abs=1 / 30 + 1e-6)
     assert wzor["sekcje"]["drop_ujecie"] == 9
+
+
+def test_probkowanie_kod_1_daje_linie_na_stderr_i_brak_plikow(tmp_path, monkeypatch, capsys):
+    sciezka = tmp_path / "wzor.mp4"
+    wideo_z_cieciami(sciezka, [1.0], 2.0)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+
+    class ProcesAtrapa:
+        def wait(self, timeout=None):
+            return 1
+
+        def poll(self):
+            return 1
+
+        def kill(self):
+            pass
+
+    monkeypatch.setattr(analyze, "uruchom_probkowanie", lambda sciezka_arg, cel: ProcesAtrapa())
+    przed = set(tmp_path.iterdir())
+    wzor = analyze.analizuj_wzor(sciezka, "abc")
+    po = set(tmp_path.iterdir())
+
+    assert wzor["kolorystyka"] is None
+    stderr = capsys.readouterr().err
+    assert stderr.strip() != ""
+    assert len(stderr.strip().splitlines()) == 1
+    assert "kod 1" in stderr
+    assert po == przed

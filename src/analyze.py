@@ -121,19 +121,22 @@ def wykryj_ciecia(sciezka, min_klatek: int = 3) -> list[float]:
     return [0.0] + ciecia
 
 
+def plik_bledow_probkowania(cel: Path) -> Path:
+    return cel.with_name(cel.name + ".stderr")
+
+
 def uruchom_probkowanie(sciezka, cel: Path) -> subprocess.Popen:
     sciezka = Path(sciezka)
     cel = Path(cel)
-    plik_bledow = tempfile.NamedTemporaryFile(delete=False)
-    proces = subprocess.Popen(
-        [
-            "ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", str(sciezka),
-            "-vf", f"fps={PROBKOWANIE_FPS},scale={PROBKOWANIE_SZEROKOSC}:{PROBKOWANIE_WYSOKOSC}",
-            "-f", "rawvideo", "-pix_fmt", "rgb24", str(cel),
-        ],
-        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=plik_bledow,
-    )
-    plik_bledow.close()
+    with open(plik_bledow_probkowania(cel), "wb") as plik_bledow:
+        proces = subprocess.Popen(
+            [
+                "ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", str(sciezka),
+                "-vf", f"fps={PROBKOWANIE_FPS},scale={PROBKOWANIE_SZEROKOSC}:{PROBKOWANIE_WYSOKOSC}",
+                "-f", "rawvideo", "-pix_fmt", "rgb24", str(cel),
+            ],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=plik_bledow,
+        )
     return proces
 
 
@@ -427,9 +430,19 @@ def analizuj_wzor(sciezka, wzor_id: str) -> dict:
             sekcje = wykryj_drop(uderzenia, energia_uderzen, ciecia, ciecia_uderzenia, czas_s)
             try:
                 kod_probkowania = proces_probkowania.wait(timeout=LIMIT_PROBKOWANIA_S)
+                przekroczono_limit_probkowania = False
             except subprocess.TimeoutExpired:
                 kod_probkowania = None
-            kolorystyka = statystyki_koloru(plik_probek, ciecia, czas_s) if kod_probkowania == 0 else None
+                przekroczono_limit_probkowania = True
+            if kod_probkowania == 0:
+                kolorystyka = statystyki_koloru(plik_probek, ciecia, czas_s)
+            else:
+                kolorystyka = None
+                przyczyna = "przekroczono limit czasu" if przekroczono_limit_probkowania else f"kod {kod_probkowania}"
+                sciezka_bledow = plik_bledow_probkowania(plik_probek)
+                tresc_bledow = sciezka_bledow.read_text(encoding="utf-8", errors="replace") if sciezka_bledow.exists() else ""
+                tresc_bledow = tresc_bledow[-300:].replace("\n", " ").replace("\r", " ")
+                print(f"Probkowanie wzoru nie powiodlo sie ({przyczyna}): {tresc_bledow}", file=sys.stderr)
         finally:
             if proces_probkowania.poll() is None:
                 proces_probkowania.kill()

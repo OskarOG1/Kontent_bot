@@ -152,18 +152,35 @@ def statystyki_zdjecia(sciezka_przygotowana: Path, szerokosc: int = 270, wysokos
     return kolor.statystyki_obrazu(obraz_do_statystyk(sciezka_przygotowana, szerokosc, wysokosc))
 
 
-def statystyki_klipu(sciezka_zrodlowa, start_s: float, dlugosc_s: float, szerokosc: int = 135, wysokosc: int = 240) -> dict:
+def probuj_klatke_klipu(argumenty_czasu: list[str], sciezka_zrodlowa, filtr: str, plik_klatki: Path) -> numpy.ndarray | None:
+    try:
+        uruchom_ffmpeg([*argumenty_czasu, "-i", str(sciezka_zrodlowa), "-vf", filtr, "-frames:v", "1", str(plik_klatki)])
+    except RuntimeError:
+        return None
+    if not plik_klatki.exists():
+        return None
+    with Image.open(plik_klatki) as obraz:
+        return numpy.array(obraz.convert("RGB"))
+
+
+def statystyki_klipu(sciezka_zrodlowa, start_s: float, dlugosc_s: float, czas_klipu_s: float, szerokosc: int = 135, wysokosc: int = 240) -> dict | None:
     filtr = f"scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,crop={szerokosc}:{wysokosc}"
+    efektywna_dlugosc = min(dlugosc_s, czas_klipu_s - start_s)
     klatki = []
     with tempfile.TemporaryDirectory() as katalog_tymczasowy:
-        for udzial in (0.25, 0.5, 0.75):
-            plik_klatki = Path(katalog_tymczasowy) / f"klatka_{udzial}.png"
-            uruchom_ffmpeg([
-                "-ss", f"{start_s + dlugosc_s * udzial:.6f}", "-i", str(sciezka_zrodlowa),
-                "-vf", filtr, "-frames:v", "1", str(plik_klatki),
-            ])
-            with Image.open(plik_klatki) as obraz:
-                klatki.append(numpy.array(obraz.convert("RGB")))
+        katalog_tymczasowy = Path(katalog_tymczasowy)
+        if efektywna_dlugosc > 0:
+            for indeks, udzial in enumerate((0.25, 0.5, 0.75)):
+                czas = start_s + efektywna_dlugosc * udzial
+                klatka = probuj_klatke_klipu(["-ss", f"{czas:.6f}"], sciezka_zrodlowa, filtr, katalog_tymczasowy / f"klatka_{indeks}.png")
+                if klatka is not None:
+                    klatki.append(klatka)
+        if not klatki:
+            klatka = probuj_klatke_klipu(["-sseof", "-0.1"], sciezka_zrodlowa, filtr, katalog_tymczasowy / "ostatnia.png")
+            if klatka is not None:
+                klatki.append(klatka)
+    if not klatki:
+        return None
     return kolor.statystyki_obrazu(numpy.stack(klatki))
 
 
@@ -666,6 +683,7 @@ def renderuj(
     )
 
     sciezki_robocze = {str(material["plik"]): material["plik_roboczy"] for material in dobre if material["typ"] == "zdjecie"}
+    czasy_klipow = {str(material["plik"]): material["czas_s"] for material in dobre if material["typ"] == "klip"}
 
     plansza_uzyta = plansza is not None and len(plan["ujecia"]) > 1
     kolorystyka = wzor.get("kolorystyka")
@@ -678,16 +696,23 @@ def renderuj(
             segment_planszy(plansza, sciezka_segmentu, ujecie["liczba_klatek"], fps, szerokosc, wysokosc)
         else:
             lut_nazwa = None
-            if uzyc_kolor:
-                if ujecie["typ"] == "zdjecie":
-                    zrodlo = statystyki_zdjecia(sciezki_robocze[ujecie["material"]], szerokosc=270, wysokosc=480)
-                else:
-                    zrodlo = statystyki_klipu(ujecie["material"], ujecie["start_w_klipie_s"], ujecie["liczba_klatek"] / fps)
+            if uzyc_kolor and ujecie["typ"] == "zdjecie" and ma_alfa_z_pil(Path(ujecie["material"])):
+                zrodlo = None
+            elif uzyc_kolor and ujecie["typ"] == "zdjecie":
+                zrodlo = statystyki_zdjecia(sciezki_robocze[ujecie["material"]], szerokosc=270, wysokosc=480)
+            elif uzyc_kolor:
+                zrodlo = statystyki_klipu(
+                    ujecie["material"], ujecie["start_w_klipie_s"], ujecie["liczba_klatek"] / fps,
+                    czasy_klipow[ujecie["material"]],
+                )
+            else:
+                zrodlo = None
+            if zrodlo is not None:
                 cel = kolor.cel_sekcji(kolorystyka, wzor.get("sekcje"), ujecie["numer_wzoru"])
                 lut = kolor.lut_transferu(zrodlo, cel, sila_koloru)
                 lut_nazwa = f"lut_{indeks:06d}.cube"
                 kolor.zapisz_cube(lut, katalog_pracy / lut_nazwa)
-            katalog_ffmpeg = katalog_pracy if uzyc_kolor else None
+            katalog_ffmpeg = katalog_pracy if lut_nazwa is not None else None
             if ujecie["typ"] == "zdjecie":
                 segment_zdjecia(
                     sciezki_robocze[ujecie["material"]], sciezka_segmentu, indeks, ujecie["liczba_klatek"], fps, szerokosc, wysokosc,

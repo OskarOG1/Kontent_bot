@@ -257,6 +257,23 @@ def znak_testowy(sciezka: Path, rozmiar: tuple[int, int] = (200, 50)) -> None:
     obraz.save(sciezka)
 
 
+def zdjecie_kwadrat_na_przezroczystym(
+    sciezka: Path,
+    rozmiar: tuple[int, int] = (600, 1000),
+    kolor: tuple[int, int, int] = (220, 30, 30),
+    udzial_kwadratu: float = 0.4,
+) -> None:
+    sciezka = Path(sciezka)
+    szerokosc, wysokosc = rozmiar
+    obraz = Image.new("RGBA", rozmiar, (0, 0, 0, 0))
+    bok = int(min(szerokosc, wysokosc) * udzial_kwadratu)
+    lewo = (szerokosc - bok) // 2
+    gora = (wysokosc - bok) // 2
+    kwadrat = Image.new("RGBA", (bok, bok), tuple(kolor) + (255,))
+    obraz.paste(kwadrat, (lewo, gora))
+    obraz.save(sciezka)
+
+
 def zdjecie_testowe(
     sciezka: Path,
     rozmiar: tuple[int, int] = (1200, 1600),

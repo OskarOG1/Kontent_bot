@@ -196,3 +196,47 @@ def test_cel_sekcji_odchylenie_zgodne_z_liczeniem_recznym():
     ) / 30
     assert cel["lab_srednia"][0] == pytest.approx(srednia_reczna)
     assert cel["lab_odchylenie"][0] == pytest.approx(wariancja_reczna ** 0.5)
+
+
+def test_cel_sekcji_wzor_z_jednym_ujeciem_zwraca_jego_statystyki():
+    kolorystyka = {
+        "probki_na_s": 10,
+        "ujecia": [{"lab_srednia": [45.0, 3.0, 8.0], "lab_odchylenie": [12.0, 4.0, 4.0], "probki": 10}],
+    }
+    cel = kolor.cel_sekcji(kolorystyka, None, numer_wzoru=0)
+    assert cel["lab_srednia"] == pytest.approx([45.0, 3.0, 8.0])
+    assert cel["lab_odchylenie"] == pytest.approx([12.0, 4.0, 4.0])
+
+
+def test_cel_sekcji_same_probki_zero_wazy_po_rowno_bez_nan():
+    kolorystyka = {
+        "probki_na_s": 10,
+        "ujecia": [
+            {"lab_srednia": [40.0, 0.0, 0.0], "lab_odchylenie": [5.0, 0.0, 0.0], "probki": 0},
+            {"lab_srednia": [60.0, 0.0, 0.0], "lab_odchylenie": [5.0, 0.0, 0.0], "probki": 0},
+            {"lab_srednia": [0.0, 0.0, 0.0], "lab_odchylenie": [0.0, 0.0, 0.0], "probki": 0},
+        ],
+    }
+    cel = kolor.cel_sekcji(kolorystyka, None, numer_wzoru=0)
+    assert numpy_bez_nan_i_inf(cel["lab_srednia"])
+    assert numpy_bez_nan_i_inf(cel["lab_odchylenie"])
+    assert cel["lab_srednia"][0] == pytest.approx(50.0)
+
+
+def test_lut_transferu_z_jednym_ujeciem_i_zerowymi_probkami_bez_nan():
+    kolorystyka_jedno = {
+        "probki_na_s": 10,
+        "ujecia": [{"lab_srednia": [45.0, 3.0, 8.0], "lab_odchylenie": [12.0, 4.0, 4.0], "probki": 10}],
+    }
+    kolorystyka_zera = {
+        "probki_na_s": 10,
+        "ujecia": [
+            {"lab_srednia": [40.0, 0.0, 0.0], "lab_odchylenie": [5.0, 0.0, 0.0], "probki": 0},
+            {"lab_srednia": [60.0, 0.0, 0.0], "lab_odchylenie": [5.0, 0.0, 0.0], "probki": 0},
+        ],
+    }
+    zrodlo = kolor.cel_sekcji(kolorystyka_jedno, None, numer_wzoru=0)
+    cel = kolor.cel_sekcji(kolorystyka_zera, None, numer_wzoru=0)
+    lut = kolor.lut_transferu(zrodlo, cel, sila=1.0, rozmiar=9)
+    assert numpy_bez_nan_i_inf(lut)
+    assert lut.min() >= 0.0 and lut.max() <= 1.0

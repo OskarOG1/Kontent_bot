@@ -71,7 +71,8 @@ def statystyki_obrazu(tablica_rgb) -> dict:
 
 
 def polacz_statystyki(wpisy: list[dict]) -> dict:
-    wagi = numpy.array([wpis["probki"] for wpis in wpisy], dtype=numpy.float64)
+    surowe_wagi = numpy.array([wpis["probki"] for wpis in wpisy], dtype=numpy.float64)
+    wagi = surowe_wagi if surowe_wagi.sum() > 0 else numpy.ones_like(surowe_wagi)
     srednie = numpy.array([wpis["lab_srednia"] for wpis in wpisy], dtype=numpy.float64)
     odchylenia = numpy.array([wpis["lab_odchylenie"] for wpis in wpisy], dtype=numpy.float64)
     suma_wag = wagi.sum()
@@ -83,8 +84,13 @@ def polacz_statystyki(wpisy: list[dict]) -> dict:
     }
 
 
+def indeksy_calosci(liczba_ujec: int) -> list[int]:
+    bez_ostatniego = list(range(liczba_ujec - 1))
+    return bez_ostatniego if bez_ostatniego else list(range(liczba_ujec))
+
+
 def indeksy_sekcji(liczba_ujec: int, sekcje: dict | None, numer_wzoru: int) -> list[int]:
-    calosc = list(range(liczba_ujec - 1))
+    calosc = indeksy_calosci(liczba_ujec)
     if not sekcje:
         return calosc
     drop_ujecie = sekcje["drop_ujecie"]
@@ -95,7 +101,7 @@ def indeksy_sekcji(liczba_ujec: int, sekcje: dict | None, numer_wzoru: int) -> l
 
 def cel_sekcji(kolorystyka: dict, sekcje: dict | None, numer_wzoru: int) -> dict:
     ujecia = kolorystyka["ujecia"]
-    calosc = [ujecia[i] for i in range(len(ujecia) - 1)]
+    calosc = [ujecia[i] for i in indeksy_calosci(len(ujecia))]
     sekcja = [ujecia[i] for i in indeksy_sekcji(len(ujecia), sekcje, numer_wzoru)]
     uzyteczne = [wpis for wpis in sekcja if wpis["probki"] > 0]
     if not uzyteczne:
