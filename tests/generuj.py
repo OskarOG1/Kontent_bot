@@ -130,6 +130,7 @@ def wideo_z_cieciami(
     pierwsze_uderzenie_s: float = 0.0,
     blyski_s=(),
     dzwiek: Path | None = None,
+    kolory: list[tuple[int, int, int]] | None = None,
 ) -> None:
     sciezka = Path(sciezka)
     szerokosc, wysokosc = rozmiar
@@ -138,12 +139,13 @@ def wideo_z_cieciami(
     granice = [g for g in granice if 0 < g < liczba_klatek]
     blyski = {int(round(t * fps)) for t in blyski_s}
     biala = np.full((wysokosc, szerokosc, 3), 255, dtype=np.uint8).tobytes()
-    kolory = {}
+    bufor_kolorow = {}
 
     def klatka_ujecia(numer: int) -> bytes:
-        if numer not in kolory:
-            kolory[numer] = np.full((wysokosc, szerokosc, 3), kolor_ujecia(numer), dtype=np.uint8).tobytes()
-        return kolory[numer]
+        if numer not in bufor_kolorow:
+            barwa = kolory[numer % len(kolory)] if kolory else kolor_ujecia(numer)
+            bufor_kolorow[numer] = np.full((wysokosc, szerokosc, 3), barwa, dtype=np.uint8).tobytes()
+        return bufor_kolorow[numer]
 
     with tempfile.TemporaryDirectory() as katalog_tymczasowy:
         katalog = Path(katalog_tymczasowy)
@@ -252,6 +254,23 @@ def nakladka_testowa(
 
 def znak_testowy(sciezka: Path, rozmiar: tuple[int, int] = (200, 50)) -> None:
     obraz = Image.new("RGBA", rozmiar, (255, 255, 255, 255))
+    obraz.save(sciezka)
+
+
+def zdjecie_kwadrat_na_przezroczystym(
+    sciezka: Path,
+    rozmiar: tuple[int, int] = (600, 1000),
+    kolor: tuple[int, int, int] = (220, 30, 30),
+    udzial_kwadratu: float = 0.4,
+) -> None:
+    sciezka = Path(sciezka)
+    szerokosc, wysokosc = rozmiar
+    obraz = Image.new("RGBA", rozmiar, (0, 0, 0, 0))
+    bok = int(min(szerokosc, wysokosc) * udzial_kwadratu)
+    lewo = (szerokosc - bok) // 2
+    gora = (wysokosc - bok) // 2
+    kwadrat = Image.new("RGBA", (bok, bok), tuple(kolor) + (255,))
+    obraz.paste(kwadrat, (lewo, gora))
     obraz.save(sciezka)
 
 

@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import tempfile
 import tracemalloc
 import warnings
 from pathlib import Path
@@ -10,6 +11,7 @@ import pytest
 import soundfile
 
 import analyze
+import kolor
 from generuj import klik, melodia, wideo_z_cieciami
 
 
@@ -197,7 +199,7 @@ def test_wideo_bez_dzwieku_ma_puste_pola_rytmu(tmp_path):
     assert wynik.returncode == 0
     dane = json.loads(wyjscie.read_text(encoding="utf-8"))
     assert dane["id"] == "20260921_153012"
-    assert dane["wersja"] == 3
+    assert dane["wersja"] == 4
     assert dane["tempo_bpm"] is None
     assert dane["uderzenia_s"] == []
     assert dane["energia_uderzen"] is None
@@ -206,7 +208,10 @@ def test_wideo_bez_dzwieku_ma_puste_pola_rytmu(tmp_path):
     assert dane["odcisk_dzwieku"] is None
     assert dane["sekcje"] is None
     assert dane["zrodlo"] == {"czas_s": 2.0, "szerokosc": 270, "wysokosc": 480, "fps": 30.0, "ma_dzwiek": False}
-    assert dane["kolorystyka"] is None and dane["tekst"] is None
+    assert dane["tekst"] is None
+    assert dane["kolorystyka"] is not None
+    assert dane["kolorystyka"]["probki_na_s"] == 10
+    assert len(dane["kolorystyka"]["ujecia"]) == len(dane["ciecia_s"])
 
 
 def test_wzor_zawiera_tylko_typy_wbudowane(tmp_path):
@@ -273,15 +278,16 @@ def test_analizuj_dzwiek_bez_dzwieku_daje_none(tmp_path):
     assert wzor["energia_uderzen"] is None
 
 
-def test_analizuj_wzor_z_melodia_daje_wersje_3(tmp_path):
+def test_analizuj_wzor_z_melodia_daje_wersje_4(tmp_path):
     sciezka = tmp_path / "wzor.mp4"
     wav = tmp_path / "melodia.wav"
     melodia(wav, 120, 8.0, ziarno=2)
     wideo_z_cieciami(sciezka, [1.0, 4.0], 8.0, dzwiek=wav)
     wzor = analyze.analizuj_wzor(sciezka, "abc")
-    assert wzor["wersja"] == 3
+    assert wzor["wersja"] == 4
     assert wzor["odcisk_dzwieku"] is not None
     assert wzor["energia_uderzen"] is not None
+    assert wzor["kolorystyka"] is not None
 
 
 def test_wszystkie_przelicza_tylko_katalogi_ze_zrodlem(tmp_path):
@@ -303,8 +309,9 @@ def test_wszystkie_przelicza_tylko_katalogi_ze_zrodlem(tmp_path):
     assert wynik.returncode == 0
     dane_a = json.loads((wzor_a / "wzor.json").read_text(encoding="utf-8"))
     assert dane_a["id"] == "aaa"
-    assert dane_a["wersja"] == 3
+    assert dane_a["wersja"] == 4
     assert "sekcje" in dane_a
+    assert dane_a["kolorystyka"] is not None
     dane_b = json.loads((wzor_b / "wzor.json").read_text(encoding="utf-8"))
     assert dane_b == stary
 
@@ -382,6 +389,58 @@ def test_analizuj_dzwiek_szczyt_pamieci_ponizej_600mb(tmp_path):
     assert szczyt < 600 * 1024 * 1024
 
 
+def test_kolorystyka_dwoch_ujec_pomaranczowe_i_niebieskie(tmp_path):
+    sciezka = tmp_path / "wzor.mp4"
+    wideo_z_cieciami(sciezka, [1.5], 3.0, kolory=[(255, 140, 0), (30, 30, 220)])
+    wzor = analyze.analizuj_wzor(sciezka, "abc")
+    kolorystyka = wzor["kolorystyka"]
+    assert kolorystyka is not None
+    assert len(kolorystyka["ujecia"]) == len(wzor["ciecia_s"]) == 2
+    assert kolorystyka["ujecia"][0]["lab_srednia"][2] > 20
+    assert kolorystyka["ujecia"][1]["lab_srednia"][2] < -20
+
+
+def test_statystyki_koloru_ujecie_krotsze_niz_setna_ma_probki_zero(tmp_path):
+    szerokosc, wysokosc = 4, 4
+    liczba_klatek = 20
+    ramki = [
+        np.full((wysokosc, szerokosc, 3), (k * 10 % 256, (k * 5) % 256, (k * 3) % 256), dtype=np.uint8)
+        for k in range(liczba_klatek)
+    ]
+    plik_probek = tmp_path / "probki.rgb"
+    plik_probek.write_bytes(b"".join(ramka.tobytes() for ramka in ramki))
+    ciecia_s = [0.0, 1.02, 1.07]
+    wynik = analyze.statystyki_koloru(plik_probek, ciecia_s, czas_s=2.0, szerokosc=szerokosc, wysokosc=wysokosc, probki_na_s=10)
+    assert len(wynik["ujecia"]) == 3
+    ujecie_krotkie = wynik["ujecia"][1]
+    assert ujecie_krotkie["probki"] == 0
+    oczekiwane = kolor.statystyki_obrazu(ramki[10])
+    assert ujecie_krotkie["lab_srednia"] == pytest.approx(oczekiwane["lab_srednia"], abs=1e-6)
+    assert wynik["ujecia"][0]["probki"] == 11
+    assert wynik["ujecia"][2]["probki"] == 9
+
+
+def test_proces_probkowania_nie_zostaje_gdy_wykrywanie_ciec_rzuca(tmp_path, monkeypatch):
+    sciezka = tmp_path / "wzor.mp4"
+    wideo_z_cieciami(sciezka, [1.0], 3.0)
+    procesy = []
+    oryginalny_start = analyze.uruchom_probkowanie
+
+    def podmieniony_start(sciezka_arg, cel):
+        proces = oryginalny_start(sciezka_arg, cel)
+        procesy.append(proces)
+        return proces
+
+    def rzuc_wyjatek(*argumenty, **kwargi):
+        raise RuntimeError("blad testowy wykrywania ciec")
+
+    monkeypatch.setattr(analyze, "uruchom_probkowanie", podmieniony_start)
+    monkeypatch.setattr(analyze, "wykryj_ciecia", rzuc_wyjatek)
+    with pytest.raises(RuntimeError):
+        analyze.analizuj_wzor(sciezka, "abc")
+    assert procesy and procesy[0].poll() is not None
+
+
 def test_wykryj_drop_przyciaga_do_najblizszego_ciecia(tmp_path):
     sciezka = tmp_path / "wzor.mp4"
     wav = tmp_path / "klik.wav"
@@ -392,3 +451,31 @@ def test_wykryj_drop_przyciaga_do_najblizszego_ciecia(tmp_path):
     assert wzor["sekcje"] is not None
     assert wzor["sekcje"]["drop_s"] == pytest.approx(9.0, abs=1 / 30 + 1e-6)
     assert wzor["sekcje"]["drop_ujecie"] == 9
+
+
+def test_probkowanie_kod_1_daje_linie_na_stderr_i_brak_plikow(tmp_path, monkeypatch, capsys):
+    sciezka = tmp_path / "wzor.mp4"
+    wideo_z_cieciami(sciezka, [1.0], 2.0)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+
+    class ProcesAtrapa:
+        def wait(self, timeout=None):
+            return 1
+
+        def poll(self):
+            return 1
+
+        def kill(self):
+            pass
+
+    monkeypatch.setattr(analyze, "uruchom_probkowanie", lambda sciezka_arg, cel: ProcesAtrapa())
+    przed = set(tmp_path.iterdir())
+    wzor = analyze.analizuj_wzor(sciezka, "abc")
+    po = set(tmp_path.iterdir())
+
+    assert wzor["kolorystyka"] is None
+    stderr = capsys.readouterr().err
+    assert stderr.strip() != ""
+    assert len(stderr.strip().splitlines()) == 1
+    assert "kod 1" in stderr
+    assert po == przed

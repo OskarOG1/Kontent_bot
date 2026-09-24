@@ -11,7 +11,9 @@ from pathlib import Path
 
 import numpy
 
-WERSJA_WZORU = 3
+import kolor
+
+WERSJA_WZORU = 4
 CZESTOTLIWOSC_ANALIZY = 22050
 KROK_ROZKLADU = 128
 KROK_DOKLADNY = 32
@@ -23,6 +25,10 @@ KROK_OBWIEDNI = 256
 PROG_DROPU = 0.1
 OKNO_TEMPOGRAMU = 384
 KAWALEK_TEMPOGRAMU = 4096
+PROBKOWANIE_FPS = 10
+PROBKOWANIE_SZEROKOSC = 135
+PROBKOWANIE_WYSOKOSC = 240
+LIMIT_PROBKOWANIA_S = 300
 
 
 class BladAnalizy(Exception):
@@ -113,6 +119,67 @@ def wykryj_ciecia(sciezka, min_klatek: int = 3) -> list[float]:
         if klatka > 0:
             ciecia.append(round(float(klatka / fps), 3))
     return [0.0] + ciecia
+
+
+def plik_bledow_probkowania(cel: Path) -> Path:
+    return cel.with_name(cel.name + ".stderr")
+
+
+def uruchom_probkowanie(sciezka, cel: Path) -> subprocess.Popen:
+    sciezka = Path(sciezka)
+    cel = Path(cel)
+    with open(plik_bledow_probkowania(cel), "wb") as plik_bledow:
+        proces = subprocess.Popen(
+            [
+                "ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-i", str(sciezka),
+                "-vf", f"fps={PROBKOWANIE_FPS},scale={PROBKOWANIE_SZEROKOSC}:{PROBKOWANIE_WYSOKOSC}",
+                "-f", "rawvideo", "-pix_fmt", "rgb24", str(cel),
+            ],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=plik_bledow,
+        )
+    return proces
+
+
+def indeks_ujecia(t: float, ciecia_s: list[float]) -> int:
+    j = 0
+    for i in range(1, len(ciecia_s)):
+        if ciecia_s[i] <= t:
+            j = i
+        else:
+            break
+    return j
+
+
+def statystyki_koloru(
+    plik_probek, ciecia_s: list[float], czas_s: float,
+    szerokosc: int = PROBKOWANIE_SZEROKOSC, wysokosc: int = PROBKOWANIE_WYSOKOSC, probki_na_s: int = PROBKOWANIE_FPS,
+) -> dict:
+    rozmiar_klatki = szerokosc * wysokosc * 3
+    dane = Path(plik_probek).read_bytes()
+    liczba_klatek = len(dane) // rozmiar_klatki
+
+    def klatka(k: int) -> numpy.ndarray:
+        offset = k * rozmiar_klatki
+        return numpy.frombuffer(dane, dtype=numpy.uint8, count=rozmiar_klatki, offset=offset).reshape(wysokosc, szerokosc, 3)
+
+    przypisania = [[] for _ in ciecia_s]
+    for k in range(liczba_klatek):
+        przypisania[indeks_ujecia(k / probki_na_s, ciecia_s)].append(k)
+
+    ujecia = []
+    for j, indeksy in enumerate(przypisania):
+        if indeksy:
+            statystyki = kolor.statystyki_obrazu(numpy.stack([klatka(k) for k in indeksy]))
+            ujecia.append({**statystyki, "probki": len(indeksy)})
+        elif liczba_klatek:
+            koniec = ciecia_s[j + 1] if j + 1 < len(ciecia_s) else czas_s
+            srodek = (ciecia_s[j] + koniec) / 2
+            najblizszy = min(range(liczba_klatek), key=lambda k: abs(k / probki_na_s - srodek))
+            statystyki = kolor.statystyki_obrazu(klatka(najblizszy))
+            ujecia.append({**statystyki, "probki": 0})
+        else:
+            ujecia.append({"lab_srednia": [0.0, 0.0, 0.0], "lab_odchylenie": [0.0, 0.0, 0.0], "probki": 0})
+    return {"probki_na_s": probki_na_s, "ujecia": ujecia}
 
 
 def zdekoduj_do_wav(sciezka: Path, cel: Path) -> None:
@@ -335,28 +402,51 @@ def analizuj_wzor(sciezka, wzor_id: str) -> dict:
     sciezka = Path(sciezka)
     zrodlo = metadane(sciezka)
     czas_s = zrodlo["czas_s"]
-    ciecia = [c for c in wykryj_ciecia(sciezka) if c < czas_s]
-    if not ciecia or ciecia[0] != 0.0:
-        ciecia = [0.0] + [c for c in ciecia if c > 0.0]
-    dzwiek = analizuj_dzwiek(sciezka) if zrodlo["ma_dzwiek"] else None
-    if dzwiek is not None:
-        tempo = dzwiek["tempo_bpm"]
-        uderzenia = dzwiek["uderzenia_s"]
-        energia_uderzen = dzwiek["energia_uderzen"] if len(uderzenia) >= 2 else None
-        odcisk_dzwieku = dzwiek["odcisk"]
-    else:
-        tempo, uderzenia = None, []
-        energia_uderzen = None
-        odcisk_dzwieku = None
-    if len(uderzenia) >= 2:
-        ciecia_uderzenia = kwantyzuj([pozycja_w_uderzeniach(t, uderzenia) for t in ciecia])
-        koniec_uderzenia = kwantyzuj([pozycja_w_uderzeniach(czas_s, uderzenia)])[0]
-    else:
-        tempo, uderzenia = None, []
-        energia_uderzen = None
-        ciecia_uderzenia = None
-        koniec_uderzenia = None
-    sekcje = wykryj_drop(uderzenia, energia_uderzen, ciecia, ciecia_uderzenia, czas_s)
+    with tempfile.TemporaryDirectory() as katalog_probek:
+        plik_probek = Path(katalog_probek) / "probki.rgb"
+        proces_probkowania = uruchom_probkowanie(sciezka, plik_probek)
+        try:
+            ciecia = [c for c in wykryj_ciecia(sciezka) if c < czas_s]
+            if not ciecia or ciecia[0] != 0.0:
+                ciecia = [0.0] + [c for c in ciecia if c > 0.0]
+            dzwiek = analizuj_dzwiek(sciezka) if zrodlo["ma_dzwiek"] else None
+            if dzwiek is not None:
+                tempo = dzwiek["tempo_bpm"]
+                uderzenia = dzwiek["uderzenia_s"]
+                energia_uderzen = dzwiek["energia_uderzen"] if len(uderzenia) >= 2 else None
+                odcisk_dzwieku = dzwiek["odcisk"]
+            else:
+                tempo, uderzenia = None, []
+                energia_uderzen = None
+                odcisk_dzwieku = None
+            if len(uderzenia) >= 2:
+                ciecia_uderzenia = kwantyzuj([pozycja_w_uderzeniach(t, uderzenia) for t in ciecia])
+                koniec_uderzenia = kwantyzuj([pozycja_w_uderzeniach(czas_s, uderzenia)])[0]
+            else:
+                tempo, uderzenia = None, []
+                energia_uderzen = None
+                ciecia_uderzenia = None
+                koniec_uderzenia = None
+            sekcje = wykryj_drop(uderzenia, energia_uderzen, ciecia, ciecia_uderzenia, czas_s)
+            try:
+                kod_probkowania = proces_probkowania.wait(timeout=LIMIT_PROBKOWANIA_S)
+                przekroczono_limit_probkowania = False
+            except subprocess.TimeoutExpired:
+                kod_probkowania = None
+                przekroczono_limit_probkowania = True
+            if kod_probkowania == 0:
+                kolorystyka = statystyki_koloru(plik_probek, ciecia, czas_s)
+            else:
+                kolorystyka = None
+                przyczyna = "przekroczono limit czasu" if przekroczono_limit_probkowania else f"kod {kod_probkowania}"
+                sciezka_bledow = plik_bledow_probkowania(plik_probek)
+                tresc_bledow = sciezka_bledow.read_text(encoding="utf-8", errors="replace") if sciezka_bledow.exists() else ""
+                tresc_bledow = tresc_bledow[-300:].replace("\n", " ").replace("\r", " ")
+                print(f"Probkowanie wzoru nie powiodlo sie ({przyczyna}): {tresc_bledow}", file=sys.stderr)
+        finally:
+            if proces_probkowania.poll() is None:
+                proces_probkowania.kill()
+                proces_probkowania.wait()
     return {
         "wersja": WERSJA_WZORU,
         "id": wzor_id,
@@ -369,7 +459,7 @@ def analizuj_wzor(sciezka, wzor_id: str) -> dict:
         "koniec_uderzenia": koniec_uderzenia,
         "odcisk_dzwieku": odcisk_dzwieku,
         "sekcje": sekcje,
-        "kolorystyka": None,
+        "kolorystyka": kolorystyka,
         "tekst": None,
     }
 

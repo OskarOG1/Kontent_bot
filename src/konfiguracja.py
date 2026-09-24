@@ -14,6 +14,7 @@ class Konfiguracja:
     limit_pobierania_mb: int = 20
     limit_wysylki_mb: int = 50
     telegram_api_url: str | None = None
+    sila_koloru: float = 0.6
 
 
 def wczytaj(srodowisko: Mapping[str, str] | None = None) -> Konfiguracja:
@@ -42,6 +43,13 @@ def wczytaj(srodowisko: Mapping[str, str] | None = None) -> Konfiguracja:
     limit_wysylki_mb = int(srodowisko.get("LIMIT_WYSYLKI_MB", 50))
     telegram_api_url = srodowisko.get("TELEGRAM_API_URL") or None
 
+    try:
+        sila_koloru = float(srodowisko.get("SILA_KOLORU", "0.6").replace(",", "."))
+    except ValueError:
+        raise ValueError("SILA_KOLORU") from None
+    if not 0.0 <= sila_koloru <= 1.0:
+        raise ValueError("SILA_KOLORU")
+
     return Konfiguracja(
         token=token,
         wlasciciel_id=wlasciciel_id,
@@ -49,6 +57,7 @@ def wczytaj(srodowisko: Mapping[str, str] | None = None) -> Konfiguracja:
         limit_pobierania_mb=limit_pobierania_mb,
         limit_wysylki_mb=limit_wysylki_mb,
         telegram_api_url=telegram_api_url,
+        sila_koloru=sila_koloru,
     )
 
 

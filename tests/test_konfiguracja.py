@@ -26,6 +26,7 @@ def test_domyslne_wartosci():
     assert konf.wlasciciel_id == 123
     assert konf.limit_pobierania_mb == 20
     assert konf.limit_wysylki_mb == 50
+    assert konf.sila_koloru == 0.6
 
 
 def test_katalog_danych_wzgledny_niezalezny_od_biezacego(monkeypatch, tmp_path):
@@ -63,3 +64,15 @@ def test_telegram_api_url_ustawiony():
         "TELEGRAM_API_URL": "http://bot-api:8081",
     })
     assert konf.telegram_api_url == "http://bot-api:8081"
+
+
+def test_sila_koloru_kropka_i_przecinek():
+    konf_kropka = wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123", "SILA_KOLORU": "0.6"})
+    konf_przecinek = wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123", "SILA_KOLORU": "0,6"})
+    assert konf_kropka.sila_koloru == 0.6
+    assert konf_przecinek.sila_koloru == 0.6
+
+
+def test_sila_koloru_poza_zakresem():
+    with pytest.raises(ValueError, match="SILA_KOLORU"):
+        wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123", "SILA_KOLORU": "1.5"})

@@ -697,6 +697,24 @@ async def test_limit_mb_renderu_z_lokalnym_serwerem(z_praca_w_tle, monkeypatch):
     assert argumenty[argumenty.index("--limit-mb") + 1] == "200"
 
 
+async def test_sila_koloru_renderu_z_konfiguracji(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    konf.sila_koloru = 0.25
+    przygotuj_wzor_i_utwor(konf)
+    wywolania = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    argumenty = wywolania[0]
+    assert argumenty[argumenty.index("--sila-koloru") + 1] == "0.25"
+
+
 async def test_dokument_za_duzy_przy_wysylce_daje_komunikat(z_praca_w_tle, monkeypatch):
     dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
     sesja.dokument_za_duzy = True

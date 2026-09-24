@@ -220,9 +220,9 @@ def test_bez_nakladki_i_planszy_dwa_wejscia_w_przebiegu_koncowym(tmp_path, monke
     wywolania = []
     oryginalny = render.uruchom_ffmpeg
 
-    def podmieniony(argumenty):
+    def podmieniony(argumenty, katalog=None):
         wywolania.append(argumenty)
-        oryginalny(argumenty)
+        oryginalny(argumenty, katalog=katalog)
 
     monkeypatch.setattr(render, "uruchom_ffmpeg", podmieniony)
 

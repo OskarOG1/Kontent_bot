@@ -13,6 +13,7 @@ import pillow_heif
 from PIL import Image, ImageOps
 
 import analyze
+import kolor
 import magazyn
 import music
 
@@ -38,10 +39,10 @@ POZYCJA_ZNAKU_PION = 0.8
 KRYCIE_ZNAKU = 0.65
 
 
-def uruchom_ffmpeg(argumenty: list[str]) -> None:
+def uruchom_ffmpeg(argumenty: list[str], katalog: Path | None = None) -> None:
     wynik = subprocess.run(
         ["ffmpeg", "-y", "-nostdin", "-loglevel", "error", *argumenty],
-        stdin=subprocess.DEVNULL, capture_output=True,
+        stdin=subprocess.DEVNULL, capture_output=True, cwd=katalog,
     )
     if wynik.returncode != 0:
         raise RuntimeError(f"ffmpeg zakonczyl sie kodem {wynik.returncode}: {wynik.stderr.decode('utf-8', errors='replace')}")
@@ -86,7 +87,10 @@ def wyrazenie_zoom(numer_ujecia: int, liczba_klatek: int) -> str:
     return f"if(eq(on,0),{ZOOM_MAKSYMALNY},max(zoom-{krok:.8f},1.0))"
 
 
-def segment_zdjecia(sciezka_przygotowana: Path, wyjscie: Path, numer_ujecia: int, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int) -> None:
+def segment_zdjecia(
+    sciezka_przygotowana: Path, wyjscie: Path, numer_ujecia: int, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int,
+    lut_sciezka: str | None = None, katalog: Path | None = None,
+) -> None:
     szerokosc_robocza = szerokosc * MNOZNIK_ROBOCZY_ZOOM
     wysokosc_robocza = wysokosc * MNOZNIK_ROBOCZY_ZOOM
     wyrazenie = wyrazenie_zoom(numer_ujecia, liczba_klatek)
@@ -94,8 +98,11 @@ def segment_zdjecia(sciezka_przygotowana: Path, wyjscie: Path, numer_ujecia: int
         f"scale={szerokosc_robocza}:{wysokosc_robocza}:force_original_aspect_ratio=increase,"
         f"crop={szerokosc_robocza}:{wysokosc_robocza},"
         f"zoompan=z='{wyrazenie}':d=1:s={szerokosc_robocza}x{wysokosc_robocza}:fps={fps},"
-        f"scale={szerokosc}:{wysokosc}:flags=lanczos,setsar=1"
+        f"scale={szerokosc}:{wysokosc}:flags=lanczos"
     )
+    if lut_sciezka is not None:
+        filtr += f",lut3d={lut_sciezka}"
+    filtr += ",setsar=1"
     uruchom_ffmpeg([
         "-loop", "1", "-i", str(sciezka_przygotowana),
         "-vf", filtr,
@@ -103,17 +110,22 @@ def segment_zdjecia(sciezka_przygotowana: Path, wyjscie: Path, numer_ujecia: int
         "-an",
         *PARAMETRY_KODOWANIA_SEGMENTU,
         str(wyjscie),
-    ])
+    ], katalog=katalog)
 
 
-def segment_klipu(sciezka_zrodlowa, wyjscie: Path, start_s: float, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int) -> None:
+def segment_klipu(
+    sciezka_zrodlowa, wyjscie: Path, start_s: float, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int,
+    lut_sciezka: str | None = None, katalog: Path | None = None,
+) -> None:
     filtr = (
         f"scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,"
         f"crop={szerokosc}:{wysokosc},"
         f"fps={fps},"
-        f"tpad=stop_mode=clone:stop=-1,"
-        f"setsar=1"
+        f"tpad=stop_mode=clone:stop=-1"
     )
+    if lut_sciezka is not None:
+        filtr += f",lut3d={lut_sciezka}"
+    filtr += ",setsar=1"
     uruchom_ffmpeg([
         "-ss", f"{start_s:.6f}", "-i", str(sciezka_zrodlowa),
         "-vf", filtr,
@@ -121,7 +133,55 @@ def segment_klipu(sciezka_zrodlowa, wyjscie: Path, start_s: float, liczba_klatek
         "-an",
         *PARAMETRY_KODOWANIA_SEGMENTU,
         str(wyjscie),
-    ])
+    ], katalog=katalog)
+
+
+def obraz_do_statystyk(sciezka_przygotowana: Path, szerokosc: int = 270, wysokosc: int = 480) -> numpy.ndarray:
+    with Image.open(sciezka_przygotowana) as obraz:
+        obraz = obraz.convert("RGB")
+        skala = max(szerokosc / obraz.width, wysokosc / obraz.height)
+        nowy_rozmiar = (max(1, round(obraz.width * skala)), max(1, round(obraz.height * skala)))
+        obraz = obraz.resize(nowy_rozmiar, Image.LANCZOS)
+        lewo = (obraz.width - szerokosc) // 2
+        gora = (obraz.height - wysokosc) // 2
+        obraz = obraz.crop((lewo, gora, lewo + szerokosc, gora + wysokosc))
+        return numpy.array(obraz)
+
+
+def statystyki_zdjecia(sciezka_przygotowana: Path, szerokosc: int = 270, wysokosc: int = 480) -> dict:
+    return kolor.statystyki_obrazu(obraz_do_statystyk(sciezka_przygotowana, szerokosc, wysokosc))
+
+
+def probuj_klatke_klipu(argumenty_czasu: list[str], sciezka_zrodlowa, filtr: str, plik_klatki: Path) -> numpy.ndarray | None:
+    try:
+        uruchom_ffmpeg([*argumenty_czasu, "-i", str(sciezka_zrodlowa), "-vf", filtr, "-frames:v", "1", str(plik_klatki)])
+    except RuntimeError:
+        return None
+    if not plik_klatki.exists():
+        return None
+    with Image.open(plik_klatki) as obraz:
+        return numpy.array(obraz.convert("RGB"))
+
+
+def statystyki_klipu(sciezka_zrodlowa, start_s: float, dlugosc_s: float, czas_klipu_s: float, szerokosc: int = 135, wysokosc: int = 240) -> dict | None:
+    filtr = f"scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,crop={szerokosc}:{wysokosc}"
+    efektywna_dlugosc = min(dlugosc_s, czas_klipu_s - start_s)
+    klatki = []
+    with tempfile.TemporaryDirectory() as katalog_tymczasowy:
+        katalog_tymczasowy = Path(katalog_tymczasowy)
+        if efektywna_dlugosc > 0:
+            for indeks, udzial in enumerate((0.25, 0.5, 0.75)):
+                czas = start_s + efektywna_dlugosc * udzial
+                klatka = probuj_klatke_klipu(["-ss", f"{czas:.6f}"], sciezka_zrodlowa, filtr, katalog_tymczasowy / f"klatka_{indeks}.png")
+                if klatka is not None:
+                    klatki.append(klatka)
+        if not klatki:
+            klatka = probuj_klatke_klipu(["-sseof", "-0.1"], sciezka_zrodlowa, filtr, katalog_tymczasowy / "ostatnia.png")
+            if klatka is not None:
+                klatki.append(klatka)
+    if not klatki:
+        return None
+    return kolor.statystyki_obrazu(numpy.stack(klatki))
 
 
 def segment_planszy(sciezka, wyjscie: Path, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int) -> None:
@@ -568,11 +628,17 @@ def renderuj(
     nakladka: Path | None = None,
     plansza: Path | None = None,
     znak: Path | None = None,
+    sila_koloru: float = 0.6,
 ) -> dict:
     czas_startu = time.time()
-    wzor_json = Path(wzor_json)
-    katalog_projektu = Path(katalog_projektu)
-    wyjscie = Path(wyjscie)
+    wzor_json = Path(wzor_json).resolve()
+    katalog_projektu = Path(katalog_projektu).resolve()
+    wyjscie = Path(wyjscie).resolve()
+    utwor = Path(utwor).resolve() if utwor is not None else None
+    muzyka = Path(muzyka).resolve() if muzyka is not None else None
+    nakladka = Path(nakladka).resolve() if nakladka is not None else None
+    plansza = Path(plansza).resolve() if plansza is not None else None
+    znak = Path(znak).resolve() if znak is not None else None
 
     with open(wzor_json, "r", encoding="utf-8") as plik:
         wzor = json.load(plik)
@@ -617,18 +683,46 @@ def renderuj(
     )
 
     sciezki_robocze = {str(material["plik"]): material["plik_roboczy"] for material in dobre if material["typ"] == "zdjecie"}
+    czasy_klipow = {str(material["plik"]): material["czas_s"] for material in dobre if material["typ"] == "klip"}
 
     plansza_uzyta = plansza is not None and len(plan["ujecia"]) > 1
+    kolorystyka = wzor.get("kolorystyka")
+    uzyc_kolor = sila_koloru > 0 and kolorystyka is not None
 
     sciezki_segmentow = []
     for indeks, ujecie in enumerate(plan["ujecia"]):
         sciezka_segmentu = katalog_pracy / f"segment_{indeks:06d}.mp4"
         if plansza_uzyta and indeks == len(plan["ujecia"]) - 1:
             segment_planszy(plansza, sciezka_segmentu, ujecie["liczba_klatek"], fps, szerokosc, wysokosc)
-        elif ujecie["typ"] == "zdjecie":
-            segment_zdjecia(sciezki_robocze[ujecie["material"]], sciezka_segmentu, indeks, ujecie["liczba_klatek"], fps, szerokosc, wysokosc)
         else:
-            segment_klipu(ujecie["material"], sciezka_segmentu, ujecie["start_w_klipie_s"], ujecie["liczba_klatek"], fps, szerokosc, wysokosc)
+            lut_nazwa = None
+            if uzyc_kolor and ujecie["typ"] == "zdjecie" and ma_alfa_z_pil(Path(ujecie["material"])):
+                zrodlo = None
+            elif uzyc_kolor and ujecie["typ"] == "zdjecie":
+                zrodlo = statystyki_zdjecia(sciezki_robocze[ujecie["material"]], szerokosc=270, wysokosc=480)
+            elif uzyc_kolor:
+                zrodlo = statystyki_klipu(
+                    ujecie["material"], ujecie["start_w_klipie_s"], ujecie["liczba_klatek"] / fps,
+                    czasy_klipow[ujecie["material"]],
+                )
+            else:
+                zrodlo = None
+            if zrodlo is not None:
+                cel = kolor.cel_sekcji(kolorystyka, wzor.get("sekcje"), ujecie["numer_wzoru"])
+                lut = kolor.lut_transferu(zrodlo, cel, sila_koloru)
+                lut_nazwa = f"lut_{indeks:06d}.cube"
+                kolor.zapisz_cube(lut, katalog_pracy / lut_nazwa)
+            katalog_ffmpeg = katalog_pracy if lut_nazwa is not None else None
+            if ujecie["typ"] == "zdjecie":
+                segment_zdjecia(
+                    sciezki_robocze[ujecie["material"]], sciezka_segmentu, indeks, ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
+                    lut_sciezka=lut_nazwa, katalog=katalog_ffmpeg,
+                )
+            else:
+                segment_klipu(
+                    ujecie["material"], sciezka_segmentu, ujecie["start_w_klipie_s"], ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
+                    lut_sciezka=lut_nazwa, katalog=katalog_ffmpeg,
+                )
         sciezki_segmentow.append(sciezka_segmentu)
 
     polaczone = katalog_pracy / "polaczone.mp4"
@@ -680,6 +774,7 @@ def renderuj(
         "plansza": Path(plansza).name if plansza_uzyta else None,
         "znak": znak is not None,
         "drop_s": pozycja_dropu_w_planie(wzor, plan["ujecia"], fps),
+        "kolor": {"sila": sila_koloru, "sekcje": bool(wzor.get("sekcje"))} if uzyc_kolor else None,
     }
 
     sciezka_podsumowania = wyjscie.with_suffix(".json")
@@ -704,6 +799,7 @@ def glowna(argumenty: list[str] | None = None) -> int:
     parser.add_argument("--nakladka")
     parser.add_argument("--plansza")
     parser.add_argument("--znak")
+    parser.add_argument("--sila-koloru", type=float, default=0.6)
     ustalone = parser.parse_args(argumenty)
     try:
         renderuj(
@@ -714,6 +810,7 @@ def glowna(argumenty: list[str] | None = None) -> int:
             nakladka=Path(ustalone.nakladka) if ustalone.nakladka else None,
             plansza=Path(ustalone.plansza) if ustalone.plansza else None,
             znak=Path(ustalone.znak) if ustalone.znak else None,
+            sila_koloru=ustalone.sila_koloru,
         )
     except Exception as blad:
         print(str(blad), file=sys.stderr)

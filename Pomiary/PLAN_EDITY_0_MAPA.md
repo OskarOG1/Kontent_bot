@@ -26,15 +26,16 @@ Prawdziwe wzory (`0914`, `0915`, `0921`, `0922`, `0923`, wszystkie 4K, w `dane/w
 | 2 | PLAN_EDITY_2_ANALIZA | wzór mp4 zamienia się w `wzor.json`: cięcia, tempo, uderzenia | wykonana, PR #1, odbiór OK | nic | Sonnet |
 | 7 | PLAN_EDITY_7_WDROZENIE | bot w Dockerze na VPS z lokalnym serwerem Bot API | wykonana, PR #2 i #3, serwer na `@cwel54_bot` | zrobione | Sonnet pliki, Ty serwer |
 | 3 | PLAN_EDITY_3_RENDER | `/gotowe` zwraca edit 9:16, klipy cięte na wstawki | wykonana, PR #4 i #5 (naprawa dźwięku 3.7), wdrożona, test ręczny OK | nic | Sonnet |
-| 4 | PLAN_EDITY_4_MUZYKA | biblioteka muzyki, dobór utworu po tempie z fragmentem z profilu energii, arkusz porównawczy; rozpoznanie dźwięku wzoru w kodzie, ale wyłączone (decyzja 14) | wykonana, PR #7, bez odbioru oceniającego; zadanie 4.5 (pamięć analizy utworu) do zrobienia | utwory wzorów w `dane/muzyka/` (nazwy bez „ (1)”), próbki w `dane/probki/materialy/` | Sonnet |
+| 4 | PLAN_EDITY_4_MUZYKA | biblioteka muzyki, dobór utworu po tempie z fragmentem z profilu energii, arkusz porównawczy; rozpoznanie dźwięku wzoru w kodzie, ale wyłączone (decyzja 14) | wykonana, PR #7, bez odbioru oceniającego; zadanie 4.5 (pamięć analizy utworu) scalone w PR #11 i wdrożone, na serwerze szczyt 1567 MB (2026-09-24) | utwory wzorów w `dane/muzyka/` (nazwy bez „ (1)”), próbki w `dane/probki/materialy/` | Sonnet |
 | 8 | PLAN_EDITY_8_NAKLADKA | drop we wzorze, Twoja nakładka od dropu, Twoja plansza na końcu | wykonana, PR #9 i #10, wdrożona, odbiór OK (2026-09-24) | własna nakładka (gwiazdy); plansza i znak wodny są w `dane/promocyjne/` | Sonnet |
-| 5 | PLAN_EDITY_5_KOLOR | kolorystyka wzoru na sekcję (hak, montaż), LUT na każdy segment | do zrobienia (przepisana 2026-09-23) | nic | Sonnet |
+| 5 | PLAN_EDITY_5_KOLOR | kolorystyka wzoru na sekcję (hak, montaż), LUT na każdy segment | kod na gałęzi `kolor`, odbiór 2026-09-24: poprawki w zadaniu 5.5, siła domyślna 0,6 | nic | Sonnet |
 | 6 | PLAN_EDITY_6_TEKST | Twoje napisy w haku, styl jak we wzorach, strefy bezpieczne TikToka | do zrobienia (przepisana 2026-09-23) | akceptacja czcionki | Sonnet |
 | 9 | PLAN_EDITY_9_FABRYKA | restart bez strat, biblioteka wzorów z wyborem, warianty, partie, `/ponow`; nakładka z kryciem (flaga, 9.5, zaraz po części 8); słowa w rytmie i napis pionowy jak w `0923` (9.6 do 9.8, po części 6) | do zrobienia (nowa 2026-09-23, dopisane 2026-09-24) | klip flagi jako nakładka, akceptacja czcionki pisanej | Sonnet |
 
 ## Kolejność (poprawiona 2026-09-23)
 1. Zrobione: części 1, 2, 7, 3, 4 i 8.
-   - Najpierw zadanie 4.5 (pamięć analizy utworu, błąd z serwera), potem zadanie 9.5 (nakładka z kryciem dla flagi), każde osobnym PR-em.
+   - Zadanie 4.5 (pamięć analizy utworu) scalone i wdrożone.
+   - Część 5: zadanie 5.5 (poprawki z odbioru), potem PR i wdrożenie. Dalej zadanie 9.5 (nakładka z kryciem dla flagi) osobnym PR-em, potem część 6.
 2. Część 4 idzie pierwsza, bo bez niej edit leci na intro utworu, a nie na fragmencie ze wzoru, i reszta stylu traci sens.
 3. Część 8 wprowadza sekcje wzoru, na których stoją części 5 i 6. Nakładka to najbardziej rozpoznawalny element wzorów.
 4. Części 5 i 6: obie zależą od 8, a między sobą nie, więc 6 może iść przed 5.
@@ -66,7 +67,7 @@ Po każdej części: odbiór, scalenie, `wdroz.ps1` i, gdy trzeba, `analyze.py -
     - Kolejność warstw: materiał z kolorem, nakładka, napisy, znak wodny.
     - Plansza zajmuje miejsce ostatniego ujęcia, bez koloru i nakładki.
 17. Odbiór części 4 do 9 na arkuszu porównawczym (`Pomiary/arkusz.py`, wiersz wzoru nad wierszem wyniku, te same ułamki długości). Progi liczbowe uzupełniają werdykt.
-18. Zadanie 5.0 (lekka kopia wzoru) zdjęte, bo analiza 4K na serwerze trwa 51 s przy progu 150 s. Wraca, jeśli analiza razem z próbkowaniem koloru przekroczy około 150 s.
+18. Zadanie 5.0 (lekka kopia wzoru) zdjęte, bo analiza 4K na serwerze trwa 51 s przy progu 150 s. Od 2026-09-24 czas analizy i montażu nie jest progiem (decyzja właściciela). Liczą się tylko limity bota (`LIMIT_ANALIZY_S` 300 s, `LIMIT_RENDERU_S` 900 s), a gdy praca się do nich zbliża, limit się podnosi.
 19. Czas testów nie jest progiem (Twoja decyzja z 2026-09-23).
 20. Edity promują czapki 1993 Supply (Twoja informacja z 2026-09-24). Znak wodny marki z `dane/promocyjne/1993supply_watermark.png` leży na całym edicie poza planszą. Ustawienie jak w Twoim wzorze `0914`: 51% szerokości, środek na 80% wysokości, krycie około 0,6 (zadanie 8.6). Plansza to produkt albo strona sklepu.
 21. Układ `dane/` od 2026-09-24:

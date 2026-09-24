@@ -143,6 +143,11 @@ Numery linii z `57ba8fe`, więc szukaj po nazwach.
 - `render.tryb_nakladki`: po `alfa` i `zielen` tryb `ekran` tylko wtedy, gdy w pierwszej klatce co najmniej 40% pikseli jest prawie czarnych (największy kanał poniżej 40). W pozostałych przypadkach nowy tryb `"krycie"`.
 - Kompozycja `krycie`: nakładka po skalowaniu cover i `fps` przechodzi przez `format=rgba,colorchannelmixer=aa=0.5`, potem `overlay` w oknie jak `alfa`. Stała `KRYCIE_NAKLADKI = 0.5`.
 - Bot odpowiada „Nakładka zapisana: półprzezroczysta (krycie 50%).”.
+- **Skalowanie nakładki (dopisane 2026-09-24):**
+  - na serwerze leży nakładka właściciela: pierścień 12 gwiazd UE, PNG 600x600 z przezroczystością;
+  - część 8 skaluje każdą nakładkę do wypełnienia kadru (cover), więc z pierścienia zostaje 6 wielkich gwiazd u góry i u dołu, a boki są ucięte (symulacja 2026-09-24). We wzorze `0921` pierścień jest cały, na środku kadru;
+  - od teraz nakładka w trybie `alfa` skaluje się tak, żeby zmieścić się w całości (contain), i stoi na środku kadru;
+  - tryby `krycie`, `ekran` i `zielen` dalej wypełniają kadr (cover), bo ich tło ma przykryć cały obraz.
 
 **Napisy w rytmie, wspólne (9.6 i 9.7):**
 - Kolory jak w `0923`: wypełnienie złote (233, 196, 106), obrys granatowy (24, 33, 74) grubości 0,5% wysokości kadru, cień czarny z kryciem 40% przesunięty o 0,4% wysokości.
@@ -272,13 +277,17 @@ Katalog: C:\Dev\edity-bot. Wykonaj zadanie 9.4 z Pomiary/PLAN_EDITY_9_FABRYKA.md
 - **Commit:** `Pomiary: pomiar fabryki`
 
 ### [Task 9.5: Nakładka z kryciem (flaga)]
-- **Objective:** tryb `krycie` w `render.tryb_nakladki` i w `przebieg_koncowy`, komunikat bota.
+- **Objective:** tryb `krycie` w `render.tryb_nakladki` i w `przebieg_koncowy`, skalowanie contain dla trybu `alfa`, komunikat bota.
 - **Kiedy:** zaraz po scaleniu części 8, na gałęzi `krycie` od `main`, osobnym PR-em. Nie czeka na części 5, 6 ani 9.1–9.4.
 - **Context/Inputs:** kontrakt „Nakładka z kryciem”; `src/render.py` (`tryb_nakladki`, `przebieg_koncowy`), `src/komunikaty.py`, `tests/generuj.py` (`nakladka_testowa`), `tests/test_nakladka.py`, `tests/test_bot.py`.
 - **Constraints:** testy:
   1. `nakladka_testowa(..., tryb="krycie")`: mp4 z granatowym tłem (0, 51, 153) i żółtym kwadratem w górnej połowie. `tryb_nakladki` daje `krycie`, a pliki trybów `alfa`, `zielen` i `ekran` z części 8 dalej dają swoje tryby;
   2. render z nakładką `krycie` na jednolicie niebieskim materiale: w oknie piksel równy średniej materiału i nakładki (±8), a poza oknem materiał bez zmian;
   3. bot: po wysłaniu pliku `krycie` odpowiedź zawiera „krycie 50%”;
+  3a. nakładka `alfa` 600x600 (żółty pierścień na przezroczystym tle) w kadrze 270x480:
+      - cały pierścień widoczny: żółte piksele przy lewej i prawej krawędzi pierścienia, w 5% do 95% szerokości;
+      - środek pierścienia na środku kadru (±2 px);
+      - nad i pod pierścieniem materiał bez zmian;
   4. pomiar: `python Pomiary/measure_nakladka.py` z flagą w `dane/nakladki/domyslna.mp4` daje arkusze z flagą obok wzorów `0914` i `0923`.
 - **Sonnet Prompt:**
 ```text

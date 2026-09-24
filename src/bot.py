@@ -178,7 +178,7 @@ async def renderuj_w_tle(
         sys.executable, str(SKRYPT_RENDERU),
         "--wzor", str(wzor_json), "--projekt", str(katalog_projektu),
         "--muzyka", str(katalog_muzyki), "--wyjscie", str(wynik_mp4),
-        "--limit-mb", str(limit_mb),
+        "--limit-mb", str(limit_mb), "--sila-koloru", str(konf.sila_koloru),
     ]
     if nakladka is not None:
         argumenty += ["--nakladka", str(nakladka)]

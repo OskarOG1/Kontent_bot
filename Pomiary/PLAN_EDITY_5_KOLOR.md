@@ -207,10 +207,49 @@ Katalog: C:\Dev\edity-bot. Wykonaj zadanie 5.4 z Pomiary/PLAN_EDITY_5_KOLOR.md; 
 ```
 - **Commit:** `Pomiary: pomiar koloru`
 
+### [Task 5.5: Poprawki z odbioru (2026-09-24)]
+- **Po co:** odbiór części 5 (Opus, 2026-09-24): testy 214 z 214, progi pomiaru spełnione, kod zgodny z kontraktem. Trzy przypadki brzegowe wywracają jednak montaż albo dają LUT z NaN, a pomiar ich nie łapie (4 długie nagrania, wzory z wieloma ujęciami). Do tego decyzja właściciela o zdjęciach z przezroczystością (punkt 4).
+- **Kontrakt:**
+  1. **Klip krótszy od ujęcia.**
+     - `render.statystyki_klipu` bierze klatki z 25, 50 i 75% długości ujęcia. Gdy ujęcie jest dłuższe niż reszta klipu od `start_w_klipie_s`, te chwile wypadają za końcem pliku: ffmpeg nic nie zapisuje, `Image.open` rzuca `FileNotFoundError` i pada cały montaż (sprawdzone: klip 1 s, `dlugosc_s` 2,4).
+     - W montażu dotyczy to ostatniego kawałka każdego klipu z `wstawki()` i każdego klipu krótszego od ujęcia. `segment_klipu` ma na to `tpad`, statystyki nie.
+     - Nowa sygnatura: `statystyki_klipu(sciezka_zrodlowa, start_s, dlugosc_s, czas_klipu_s, szerokosc=135, wysokosc=240)`. `renderuj` podaje czas klipu z listy materiałów (pole `czas_s`, liczone już przez `czas_trwania`).
+     - Klatki z 25, 50 i 75% długości `min(dlugosc_s, czas_klipu_s - start_s)`, czyli z tego, co segment naprawdę pokazuje, zanim `tpad` zamrozi ostatnią klatkę.
+     - Klatka, której ffmpeg nie zapisze, jest pomijana. Gdy nie wyjdzie żadna, bierze się ostatnią klatkę klipu (`-sseof -0.1`, to samo skalowanie i kadrowanie). Gdy i tej brak, segment idzie bez LUT. Brak klatki nigdy nie przerywa montażu.
+  2. **Wzór z jednym ujęciem albo bez próbek.**
+     - Dziś `kolor.cel_sekcji` dla wzoru z jednym ujęciem zwraca puste statystyki, a `lut_transferu` rzuca `ValueError` (sprawdzone). Gdy wszystkie ujęcia mają `probki: 0`, `polacz_statystyki` dzieli przez 0 i LUT wychodzi z NaN.
+     - Gdy poza ostatnim ujęciem nie ma żadnego, cel liczy się ze wszystkich ujęć.
+     - Przy sumie próbek 0 ujęcia ważą się po równo.
+  3. **Nieudane próbkowanie.**
+     - Dziś wzór dostaje `kolorystyka: null` bez żadnego śladu, a plik stderr ffmpeg zostaje w katalogu tymczasowym po każdej analizie.
+     - Plik stderr powstaje w katalogu tymczasowym analizy, obok `probki.rgb`, więc znika razem z nim.
+     - Przy kodzie różnym od 0 albo po przekroczeniu limitu `analizuj_wzor` wypisuje na stderr jedną linię: przyczynę i ostatnie 300 znaków stderr ffmpeg. Wzór dalej dostaje `kolorystyka: null`.
+  4. **Zdjęcia z przezroczystością bez koloru (decyzja właściciela 2026-09-24).**
+     - Przy sile 0,6 czarne tło za produktem (czapki z `dane/zdjęcia_bez_tła/`) robi się ciemnobrązowe albo granatowe, a produkt zmienia barwy. Produkt ma wyglądać jak prawdziwy.
+     - Segment zdjęcia, dla którego `render.ma_alfa_z_pil` daje `True`, idzie bez LUT i bez liczenia statystyk. Pozostałe segmenty bez zmian.
+- **Context/Inputs:** `src/render.py` (`statystyki_klipu`, pętla segmentów w `renderuj`), `src/kolor.py` (`cel_sekcji`, `polacz_statystyki`), `src/analyze.py` (`uruchom_probkowanie`, `analizuj_wzor`), `tests/test_render.py`, `tests/test_kolor.py`, `tests/test_analiza.py`, `tests/generuj.py`.
+- **Constraints:** testy:
+  1. `statystyki_klipu` dla klipu 1 s w jednolitym pomarańczu, przy `start_s=0`, `dlugosc_s=2.4` i przy `start_s=0.9`, `dlugosc_s=1.0`: bez wyjątku, b > 20;
+  2. render przy sile 1,0, w którym jedynym materiałem jest klip 1 s, a ujęcia wzoru trwają po 2 s: kończy się bez błędu i z poprawną liczbą klatek;
+  3. `cel_sekcji` dla `kolorystyka` z jednym ujęciem zwraca statystyki tego ujęcia, a dla samych `probki: 0` wynik bez NaN. `lut_transferu` z oboma celami daje wartości od 0 do 1 bez NaN;
+  4. analiza z podmienionym próbkowaniem, które kończy się kodem 1: na stderr jest linia z przyczyną, `kolorystyka` jest `null`, a w katalogu tymczasowym (`tempfile.tempdir` ustawione na `tmp_path`) nie zostaje żaden plik;
+  5. render przy sile 1,0 z celem wyraźnie niebieskim i dwoma zdjęciami, RGBA (czerwony kwadrat na przezroczystym tle) i zwykłym szarym:
+     - w segmencie RGBA tło ma wszystkie kanały najwyżej 6, a kwadrat swój kolor (±6);
+     - w segmencie szarym średnie b jest mniejsze niż −10;
+     - polecenie ffmpeg segmentu RGBA nie ma `lut3d` (podmienione `uruchom_ffmpeg`).
+- Pomiaru nie powtarzasz: te ścieżki w nim nie wystąpiły, a pozostałe wyniki się nie zmieniają.
+- **Sonnet Prompt:**
+```text
+Katalog: C:\Dev\edity-bot, gałąź kolor. Wykonaj zadanie 5.5 z Pomiary/PLAN_EDITY_5_KOLOR.md; otwórz src/render.py, src/kolor.py, src/analyze.py, tests/test_render.py, tests/test_kolor.py, tests/test_analiza.py, tests/generuj.py. Niezacommitowane zmiany w Pomiary/ (odbiór, plany 5 i 9, dziennik) dołącz do swojego commita, nie chowaj ich do stash. Weryfikacja: python -m pytest -q. Commit: kolor: poprawki z odbioru.
+```
+- **Commit:** `kolor: poprawki z odbioru`.
+
 ## Gotowe, gdy
-- `python -m pytest -q` przechodzi w całości.
+- `python -m pytest -q` przechodzi w całości, łącznie z testami zadania 5.5.
 - Pomiar: ΔE przy sile 0,6 mniejsze niż przy 0 w każdej sekcji każdego wzoru, analiza najwyżej 1,3 raza dłuższa, arkusze powstały.
-- Wdrożenie (Ty): `wdroz.ps1`, potem na serwerze `docker compose exec bot python src/analyze.py --wszystkie`.
+- Wdrożenie (Ty): `wdroz.ps1`, potem na serwerze `time docker compose exec bot python src/analyze.py --wszystkie`.
+  - Czas zapisz w `ROZWOJ.md`. Sam czas nie jest progiem (decyzja właściciela 2026-09-24), ale bot przerywa analizę po 300 s (`LIMIT_ANALIZY_S`).
+  - Gdy analiza trwa ponad 240 s, podnieś ten limit.
 - Test ręczny (Ty):
   - ten sam projekt renderowany dwa razy z CLI na serwerze, z `--sila-koloru 0` i `0.6`: `docker compose exec bot python src/render.py --wzor ... --projekt ... --muzyka dane/muzyka --wyjscie ... --sila-koloru 0.6`, tak jak przy teście zadania 3.7;
   - hak w kolorach haka wzoru, montaż w kolorach montażu, skóra i niebo nie wyglądają nienaturalnie, plansza bez zmian;
@@ -221,6 +260,7 @@ Katalog: C:\Dev\edity-bot. Wykonaj zadanie 5.4 z Pomiary/PLAN_EDITY_5_KOLOR.md; 
 2. `kolor: LUT przeniesienia barw`
 3. `render: kolor wzoru na segment`
 4. `Pomiary: pomiar koloru`
+5. `kolor: poprawki z odbioru` (5.5)
 
 ## Odbiór (oceniający)
 ```text
