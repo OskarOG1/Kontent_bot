@@ -47,6 +47,7 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
    **Zamknięte 2026-09-24:** wdrożone, a montaż na serwerze z przeliczeniem całej biblioteki miał szczyt kontenera 1567 MB (dziennik, odbiór części 5). Limit 5 GB zostaje do sprawdzenia analizy wzoru po wdrożeniu części 5, potem powrót do 3 GB.
 10. **`/znak` przyjmuje PNG bez przezroczystości** i wtedy w edycie wychodzi półprzezroczysty prostokąt. Drobne; do ostrzeżenia w bocie przy okazji części 9.
 11. **Niebo w montażu robi się różowo-fioletowe przy `SILA_KOLORU` 0,6 (test ręczny części 5, 2026-09-24).** Transfer Reinharda w `kolor.lut_transferu` przesuwa cały obraz w stronę celu sekcji niezależnie od tego, czy piksel jest niebem czy nie: na prawdziwym zdjęciu z jasnym, prawie białym niebem (materiał tłumu z flagami) chłodny cel montażu daje wyraźne przebarwienie. Sprawdzone na tym samym materiale przy siłach 0, 0,3, 0,6 i 1,0: przebarwienie widać już od 0,3 i rośnie z siłą; hak (portret) wygląda naturalnie na całym zakresie, nawet przy 1,0. **Decyzja właściciela (2026-09-24): zostaje jak jest, `SILA_KOLORU` bez zmian (domyślne 0,6), problem zgłoszony, nie blokuje.** Możliwe kierunki naprawy na przyszłość: osobna siła dla montażu niż dla haka, albo ograniczenie transferu do pikseli bliższych statystykom celu (odcięcie skrajnie jasnych/desaturowanych obszarów typu niebo).
+    **Przyczyna i poprawka (Opus, 2026-09-25):** cel montażu wzoru `0915` (na serwerze `20260923_143107`) ma a +11,8 i b −17,6, czyli fiolet, a transfer przesuwa barwę każdego piksela o tyle samo. Prototyp z osłabieniem zmiany a i b w jasnych partiach (pełna do L 55, zerowa od L 90) usuwa róż z nieba i białej ściany i nie zmienia haka. Zadanie 5.6 w `PLAN_EDITY_5_KOLOR.md`, gałąź `niebo`.
 
 ## Decyzje techniczne podjęte przy realizacji
 
@@ -58,6 +59,38 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 - Wyniki (`outputs/`), dane (`dane/`) i `.env` są poza gitem. Katalog `Pomiary/` od 2026-09-23 jest w repozytorium (decyzja właściciela), więc zmiany planów i dziennika trzeba commitować.
 
 ## Dziennik
+
+### 2026-09-25 (zadanie 5.6: niebo bez przebarwienia, gałąź `niebo`, Opus)
+- Właściciel poprosił, żebym zrobił zadanie sam, bez Sonneta.
+- `src/kolor.py`:
+  - stałe `OCHRONA_JASNYCH_OD = 55.0` i `OCHRONA_JASNYCH_DO = 90.0`;
+  - `lut_transferu(..., ochrona_jasnych=True)` mnoży zmianę a i b przez wagę `clip((90 − L) / 35, 0, 1)`, gdzie L to jasność koloru wejściowego. Jasność przenosi się jak dotąd;
+  - `ochrona_jasnych=False` daje dawny transfer. Render woła funkcję bez zmian, więc ochrona działa wszędzie.
+- Testy w `tests/test_kolor.py` (+2):
+  - szarość 235 przy celu (27; 12; −18) i sile 1,0 zostaje bez barwy (|a| i |b| poniżej 2), a szarość 90 przesuwa się w b o 18;
+  - `ochrona_jasnych=False` zgadza się z transferem Reinharda liczonym w teście;
+  - bez ochrony pierwszy test pada (a 12, b −18), więc łapie cofnięcie zmiany;
+  - cały zestaw: 223 z 223 (245 s).
+- Pomiar, sekcja D (`python Pomiary/measure_kolor.py --sekcja D`): cel montażu `0915` przy sile 0,6, średnie a/b pikseli, które w oryginale mają L > 70:
+
+  | Zdjęcie | Jasne piksele | Chroma przed | Chroma po |
+  |---|---|---|---|
+  | tłum z flagami `8d75cf40…` | 33,5% | 14,45 | 2,03 |
+  | biała ściana `2402ce4e…` | 52,7% | 9,43 | 0,76 |
+  | mgła `b80a5ced…` | 17,4% | 13,09 | 6,96 |
+
+  Progi D spełnione (chroma spada na każdym zdjęciu, a na tłumie i ścianie jest najwyżej 3). Arkusz: `outputs/porownanie_kolor_niebo.png`.
+- Pełny pomiar (sekcje A do D) w toku. Wynik dopiszę po zakończeniu, przed scaleniem.
+- Commity `kolor: ochrona jasnych partii przed przebarwieniem` i `Pomiary: sekcja D pomiaru koloru`.
+
+### 2026-09-25 (przyczyna różowego nieba, zadanie 5.6, Opus)
+- Właściciel po wdrożeniu części 5 zgłosił przebarwienie (znany problem 11) i pytał, co dalej. Wcześniejsza decyzja: kolory mało ważne, a łatwa poprawka jest w porządku.
+- **Przyczyna:** szablon na serwerze to `0915` (ten sam plik, 160 132 475 B). Cel jego montażu ma średnią Lab (26,7; 11,8; −17,6) przy odchyleniach (17,5; 9,2; 16,8), czyli ciemny fiolet. Transfer Reinharda przesuwa a i b każdego piksela o tyle samo, więc prawie białe niebo i biała ściana dostają ten sam fioletowy odcień co reszta.
+- **Prototyp** na zdjęciach z projektu testowego (`dane/zdjęcia/`, te same pliki co w `20260924_145749` na serwerze), LUT przy sile 0,6 przez ffmpeg `lut3d`, cztery warianty:
+  - osłabienie zmiany a i b w jasnych partiach (pełna do L 55, zerowa od L 90) usuwa róż ze ściany i nieba tłumu, a mgłę `b80a5ced…` zostawia lekko lawendową. Hak (portret) i ciemna arena bez zmian;
+  - osłabienie według nasycenia koloru wejściowego (neutralne piksele bez zmiany barwy) daje podobny efekt na niebie, ale zabiera odcień wszystkim szarym materiałom, czyli sam styl, i łamie testy 5.2 i 5.3 na szarych materiałach. Odrzucone;
+  - ograniczenie stosunku odchyleń a i b do 1 niewiele zmienia na niebie.
+- Wybrany pierwszy wariant jako zadanie 5.6 z sekcją D pomiaru (trzy zdjęcia, przed i po) i pełnym pomiarem po zmianie.
 
 ### 2026-09-24 (scalenie i wdrożenie części 5)
 - PR #12 (`kolor` → `main`) scalony na GitHubie (`a4a9751`, merge commit). Lokalny `main` zaktualizowany (fast-forward).
@@ -537,7 +570,8 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Następne kroki
 
-1. Zadanie 5.5 (poprawki z odbioru koloru) na gałęzi `kolor`, potem PR części 5, scalenie i `wdroz.ps1`. Na serwerze `time docker compose exec bot python src/analyze.py --wszystkie` z `docker stats` obok: czas i szczyt pamięci do dziennika. Czas nie jest progiem; gdy analiza trwa ponad 240 s, podnieść `LIMIT_ANALIZY_S` w `src/bot.py`. Przy szczycie poniżej 2 GB limit pamięci wraca z 5g do 3g.
-2. Zadanie 9.5 (nakładka z kryciem i skalowanie contain dla nakładek z przezroczystością) na gałęzi `krycie` od `main` po scaleniu części 5, osobnym PR-em. Flaga jest w `dane/nakladki/domyslna.mp4` lokalnie i na serwerze. Przy wzorze `20260923_143107` wygrywa jego pierścień, a flagę da dopiero `/nakladka usun`.
+1. Zadanie 5.6 (niebo bez przebarwienia) zrobione na gałęzi `niebo`, PR otwarty. Zostaje: wynik pełnego pomiaru w dzienniku, scalenie, `wdroz.ps1` (bez `--wszystkie`, kolorystyka wzoru bez zmian) i test ręczny przy sile 0,6 na zdjęciu tłumu z flagami.
+2. Zadanie 9.5 (nakładka z kryciem i skalowanie contain dla nakładek z przezroczystością) na gałęzi `krycie` od `main` po scaleniu 5.6, osobnym PR-em. Flaga jest w `dane/nakladki/domyslna.mp4` lokalnie i na serwerze. Przy wzorze `20260923_143107` wygrywa jego pierścień, a flagę da dopiero `/nakladka usun`.
 3. Część 6, potem 9 (9.1 do 9.4 oraz 9.6 do 9.8, napisy w rytmie). Po każdej odbiór na arkuszach i `wdroz.ps1`.
-4. Właściciel: test ręczny części 5 (`--sila-koloru 0` i `0.6`; czapki na czarnym tle mają zostać bez zmian) i własny znak wodny przez `/znak` (PNG z przezroczystością), jeśli ma być inny niż plik z `dane/promocyjne/`.
+4. Przy okazji wdrożenia: `docker stats` w trakcie montażu. Gdy szczyt zostaje poniżej 2 GB, limit pamięci wraca z 5g do 3g.
+5. Właściciel: własny znak wodny przez `/znak` (PNG z przezroczystością), jeśli ma być inny niż plik z `dane/promocyjne/`.

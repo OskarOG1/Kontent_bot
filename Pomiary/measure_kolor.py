@@ -26,12 +26,17 @@ sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 #   doprecyzowanie wlasciciela 2026-09-24, patrz ROZWOJ.md.
 # Sekcja C: sprawdza, ze arkusze porownawcze z sekcji B (outputs/porownanie_kolor_<wzor>_<sila>.png)
 #   powstaly dla kazdego wzoru i kazdej z sil 0, 0.6, 1.0.
+# Sekcja D (zadanie 5.6, niebo bez przebarwienia): trzy jasne zdjecia z dane/zdjęcia/ przygotowane
+#   jak w renderze, LUT przy sile 0.6 do celu montazu wzoru 0915 (ten wzor lezy na serwerze),
+#   nalozony przez ffmpeg lut3d bez ochrony jasnych partii i z nia. Miara: srednie a/b pikseli,
+#   ktore w oryginale maja L > 70. Uruchamiana tez osobno: python Pomiary/measure_kolor.py --sekcja D.
 
 KATALOG_REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KATALOG_REPO / "src"))
 sys.path.insert(0, str(KATALOG_REPO / "tests"))
 
 import numpy as np  # noqa: E402
+from PIL import Image  # noqa: E402
 
 import analyze  # noqa: E402
 import arkusz  # noqa: E402
@@ -45,6 +50,18 @@ PLIK_WYNIKOW = KATALOG_OUTPUTS / "pomiar_kolor.json"
 PROG_NARZUTU_PROBKOWANIA = 1.3
 PROG_ROZRZUTU_BAZOWEGO = 0.20
 ROZSZERZENIA_WZOROW = {".mp4", ".mov", ".m4v", ".mkv", ".webm"}
+
+# Sekcja D: pierwsze dwa zdjecia (tlum z flagami, biala sciana) maja twardy prog chromy,
+# trzecie (mgla) tylko musi sie poprawic.
+WZOR_NIEBA = "0915"
+ZDJECIA_NIEBA = [
+    "8d75cf40c8d7a3eaceb27b9dcf6083cd.jpg",
+    "2402ce4e43187bb07ec41db88ff06fad.jpg",
+    "b80a5cedb15e50edd08a59328da10190.jpg",
+]
+PROG_JASNOSCI_NIEBA = 70.0
+PROG_CHROMY_JASNYCH = 3.0
+SILA_NIEBA = 0.6
 
 # Zabezpieczenie przed utrata postepu przy awarii (sekcja B trwa dlugo):
 # wyniki kazdego wzoru i kazdego przebiegu probkowania trafiaja na dysk od razu,
@@ -423,7 +440,78 @@ def sekcja_c(wyniki_b: dict) -> dict:
     return wyniki
 
 
+def naloz_lut(obraz: np.ndarray, lut: np.ndarray, katalog: Path) -> np.ndarray:
+    Image.fromarray(obraz).save(katalog / "niebo_wejscie.png")
+    kolor.zapisz_cube(lut, katalog / "niebo.cube")
+    render.uruchom_ffmpeg(["-i", "niebo_wejscie.png", "-vf", "lut3d=niebo.cube", "niebo_wyjscie.png"], katalog=katalog)
+    with Image.open(katalog / "niebo_wyjscie.png") as wynik:
+        return np.array(wynik.convert("RGB"))
+
+
+def sekcja_d() -> dict:
+    wzor_json = KATALOG_OUTPUTS / f"wzor_{WZOR_NIEBA}.json"
+    katalog_zdjec = KATALOG_REPO / "dane" / "zdjęcia"
+    brakujace = [nazwa for nazwa in ZDJECIA_NIEBA if not (katalog_zdjec / nazwa).is_file()]
+    if not wzor_json.is_file() or brakujace:
+        print(f"D pominieta: brak {wzor_json.name} albo zdjec {brakujace}")
+        return {"pominieta": True, "powod": f"brak {wzor_json.name} albo zdjec z dane/zdjęcia"}
+
+    wzor = json.loads(wzor_json.read_text(encoding="utf-8"))
+    sekcje = wzor["sekcje"]
+    cel = kolor.cel_sekcji(wzor["kolorystyka"], sekcje, numer_wzoru=sekcje["drop_ujecie"])
+
+    wyniki_zdjec = {}
+    wiersze = []
+    with TemporaryDirectory() as katalog_tymczasowy:
+        katalog_tymczasowy = Path(katalog_tymczasowy)
+        for nazwa in ZDJECIA_NIEBA:
+            przygotowane = render.przygotuj_zdjecie(katalog_zdjec / nazwa, katalog_tymczasowy, 0, 1080, 1920)
+            obraz = render.obraz_do_statystyk(przygotowane)
+            zrodlo = kolor.statystyki_obrazu(obraz)
+            maska = kolor.rgb_do_lab(obraz)[..., 0] > PROG_JASNOSCI_NIEBA
+            wpis = {"jasnych_pikseli_procent": round(float(maska.mean()) * 100, 1)}
+            kafle = [obraz]
+            for wersja, ochrona in (("przed", False), ("po", True)):
+                lut = kolor.lut_transferu(zrodlo, cel, SILA_NIEBA, ochrona_jasnych=ochrona)
+                wynik = naloz_lut(obraz, lut, katalog_tymczasowy)
+                a, b = kolor.rgb_do_lab(wynik)[maska][:, 1:].mean(axis=0)
+                wpis[wersja] = {"a": round(float(a), 2), "b": round(float(b), 2), "chroma": round(float(np.hypot(a, b)), 2)}
+                kafle.append(wynik)
+            wyniki_zdjec[nazwa] = wpis
+            wiersze.append(np.hstack(kafle))
+            print(f"D {nazwa}: {wpis}")
+
+    KATALOG_OUTPUTS.mkdir(parents=True, exist_ok=True)
+    arkusz_nieba = KATALOG_OUTPUTS / "porownanie_kolor_niebo.png"
+    Image.fromarray(np.vstack(wiersze)).save(arkusz_nieba)
+    wyniki = {
+        "wzor": WZOR_NIEBA,
+        "sila": SILA_NIEBA,
+        "cel_montazu_lab": [round(x, 2) for x in cel["lab_srednia"]],
+        "zdjecia": wyniki_zdjec,
+        "arkusz": arkusz_nieba.name,
+        "progi": {
+            "chroma_jasnych_mniejsza_po_poprawce": all(w["po"]["chroma"] < w["przed"]["chroma"] for w in wyniki_zdjec.values()),
+            "tlum_i_sciana_chroma_najwyzej_3": all(wyniki_zdjec[n]["po"]["chroma"] <= PROG_CHROMY_JASNYCH for n in ZDJECIA_NIEBA[:2]),
+        },
+    }
+    print(f"D: {wyniki['progi']}")
+    return wyniki
+
+
+def tylko_sekcja_d() -> int:
+    WYNIKI_CALOSC.update(wczytaj_czesciowe(PLIK_WYNIKOW))
+    wyniki_d = sekcja_d()
+    zapisz_sekcje("D", wyniki_d)
+    zaliczone = bool(wyniki_d.get("pominieta")) or all(wyniki_d["progi"].values())
+    print("WYNIK D:", "ZALICZONE" if zaliczone else "NIEZALICZONE")
+    return 0 if zaliczone else 1
+
+
 def main() -> int:
+    if sys.argv[1:3] == ["--sekcja", "D"]:
+        return tylko_sekcja_d()
+
     wyniki_a = sekcja_a()
     zapisz_sekcje("A", wyniki_a)
 
@@ -435,10 +523,15 @@ def main() -> int:
     wyniki_c = sekcja_c(wyniki_b)
     zapisz_sekcje("C", wyniki_c)
 
+    wyniki_d = sekcja_d()
+    zapisz_sekcje("D", wyniki_d)
+
     zaliczone = all(wyniki_a["progi"].values())
     if not wyniki_b.get("pominieta"):
         zaliczone = zaliczone and all(v for v in wyniki_b["progi"].values() if v is not None)
         zaliczone = zaliczone and all(wyniki_c["progi"].values())
+    if not wyniki_d.get("pominieta"):
+        zaliczone = zaliczone and all(wyniki_d["progi"].values())
     print("WYNIK:", "ZALICZONE" if zaliczone else "NIEZALICZONE")
     return 0 if zaliczone else 1
 
