@@ -21,6 +21,8 @@ START_BPM = 150.0
 KROK_CHROMA = 2048
 KROK_OBWIEDNI = 256
 PROG_DROPU = 0.1
+OKNO_TEMPOGRAMU = 384
+KAWALEK_TEMPOGRAMU = 4096
 
 
 class BladAnalizy(Exception):
@@ -124,6 +126,29 @@ def zdekoduj_do_wav(sciezka: Path, cel: Path) -> None:
         raise BladAnalizy("Nie udało się zdekodować dźwięku")
 
 
+def tempogram_sredni(obwiednia: numpy.ndarray, sr: int) -> numpy.ndarray:
+    import librosa
+
+    zakladka = OKNO_TEMPOGRAMU // 2
+    n = len(obwiednia)
+    suma = numpy.zeros(OKNO_TEMPOGRAMU)
+    liczba_kolumn = 0
+    for start in range(0, n, KAWALEK_TEMPOGRAMU):
+        koniec = min(start + KAWALEK_TEMPOGRAMU, n)
+        lewy = max(0, start - zakladka)
+        prawy = min(n, koniec + zakladka)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            kawalek = librosa.feature.tempogram(
+                onset_envelope=obwiednia[lewy:prawy], sr=sr,
+                hop_length=KROK_ROZKLADU, win_length=OKNO_TEMPOGRAMU,
+            )
+        kawalek = kawalek[:, start - lewy:koniec - lewy]
+        suma += kawalek.sum(axis=1)
+        liczba_kolumn += kawalek.shape[1]
+    return (suma / liczba_kolumn).reshape(OKNO_TEMPOGRAMU, 1)
+
+
 def analizuj_dzwiek(sciezka) -> dict | None:
     import librosa
 
@@ -145,9 +170,12 @@ def analizuj_dzwiek(sciezka) -> dict | None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         obwiednia_rytmu = librosa.onset.onset_strength(y=sygnal, sr=sr, hop_length=KROK_ROZKLADU)
+        tempo_wstepne = librosa.feature.tempo(
+            tg=tempogram_sredni(obwiednia_rytmu, sr), sr=sr, hop_length=KROK_ROZKLADU, start_bpm=START_BPM,
+        )
         tempo, pozycje_uderzen = librosa.beat.beat_track(
             onset_envelope=obwiednia_rytmu, sr=sr, hop_length=KROK_ROZKLADU, units="time",
-            start_bpm=START_BPM, trim=False,
+            bpm=float(numpy.asarray(tempo_wstepne).reshape(-1)[0]), trim=False,
         )
         uderzenia_s = doprecyzuj_uderzenia(librosa, sygnal, sr, [float(t) for t in pozycje_uderzen])
         chroma = librosa.feature.chroma_stft(y=sygnal, sr=sr, hop_length=KROK_CHROMA)
