@@ -20,6 +20,7 @@ POSZUKIWANIE_S = 0.05
 START_BPM = 150.0
 KROK_CHROMA = 2048
 KROK_OBWIEDNI = 256
+PROG_DROPU = 0.1
 
 
 class BladAnalizy(Exception):
@@ -268,7 +269,7 @@ def wykryj_drop(
     srednia_energii = sum(energia_uderzen) / len(energia_uderzen)
     najlepszy_i = None
     najlepszy_wynik = None
-    for i in range(4, len(uderzenia_s)):
+    for i in range(8, len(uderzenia_s)):
         if uderzenia_s[i] > granica_czasu:
             break
         przed = energia_uderzen[max(0, i - 8):i]
@@ -279,7 +280,7 @@ def wykryj_drop(
         if najlepszy_wynik is None or wynik > najlepszy_wynik:
             najlepszy_wynik = wynik
             najlepszy_i = i
-    if najlepszy_i is None or najlepszy_wynik < 0.2 * srednia_energii:
+    if najlepszy_i is None or najlepszy_wynik < PROG_DROPU * srednia_energii:
         return None
     t = uderzenia_s[najlepszy_i]
     kandydaci = [(idx, c) for idx, c in enumerate(ciecia_s) if idx >= 1]

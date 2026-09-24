@@ -5,6 +5,7 @@ POMOC = (
     "/wzor, żeby wysłać nowy wzorcowy edit.\n"
     "/nakladka, żeby ustawić nakładkę graficzną od dropu (/nakladka usun, żeby ją usunąć).\n"
     "/plansza, żeby ustawić planszę końcową (/plansza usun, żeby ją usunąć).\n"
+    "/znak, żeby ustawić znak wodny marki (/znak usun, żeby go usunąć).\n"
     "/nowy, żeby zacząć zbierać materiały do nowego editu.\n"
     "/gotowe, żeby zamknąć zbieranie i wysłać projekt do kolejki.\n"
     "/anuluj, żeby porzucić bieżący projekt.\n"
@@ -16,6 +17,7 @@ KOMENDY = (
     ("wzor", "Wyślij nowy wzorcowy edit"),
     ("nakladka", "Ustaw nakładkę graficzną wzoru"),
     ("plansza", "Ustaw planszę końcową wzoru"),
+    ("znak", "Ustaw znak wodny marki"),
     ("nowy", "Zacznij nowy projekt"),
     ("gotowe", "Zamknij zbieranie i wyślij do kolejki"),
     ("anuluj", "Porzuć bieżący projekt"),
@@ -55,6 +57,11 @@ NAKLADKA_USUNIETA = "Nakładka usunięta."
 PLANSZA_NIEPOPRAWNY_TYP = "Nie rozpoznaję tego typu pliku. Wyślij zdjęcie albo klip jako planszę."
 PLANSZA_USUNIETA = "Plansza usunięta."
 PLANSZA_ZAPISANA = "Plansza zapisana."
+
+ZNAK_PROSBA = "Wyślij znak wodny jako plik PNG."
+ZNAK_NIEPOPRAWNY_TYP = "To nie jest PNG. Wyślij znak wodny jako plik PNG."
+ZNAK_USUNIETY = "Znak wodny usunięty."
+ZNAK_ZAPISANY = "Znak wodny zapisany."
 
 
 def nakladka_prosba(wzor_id: str) -> str:
@@ -166,3 +173,7 @@ def status_kolejki(dlugosc_kolejki: int, liczba_wzorow: int) -> str:
 
 def status_muzyki(liczba_utworow: int) -> str:
     return f"Muzyka: {liczba_utworow} utworów."
+
+
+def status_znaku(ma_znak: bool) -> str:
+    return f"Znak wodny: {'tak' if ma_znak else 'nie'}."

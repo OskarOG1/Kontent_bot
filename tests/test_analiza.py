@@ -319,7 +319,7 @@ def test_analizuj_rytm_nie_zmienia_globalnych_filtrow_warnings(tmp_path):
 def test_wykryj_drop_na_skoku_glosnosci(tmp_path):
     sciezka = tmp_path / "wzor.mp4"
     wav = tmp_path / "klik.wav"
-    klik(wav, 120, 30.0, glosnosc=[(0, 0.15), (9, 1.0)])
+    klik(wav, 150, 30.0, glosnosc=[(0, 0.85), (9, 1.0)])
     ciecia = [float(k) for k in range(1, 30)]
     wideo_z_cieciami(sciezka, ciecia, 30.0, dzwiek=wav)
     wzor = analyze.analizuj_wzor(sciezka, "abc")

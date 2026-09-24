@@ -902,3 +902,189 @@ async def test_status_pokazuje_nakladke_i_plansze(srodowisko):
     ostatnia = teksty_odpowiedzi(sesja)[-1]
     assert "nakładka tak" in ostatnia
     assert "plansza nie" in ostatnia
+
+
+async def test_nakladka_podczas_zbierania_zachowuje_projekt(z_praca_w_tle, monkeypatch, tmp_path):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+
+    wywolania = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(photo=zdjecie("f1", "u1", file_size=1000))))
+
+    png = tmp_path / "n.png"
+    generuj.nakladka_testowa(png, 0.5, "png")
+    sesja.tresc_pliku = png.read_bytes()
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nakladka")))
+    wiadomosc = zbuduj_wiadomosc(document=dokument("f_nak", "u_nak", nazwa="n.png", file_size=1000))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/gotowe")))
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    assert "--nakladka" in wywolania[0]
+    projekt_id = jedyny_projekt_id(konf)
+    materialy = magazyn.lista_materialow(konf.katalog_danych / "projekty" / projekt_id)
+    assert len(materialy) == 1
+
+
+async def test_plansza_podczas_zbierania_zachowuje_projekt(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+
+    wywolania = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(photo=zdjecie("f1", "u1", file_size=1000))))
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/plansza")))
+    wiadomosc = zbuduj_wiadomosc(photo=zdjecie("f_p", "u_p", file_size=1000))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/gotowe")))
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    assert "--plansza" in wywolania[0]
+    projekt_id = jedyny_projekt_id(konf)
+    materialy = magazyn.lista_materialow(konf.katalog_danych / "projekty" / projekt_id)
+    assert len(materialy) == 1
+
+
+async def test_wzor_podczas_zbierania_zachowuje_projekt(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        if str(bot.SKRYPT_ANALIZY) in argumenty:
+            wzor_przygotowany(Path(argumenty[3]))
+            return kolejka.Wynik(kod=0, stdout="", stderr="", czas_s=0.1, przekroczono_czas=False)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(photo=zdjecie("f1", "u1", file_size=1000))))
+
+    await wyslij_wzor(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    dane_stanu = await dyspozytor.storage.get_data(key=klucz_stanu(bot_obiekt))
+    assert dane_stanu.get("projekt_id") is not None
+
+    katalog_muzyki = konf.katalog_danych / "muzyka"
+    katalog_muzyki.mkdir(parents=True, exist_ok=True)
+    (katalog_muzyki / "staly.mp3").write_bytes(b"audio-testowe")
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/gotowe")))
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    assert teksty_odpowiedzi(sesja)[-1] != "Najpierw użyj /nowy albo /wzor."
+    projekt_id = jedyny_projekt_id(konf)
+    materialy = magazyn.lista_materialow(konf.katalog_danych / "projekty" / projekt_id)
+    assert len(materialy) == 1
+
+
+async def test_nakladka_pobieranie_z_bledem_zostawia_stary_plik(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    przygotuj_wzor_i_utwor(konf)
+    katalog = konf.katalog_danych / "nakladki"
+    katalog.mkdir(parents=True)
+    (katalog / "w1.png").write_bytes(b"stara-nakladka")
+
+    sesja.plik_za_duzy = True
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nakladka")))
+    wiadomosc = zbuduj_wiadomosc(document=dokument("f_nak", "u_nak", nazwa="n.png", file_size=1000))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+
+    assert (katalog / "w1.png").read_bytes() == b"stara-nakladka"
+
+
+async def test_znak_png_zapisuje_plik_i_render_dostaje_argument(z_praca_w_tle, monkeypatch, tmp_path):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+
+    znak_png = tmp_path / "z.png"
+    generuj.nakladka_testowa(znak_png, 0.5, "png")
+    sesja.tresc_pliku = znak_png.read_bytes()
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/znak")))
+    wiadomosc = zbuduj_wiadomosc(document=dokument("f_znak", "u_znak", nazwa="z.png", file_size=1000))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+
+    zapisany = konf.katalog_danych / "znak_wodny.png"
+    assert zapisany.exists()
+    assert teksty_odpowiedzi(sesja)[-1] == "Znak wodny zapisany."
+
+    wywolania = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    assert Path(wywolania[0][wywolania[0].index("--znak") + 1]) == zapisany
+
+
+async def test_znak_niepoprawny_typ_daje_prosbe(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/znak")))
+    wiadomosc = zbuduj_wiadomosc(document=dokument("f_z", "u_z", nazwa="z.jpg", file_size=1000))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+    assert teksty_odpowiedzi(sesja)[-1] == "To nie jest PNG. Wyślij znak wodny jako plik PNG."
+    assert not (konf.katalog_danych / "znak_wodny.png").exists()
+
+
+async def test_znak_usun_usuwa_plik(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    katalog = konf.katalog_danych
+    katalog.mkdir(parents=True, exist_ok=True)
+    (katalog / "znak_wodny.png").write_bytes(b"x")
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/znak usun")))
+
+    assert not (katalog / "znak_wodny.png").exists()
+    assert teksty_odpowiedzi(sesja)[-1] == "Znak wodny usunięty."
+
+
+async def test_render_bez_znaku_bez_argumentu(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+
+    wywolania = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    assert "--znak" not in wywolania[0]
+
+
+async def test_status_pokazuje_znak_wodny(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/status")))
+    assert "Znak wodny: nie" in teksty_odpowiedzi(sesja)[-1]
+
+    katalog = konf.katalog_danych
+    katalog.mkdir(parents=True, exist_ok=True)
+    (katalog / "znak_wodny.png").write_bytes(b"x")
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/status")))
+    assert "Znak wodny: tak" in teksty_odpowiedzi(sesja)[-1]

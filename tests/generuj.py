@@ -250,6 +250,11 @@ def nakladka_testowa(
             raise RuntimeError(f"ffmpeg zakonczyl sie kodem {kod}: {blad}")
 
 
+def znak_testowy(sciezka: Path, rozmiar: tuple[int, int] = (200, 50)) -> None:
+    obraz = Image.new("RGBA", rozmiar, (255, 255, 255, 255))
+    obraz.save(sciezka)
+
+
 def zdjecie_testowe(
     sciezka: Path,
     rozmiar: tuple[int, int] = (1200, 1600),
