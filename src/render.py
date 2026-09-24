@@ -410,10 +410,10 @@ def przebieg_koncowy(
             przygotowanie_nakladki += f",format=rgba,colorkey=0x00FF00:0.3:0.1,setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
             kompozycja = f"[0:v][nak]overlay=eval=frame:enable='{warunek}',setsar=1[v]"
         else:
-            przygotowanie_nakladki += f",format=rgb24,setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
+            przygotowanie_nakladki += f",format=gbrp,setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
             kompozycja = (
-                f"[0:v]format=rgb24[glowne];[glowne][nak]blend=all_mode=screen:enable='{warunek}',"
-                f"scale=out_range=full,setsar=1[v]"
+                f"[0:v]format=gbrp[glowne];[glowne][nak]blend=all_mode=screen:enable='{warunek}',"
+                f"scale=out_range=tv,format=yuv420p,setsar=1[v]"
             )
 
         filtr = (
@@ -451,6 +451,8 @@ def zweryfikuj_wynik(wyjscie: Path, szerokosc: int, wysokosc: int, fps: float, l
         raise RuntimeError("Wynik nie ma strumienia wideo")
     if int(strumien_v["width"]) != szerokosc or int(strumien_v["height"]) != wysokosc:
         raise RuntimeError("Wynik ma zły rozmiar kadru")
+    if strumien_v.get("pix_fmt") != "yuv420p":
+        raise RuntimeError("Wynik ma zły pix_fmt")
     if not any(s["codec_type"] == "audio" for s in dane["streams"]):
         raise RuntimeError("Wynik nie ma dźwięku")
     oczekiwany_czas_s = liczba_klatek / fps
@@ -491,12 +493,24 @@ def pozycja_dropu_w_planie(wzor: dict, plan_ujecia: list[dict], fps: float) -> f
     return None
 
 
-def okno_nakladki(wzor: dict, plan_ujecia: list[dict], liczba_klatek: int, fps: float, plansza_uzyta: bool) -> tuple[float, float]:
-    sekcje = wzor.get("sekcje")
+def koniec_haka(plan: dict, sekcje: dict | None) -> int:
+    plan_ujecia = plan["ujecia"]
+    liczba_klatek = plan["liczba_klatek"]
+    fps = plan["fps"]
+    klatka = None
     if sekcje and sekcje.get("drop_ujecie") is not None:
-        klatka_start = next((u["klatka_od"] for u in plan_ujecia if u["numer_wzoru"] >= sekcje["drop_ujecie"]), 0)
-    else:
-        klatka_start = 0
+        klatka = next((u["klatka_od"] for u in plan_ujecia if u["numer_wzoru"] >= sekcje["drop_ujecie"]), None)
+    if klatka is None:
+        cel = liczba_klatek * 0.4
+        klatka = min((u["klatka_od"] for u in plan_ujecia), key=lambda k: abs(k - cel))
+    return max(fps, min(klatka, liczba_klatek))
+
+
+def okno_nakladki(wzor: dict, plan: dict, plansza_uzyta: bool) -> tuple[float, float]:
+    plan_ujecia = plan["ujecia"]
+    liczba_klatek = plan["liczba_klatek"]
+    fps = plan["fps"]
+    klatka_start = koniec_haka(plan, wzor.get("sekcje"))
     klatka_koniec = plan_ujecia[-1]["klatka_od"] if plansza_uzyta else liczba_klatek
     return round(klatka_start / fps, 6), round(klatka_koniec / fps, 6)
 
@@ -583,7 +597,11 @@ def renderuj(
     nakladka_od_s = nakladka_do_s = None
     if nakladka is not None:
         tryb_nak = tryb_nakladki(nakladka)
-        nakladka_od_s, nakladka_do_s = okno_nakladki(wzor, plan["ujecia"], plan["liczba_klatek"], fps, plansza_uzyta)
+        nakladka_od_s, nakladka_do_s = okno_nakladki(wzor, plan, plansza_uzyta)
+        if (nakladka_do_s - nakladka_od_s) * fps < 1:
+            nakladka = None
+            tryb_nak = None
+            nakladka_od_s = nakladka_do_s = None
 
     przebieg_koncowy(
         polaczone, utwor, plan["start_audio_s"], plan["liczba_klatek"], fps, wyjscie, limit_mb,
