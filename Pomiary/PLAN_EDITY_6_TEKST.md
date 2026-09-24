@@ -25,7 +25,8 @@ Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania 6.1 do 6.4 z Pomiary
 ## WSPÓLNE (ten sam blok w każdej części)
 - Plan pisany 2026-09-21, przepisany 2026-09-23 po przeglądzie prawdziwych wzorów (`ROZWOJ.md`, wpisy „przegląd planów 4 do 6” i „przepisanie planów 4 do 9”). Kotwice `plik:linia` pochodzą z commita `57ba8fe` (stan po części 3 i zadaniu 3.7). Po wcześniejszych częściach mogą się przesunąć: wtedy szukaj po nazwie funkcji. Jeżeli nazwy lub kontrakty nie zgadzają się z tym, co zastaniesz, zatrzymaj się i zapytaj zamiast zgadywać. Otwieraj tylko pliki wymienione w zadaniu oraz `Pomiary/ROZWOJ.md`, nie przeszukuj repo ani dysku.
 - Po co: bot na Telegramie montuje edity wideo 9:16 na TikToka z dostarczonych materiałów. Wzorem jest gotowy edit: bot odtwarza jego strukturę i styl, a muzykę bierze z biblioteki właściciela w `dane/muzyka/`. Z wzoru bierzemy tylko strukturę i styl: jego obraz ani dźwięk nigdy nie trafiają do wyniku.
-  - Prawdziwe wzory (`0915`, `0921`, `0922`) mają ten sam format: hak (pierwsze 4 do 11 s, naturalne kolory, napis), drop (od niego pełnoekranowa nakładka graficzna i mocny grading), montaż i plansza końcowa około 1 s (mapa, decyzja 15).
+  - Edity promują czapki marki właściciela 1993 Supply (2026-09-24). Plansza końcowa pokazuje produkt albo stronę sklepu, a znak wodny marki leży na całym edicie poza planszą (wzór `0914`, zadanie 8.6).
+  - Prawdziwe wzory (`0914`, `0915`, `0921`, `0922`, `0923`) mają ten sam format: hak (pierwsze 4 do 11 s, naturalne kolory, napis), drop (od niego pełnoekranowa nakładka graficzna i mocny grading), montaż i plansza końcowa około 1 s (mapa, decyzja 15). `0923` ma dodatkowo napisy słowo po słowie w rytmie i gwiazdy wokół postaci przed dropem, czego plany nie odtwarzają.
   - Biblioteka muzyki to dźwięki samych wzorów (decyzja 14).
 - Środowisko:
   - lokalnie: Windows 11, Python 3.13 w `venv` repo (`venv/Scripts/python.exe`, zależności przypięte w `requirements.txt`), ffmpeg i ffprobe 8.1 w PATH, brak Dockera;
@@ -45,7 +46,17 @@ Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania 6.1 do 6.4 z Pomiary
   6. Każde wywołanie ffmpeg i ffprobe z zamkniętym stdin (`-nostdin` albo `stdin=DEVNULL`), inaczej proces potomny potrafi zawisnąć.
 - Testy: `python -m pytest -q` z katalogu głównego. Czas całego zestawu podaj w raporcie, ale nie jest progiem (decyzja właściciela 2026-09-23): nie skracaj testów kosztem tego, co sprawdzają. Media testowe generowane w locie w małej rozdzielczości (270x480), nigdy z `dane/`.
 - Arkusz porównawczy (decyzja 17): pomiar każdej części kończy się arkuszem `outputs/porownanie_<czesc>_<wzor>.png` z `Pomiary/arkusz.py` (powstaje w zadaniu 4.4).
-  - Arkusz powstaje dla każdego wzoru z `dane/probki/wzory/`, na materiałach z `dane/probki/materialy/`; gdy ich brak, na barwnych zdjęciach z generatora.
+  - Układ `dane/` od 2026-09-24 (katalogu `dane/probki/` już nie ma):
+    - wzory do pomiaru to pliki `dane/wzory/*.mp4` leżące bezpośrednio w katalogu. Podkatalogi `dane/wzory/<id>/` to wzory zapisane przez bota, pomiar ich nie bierze;
+    - biblioteka właściciela: `dane/zdjęcia/`, `dane/nagrania/` (klipy 4K, razem około 11 GB), `dane/zdjęcia_bez_tła/` (PNG z przezroczystością) i `dane/promocyjne/` (produkt i znak wodny);
+    - bot tych katalogów nie czyta, bo materiały dostaje przez Telegram.
+  - Arkusz powstaje dla każdego wzoru z `dane/wzory/*.mp4`. Materiały do niego to stała próbka, wybierana po nazwie:
+    - pierwsze 8 plików z `dane/zdjęcia/`;
+    - pierwsze 4 z `dane/nagrania/`;
+    - pierwsze 2 z przezroczystością z `dane/zdjęcia_bez_tła/`;
+    - jeden katalog projektu na cały przebieg pomiaru (twarde dowiązania, a gdy się nie da, kopie), usuwany na końcu;
+    - gdy katalogów brak, barwne zdjęcia z generatora.
+  - Plansza w pomiarze: `dane/plansze/domyslna.*`, inaczej pierwszy plik bez przezroczystości z `dane/promocyjne/`, inaczej syntetyczna.
   - Oceniający wydaje werdykt na arkuszu, a progi liczbowe są dodatkiem.
   - Wzór ogląda się tylko w `outputs/`, nic z niego nie trafia do wyniku bota.
 - Dziennik `Pomiary/ROZWOJ.md`: przeczytaj na starcie (stan, znane problemy, decyzje), dopisuj wpis po każdym zadaniu, decyzji i odkryciu, bez tokenu i wartości z `.env`.
@@ -105,14 +116,15 @@ Numery linii z `57ba8fe`, więc szukaj po nazwach.
   - linia trwa do początku następnej, a ostatnia do końca okna;
   - każda linia trwa co najmniej `fps` klatek (1 s). Gdy okno jest za krótkie, jego koniec przesuwa się kolejno na początki następnych ujęć (w montaż), aż linie się zmieszczą;
   - gdy nie mieści ich cały edit, funkcja rzuca `ValueError` z najwyższą dopuszczalną liczbą linii.
-- `koniec_haka(plan, sekcje) -> int`:
+- `render.koniec_haka(plan, sekcje) -> int` powstaje w części 8 (zadanie 8.5, poprawka po odbiorze 2026-09-24). Nakładka zaczyna się w tym samym miejscu, więc tu jej nie definiuj, tylko jej użyj:
   - z sekcjami: `klatka_od` pierwszego ujęcia planu z `numer_wzoru >= drop_ujecie`;
   - bez sekcji: 40% `liczba_klatek`, przyciągnięte do najbliższego początku ujęcia;
   - w obu przypadkach co najmniej `fps` klatek.
 
 **Render:**
 - Teksty czytane z `projekt.json` w katalogu projektu i oczyszczone przez `oczysc`.
-- Dla każdej linii obraz PNG w `praca/`, nakładany w przebiegu końcowym po nakładce z części 8, w swoim oknie, z pojawieniem i zniknięciem (przenikanie przez 4 klatki).
+- Dla każdej linii obraz PNG w `praca/`, nakładany w przebiegu końcowym po nakładce z części 8, a przed znakiem wodnym z zadania 8.6, w swoim oknie, z pojawieniem i zniknięciem (przenikanie przez 4 klatki).
+- Gdy jest znak wodny (pas 76% do 84% wysokości), dolna krawędź bloku napisów leży najwyżej na 75% wysokości.
 - Wejścia obrazów zapętlone i ograniczone długością wyniku (`-loop 1 -t`).
 - Brak linii oznacza przebieg końcowy bez zmian.
 - CLI `--styl-tekstu szeryf|blok` i `--pozycja-tekstu gora|srodek|dol`. Pole `tekst` we wzorze (`pozycja`, `wersaliki`) ma pierwszeństwo, gdy jest.
@@ -144,18 +156,21 @@ Katalog: C:\Dev\edity-bot. Wykonaj zadanie 6.1 z Pomiary/PLAN_EDITY_6_TEKST.md; 
 - **Commit:** `tekst: czcionki i obraz napisu`
 
 ### [Task 6.2: Okna w haku i nakładanie w renderze]
-- **Objective:** `tekst.okna_tekstow`, `tekst.koniec_haka` i napisy w przebiegu końcowym.
+- **Objective:** `tekst.okna_tekstow` i napisy w przebiegu końcowym, z końcem haka z `render.koniec_haka` (część 8).
 - **Context/Inputs:** kontrakty `okna_tekstow`, `koniec_haka` i „Render”; `src/render.py` (`przebieg_koncowy`, `renderuj`, `glowna`), `src/tekst.py`, `tests/generuj.py` (`nakladka_testowa` z części 8).
 - **Constraints:** wejścia obrazów muszą być ograniczone długością wyniku, bo zapętlone wejście bez limitu koduje w nieskończoność. Testy:
   1. 3 linie na planie 32 ujęć z hakiem kończącym się na ujęciu 8: 3 rozłączne okna w `[0, koniec_haka)`, a początki drugiej i trzeciej linii przyciągnięte do początków ujęć w granicy 8 klatek;
   2. hak z jednego ujęcia 4 s przy 30 fps i 3 linie: okna 0 do 40, 40 do 80 i 80 do 120;
   3. 5 linii w haku 3 s: okno rozszerza się o kolejne ujęcia, a każda linia ma co najmniej 30 klatek;
   4. 50 linii na edicie 5 s: `ValueError` z najwyższą liczbą linii;
-  5. bez `sekcje`: koniec haka na 40% editu, przyciągnięty do początku ujęcia;
+  5. bez `sekcje`: okna napisów kończą się w `render.koniec_haka`, czyli na 40% editu;
   6. pełny render 270x480 z 3 liniami:
      - długość równa `liczba_klatek / fps` z dokładnością do 1 klatki;
      - w oknie linii w obszarze napisu są białe piksele, a poza oknem nie ma;
-  7. napis nad nakładką: wzór bez `sekcje`, więc nakładka `alfa` jest od początku i zakrywa górną połowę czerwienią, a napis ustawiony u góry. Najjaśniejszy piksel w obszarze napisu ma wszystkie kanały co najmniej 240;
+  7. napis nad nakładką:
+     - wzór z `sekcje.drop_ujecie` 1 i ujęciami po 15 klatek, więc `koniec_haka` to 30 (minimum `fps`), a od klatki 30 nakładka `alfa` zakrywa górną połowę czerwienią;
+     - dwie linie u góry: okno rozszerza się do 60 klatek, więc druga linia (30 do 60) leży na nakładce;
+     - w klatce 45 najjaśniejszy piksel w obszarze napisu ma wszystkie kanały co najmniej 240. Od zadania 8.5 nakładka nie leci od pierwszej klatki, więc napis spotyka ją tylko wtedy, gdy okno wychodzi poza hak;
   8. render bez linii: polecenie przebiegu końcowego identyczne jak bez tej części (podmienione `uruchom_ffmpeg`).
 - **Sonnet Prompt:**
 ```text
@@ -195,7 +210,7 @@ Katalog: C:\Dev\edity-bot. Wykonaj zadanie 6.4 z Pomiary/PLAN_EDITY_6_TEKST.md; 
 ### [Task 6.5: Rozpoznanie napisów we wzorze (opcjonalne, sam pomiar)]
 - **Objective:** `Pomiary/measure_tekst_wzoru.py`: kiedy i gdzie wzór pokazuje napisy. Bez kodu w `src/`.
 - **Context/Inputs:**
-  - klatki wzorów z `dane/probki/wzory/` co 0,25 s;
+  - klatki wzorów z `dane/wzory/*.mp4` co 0,25 s;
   - detektor tekstu instalowany samym pip (np. RapidOCR z onnxruntime, sprawdź aktualną nazwę pakietu), bez rozpoznawania treści;
   - wynik: oś czasu okien z napisem, ich pozycja pionowa w procentach wysokości i położenie wobec `sekcje.drop_s`, plus arkusz klatek z zaznaczonymi ramkami `outputs/tekst_wzoru_<wzor>.png`.
 - **Constraints:** tylko raport. Na tej podstawie oceniający zdecyduje, czy warto wypełniać pole `tekst` we wzorze automatycznie (pozycja) i czy reguła „napisy w haku” trzyma się na nowych wzorach.
@@ -227,7 +242,7 @@ Katalog: C:\Dev\edity-bot. Oceniasz część 6 według Pomiary/PLAN_EDITY_6_TEKS
 3. `outputs/tekst.png`: polskie litery, cień i obrys, nic nie wychodzi poza strefę bezpieczną, długi wiersz złamany albo zmniejszony.
 4. Arkusze `outputs/porownanie_tekst_*.png`: napisy w wyniku są w tej samej części editu co we wzorze (hak) i na podobnej wysokości.
 5. `src/render.py`:
-   - napisy po nakładce;
+   - napisy po nakładce, a przed znakiem wodnym, i nad jego pasem;
    - wejścia obrazów ograniczone;
    - brak linii nie zmienia przebiegu końcowego.
 6. Jeśli jest `outputs/tekst_wzoru_*.png`: czy ramki trafiają w napisy widoczne na klatkach.

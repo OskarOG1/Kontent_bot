@@ -21,7 +21,8 @@ Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania z Pomiary/PLAN_EDITY
 ## WSPÓLNE (ten sam blok w każdej części)
 - Plan pisany 2026-09-21, przepisany 2026-09-23 po przeglądzie prawdziwych wzorów (`ROZWOJ.md`, wpisy „przegląd planów 4 do 6” i „przepisanie planów 4 do 9”). Kotwice `plik:linia` pochodzą z commita `57ba8fe` (stan po części 3 i zadaniu 3.7). Po wcześniejszych częściach mogą się przesunąć: wtedy szukaj po nazwie funkcji. Jeżeli nazwy lub kontrakty nie zgadzają się z tym, co zastaniesz, zatrzymaj się i zapytaj zamiast zgadywać. Otwieraj tylko pliki wymienione w zadaniu oraz `Pomiary/ROZWOJ.md`, nie przeszukuj repo ani dysku.
 - Po co: bot na Telegramie montuje edity wideo 9:16 na TikToka z dostarczonych materiałów. Wzorem jest gotowy edit: bot odtwarza jego strukturę i styl, a muzykę bierze z biblioteki właściciela w `dane/muzyka/`. Z wzoru bierzemy tylko strukturę i styl: jego obraz ani dźwięk nigdy nie trafiają do wyniku.
-  - Prawdziwe wzory (`0915`, `0921`, `0922`) mają ten sam format: hak (pierwsze 4 do 11 s, naturalne kolory, napis), drop (od niego pełnoekranowa nakładka graficzna i mocny grading), montaż i plansza końcowa około 1 s (mapa, decyzja 15).
+  - Edity promują czapki marki właściciela 1993 Supply (2026-09-24). Plansza końcowa pokazuje produkt albo stronę sklepu, a znak wodny marki leży na całym edicie poza planszą (wzór `0914`, zadanie 8.6).
+  - Prawdziwe wzory (`0914`, `0915`, `0921`, `0922`, `0923`) mają ten sam format: hak (pierwsze 4 do 11 s, naturalne kolory, napis), drop (od niego pełnoekranowa nakładka graficzna i mocny grading), montaż i plansza końcowa około 1 s (mapa, decyzja 15). `0923` ma dodatkowo napisy słowo po słowie w rytmie i gwiazdy wokół postaci przed dropem, czego plany nie odtwarzają.
   - Biblioteka muzyki to dźwięki samych wzorów (decyzja 14).
 - Środowisko:
   - lokalnie: Windows 11, Python 3.13 w `venv` repo (`venv/Scripts/python.exe`, zależności przypięte w `requirements.txt`), ffmpeg i ffprobe 8.1 w PATH, brak Dockera;
@@ -41,7 +42,17 @@ Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania z Pomiary/PLAN_EDITY
   6. Każde wywołanie ffmpeg i ffprobe z zamkniętym stdin (`-nostdin` albo `stdin=DEVNULL`), inaczej proces potomny potrafi zawisnąć.
 - Testy: `python -m pytest -q` z katalogu głównego. Czas całego zestawu podaj w raporcie, ale nie jest progiem (decyzja właściciela 2026-09-23): nie skracaj testów kosztem tego, co sprawdzają. Media testowe generowane w locie w małej rozdzielczości (270x480), nigdy z `dane/`.
 - Arkusz porównawczy (decyzja 17): pomiar każdej części kończy się arkuszem `outputs/porownanie_<czesc>_<wzor>.png` z `Pomiary/arkusz.py` (powstaje w zadaniu 4.4).
-  - Arkusz powstaje dla każdego wzoru z `dane/probki/wzory/`, na materiałach z `dane/probki/materialy/`; gdy ich brak, na barwnych zdjęciach z generatora.
+  - Układ `dane/` od 2026-09-24 (katalogu `dane/probki/` już nie ma):
+    - wzory do pomiaru to pliki `dane/wzory/*.mp4` leżące bezpośrednio w katalogu. Podkatalogi `dane/wzory/<id>/` to wzory zapisane przez bota, pomiar ich nie bierze;
+    - biblioteka właściciela: `dane/zdjęcia/`, `dane/nagrania/` (klipy 4K, razem około 11 GB), `dane/zdjęcia_bez_tła/` (PNG z przezroczystością) i `dane/promocyjne/` (produkt i znak wodny);
+    - bot tych katalogów nie czyta, bo materiały dostaje przez Telegram.
+  - Arkusz powstaje dla każdego wzoru z `dane/wzory/*.mp4`. Materiały do niego to stała próbka, wybierana po nazwie:
+    - pierwsze 8 plików z `dane/zdjęcia/`;
+    - pierwsze 4 z `dane/nagrania/`;
+    - pierwsze 2 z przezroczystością z `dane/zdjęcia_bez_tła/`;
+    - jeden katalog projektu na cały przebieg pomiaru (twarde dowiązania, a gdy się nie da, kopie), usuwany na końcu;
+    - gdy katalogów brak, barwne zdjęcia z generatora.
+  - Plansza w pomiarze: `dane/plansze/domyslna.*`, inaczej pierwszy plik bez przezroczystości z `dane/promocyjne/`, inaczej syntetyczna.
   - Oceniający wydaje werdykt na arkuszu, a progi liczbowe są dodatkiem.
   - Wzór ogląda się tylko w `outputs/`, nic z niego nie trafia do wyniku bota.
 - Dziennik `Pomiary/ROZWOJ.md`: przeczytaj na starcie (stan, znane problemy, decyzje), dopisuj wpis po każdym zadaniu, decyzji i odkryciu, bez tokenu i wartości z `.env`.
@@ -176,8 +187,8 @@ Katalog: C:\Dev\edity-bot. Wykonaj zadanie 5.3 z Pomiary/PLAN_EDITY_5_KOLOR.md; 
     - wzór dwusekcyjny (ciepły hak, niebieski montaż, plansza), barwne materiały z generatora;
     - ΔE76 między średnią Lab każdej sekcji wyniku a celem tej sekcji, przy sile 0, 0,6 i 1,0;
     - osobno dla celu na sekcję i celu z całości (`cel_sekcji` bez `sekcje`).
-  - **Sekcja B** (prawdziwe wzory z `dane/probki/wzory/`, cache analizy w wersji 4 w `outputs/wzor_<nazwa>.json`):
-    - te same miary na materiałach z `dane/probki/materialy/`;
+  - **Sekcja B** (prawdziwe wzory z `dane/wzory/*.mp4`, cache analizy w wersji 4 w `outputs/wzor_<nazwa>.json`):
+    - te same miary na próbce materiałów z bloku WSPÓLNE;
     - narzut czasu renderu przy sile 0,6 wobec 0, w procentach;
     - czas analizy wzoru 4K z próbkowaniem i bez.
   - **Sekcja C:** arkusze `outputs/porownanie_kolor_<wzor>_<sila>.png` dla sił 0, 0,6 i 1,0.

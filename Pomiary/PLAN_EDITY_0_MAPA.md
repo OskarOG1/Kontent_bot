@@ -3,9 +3,9 @@
 Stan na 2026-09-23, po części 3 (z naprawą 3.7) i po przeglądzie planów pod cel „fabryka editów na TikToka”. Projekt: `C:\Dev\edity-bot`, zdalne repo `origin` na GitHubie (`OskarOG1/Kontent_bot`). Co faktycznie się stało, znane problemy i decyzje z realizacji: `Pomiary/ROZWOJ.md`. Wyciąg z Telegram Bot API 10.3: `Pomiary/TELEGRAM_BOT_API.md`.
 
 ## Cel
-Fabryka editów 9:16 na TikToka. Właściciel dostaje wzór (gotowy edit) i materiały, a bot montuje z materiałów edit o strukturze i stylu wzoru, na dźwięku wzoru z biblioteki. Z wzoru bierzemy tylko strukturę i styl: jego obraz i dźwięk nigdy nie trafiają do wyniku.
+Fabryka editów 9:16 na TikToka. Właściciel dostaje wzór (gotowy edit) i materiały, a bot montuje z materiałów edit o strukturze i stylu wzoru, na dźwięku wzoru z biblioteki. Z wzoru bierzemy tylko strukturę i styl: jego obraz i dźwięk nigdy nie trafiają do wyniku. Edity promują czapki marki 1993 Supply: kończą się planszą z produktem albo stroną sklepu i mają znak wodny marki (decyzja 20).
 
-Prawdziwe wzory (`0915`, `0921`, `0922`, wszystkie 4K) mają ten sam format:
+Prawdziwe wzory (`0914`, `0915`, `0921`, `0922`, `0923`, wszystkie 4K, w `dane/wzory/`) mają ten sam format:
 - hak z napisem: pierwsze 4 do 11 s, naturalne kolory;
 - drop: od niego wchodzi pełnoekranowa nakładka graficzna i zwykle zmienia się grading;
 - montaż;
@@ -27,10 +27,10 @@ Prawdziwe wzory (`0915`, `0921`, `0922`, wszystkie 4K) mają ten sam format:
 | 7 | PLAN_EDITY_7_WDROZENIE | bot w Dockerze na VPS z lokalnym serwerem Bot API | wykonana, PR #2 i #3, serwer na `@cwel54_bot` | zrobione | Sonnet pliki, Ty serwer |
 | 3 | PLAN_EDITY_3_RENDER | `/gotowe` zwraca edit 9:16, klipy cięte na wstawki | wykonana, PR #4 i #5 (naprawa dźwięku 3.7), wdrożona, test ręczny OK | nic | Sonnet |
 | 4 | PLAN_EDITY_4_MUZYKA | biblioteka muzyki, dobór utworu po tempie z fragmentem z profilu energii, arkusz porównawczy; rozpoznanie dźwięku wzoru w kodzie, ale wyłączone (decyzja 14) | wykonana, PR #7, bez odbioru oceniającego | utwory wzorów w `dane/muzyka/` (nazwy bez „ (1)”), próbki w `dane/probki/materialy/` | Sonnet |
-| 8 | PLAN_EDITY_8_NAKLADKA | drop we wzorze, Twoja nakładka od dropu, Twoja plansza na końcu | w toku, gałąź `nakladka` | pliki nakładek i plansz | Sonnet |
+| 8 | PLAN_EDITY_8_NAKLADKA | drop we wzorze, Twoja nakładka od dropu, Twoja plansza na końcu | PR #9 scalony przed poprawkami z odbioru; 8.5 (poprawki) i 8.6 (znak wodny) w toku na `nakladka`, nowy PR | własna nakładka (gwiazdy); plansza i znak wodny są w `dane/promocyjne/` | Sonnet |
 | 5 | PLAN_EDITY_5_KOLOR | kolorystyka wzoru na sekcję (hak, montaż), LUT na każdy segment | do zrobienia (przepisana 2026-09-23) | nic | Sonnet |
 | 6 | PLAN_EDITY_6_TEKST | Twoje napisy w haku, styl jak we wzorach, strefy bezpieczne TikToka | do zrobienia (przepisana 2026-09-23) | akceptacja czcionki | Sonnet |
-| 9 | PLAN_EDITY_9_FABRYKA | restart bez strat, biblioteka wzorów z wyborem, warianty, partie, `/ponow` | do zrobienia (nowa 2026-09-23) | nic | Sonnet |
+| 9 | PLAN_EDITY_9_FABRYKA | restart bez strat, biblioteka wzorów z wyborem, warianty, partie, `/ponow`; nakładka z kryciem (flaga, 9.5, zaraz po części 8); słowa w rytmie i napis pionowy jak w `0923` (9.6 do 9.8, po części 6) | do zrobienia (nowa 2026-09-23, dopisane 2026-09-24) | klip flagi jako nakładka, akceptacja czcionki pisanej | Sonnet |
 
 ## Kolejność (poprawiona 2026-09-23)
 1. Zrobione: części 1, 2, 7, 3 i 4.
@@ -60,13 +60,23 @@ Po każdej części: odbiór, scalenie, `wdroz.ps1` i, gdy trzeba, `analyze.py -
     - render rozpoznaje utwór i przesunięcie, z progiem zgodności 0,5 (prawdziwe pary mają 0,78 i 0,81, niepasujące najwyżej 0,12), i tnie dokładnie w czasach cięć wzoru;
     - dobór po tempie działa tylko wtedy, gdy żaden utwór nie pasuje, a fragment wybiera korelacja profilu energii, nie najgłośniejsze okno.
     - **Zmiana w części 4 (decyzja właściciela 2026-09-23): rozpoznanie wyłączone, `wybierz_utwor` zawsze dobiera po tempie.** Na prawdziwych utworach metoda z kontraktu nie odtworzyła liczb z przeglądu. Zgodność z NIEWŁAŚCIWYM utworem wyszła ponad progiem: 0,829 dla `0915` i 0,76 dla `0922`. Przesunięcie wychodziło 116 s zamiast 40,36 s, bo dropy obu utworów hardstyle są szumowe. Przyczyną nie jest liczba plików w bibliotece: więcej podobnych utworów daje więcej fałszywych trafień, nie mniej. Dobór po tempie i tak trafia właściwe utwory dla `0915` i `0922`, bo tempa się zgadzają (164,1 i 175,2 BPM). Kod rozpoznania zostaje. Powrót wymaga innej metody, np. porównania najlepszego wyniku z drugim zamiast stałego progu, i nowego pomiaru na prawdziwej bibliotece.
-15. Sekcje wzoru: drop wykrywany jest ze skoku energii dźwięku wzoru w jego pierwszej połowie i przyciągany do cięcia. Na nim stoją nakładka (8), kolor (5) i napisy (6). Każde ujęcie planu niesie `numer_wzoru`.
-16. Nakładki i plansze to Twoje pliki (`dane/nakladki/`, `dane/plansze/`, na wzór albo `domyslna`), nigdy wycinki ze wzoru.
-    - Kolejność warstw: materiał z kolorem, nakładka, napisy.
+15. Sekcje wzoru: drop wykrywany jest ze skoku energii dźwięku wzoru w jego pierwszej połowie i przyciągany do cięcia. Na nim stoją nakładka (8), kolor (5) i napisy (6). Każde ujęcie planu niesie `numer_wzoru`. Po odbiorze części 8 (2026-09-24) szukanie zaczyna się od 8. uderzenia z progiem 0,1 średniej energii. Koniec haka liczy jedna funkcja `render.koniec_haka`: bez dropu to 40% editu, a nie pierwsza klatka.
+16. Nakładki i plansze to Twoje pliki (`dane/nakladki/`, `dane/plansze/`, na wzór albo `domyslna`), nigdy wycinki ze wzoru. Nakładka we wzorach `0914` i `0923` to flaga UE z kryciem około 50%. Twój klip flagi z `dane/nagrania/` nadaje się do tego, gdy dostanie tryb `krycie` (zadanie 9.5), bo tryb `ekran` z części 8 rozjaśnia kadr przy nieczarnym tle.
+    - Kolejność warstw: materiał z kolorem, nakładka, napisy, znak wodny.
     - Plansza zajmuje miejsce ostatniego ujęcia, bez koloru i nakładki.
 17. Odbiór części 4 do 9 na arkuszu porównawczym (`Pomiary/arkusz.py`, wiersz wzoru nad wierszem wyniku, te same ułamki długości). Progi liczbowe uzupełniają werdykt.
 18. Zadanie 5.0 (lekka kopia wzoru) zdjęte, bo analiza 4K na serwerze trwa 51 s przy progu 150 s. Wraca, jeśli analiza razem z próbkowaniem koloru przekroczy około 150 s.
 19. Czas testów nie jest progiem (Twoja decyzja z 2026-09-23).
+20. Edity promują czapki 1993 Supply (Twoja informacja z 2026-09-24). Znak wodny marki z `dane/promocyjne/1993supply_watermark.png` leży na całym edicie poza planszą. Ustawienie jak w Twoim wzorze `0914`: 51% szerokości, środek na 80% wysokości, krycie około 0,6 (zadanie 8.6). Plansza to produkt albo strona sklepu.
+21. Układ `dane/` od 2026-09-24:
+    - wzory do pomiaru leżą w `dane/wzory/*.mp4`;
+    - biblioteka to `zdjęcia`, `nagrania`, `zdjęcia_bez_tła` i `promocyjne`;
+    - `dane/probki/` zniknął, a pomiary biorą stałą próbkę z biblioteki (blok WSPÓLNE);
+    - bot tych katalogów nie czyta, materiały dalej idą przez Telegram.
+22. Napisy w rytmie (Twoje wymaganie z 2026-09-24, wzór `0923`), treść zawsze z Twoich wiadomości (zadania 9.6 do 9.8):
+    - pojedyncze słowa (`/slowa`) na kolejnych uderzeniach utworu, a ostatnie wlatuje na dropie;
+    - napis pionowy pisany literami przy lewej krawędzi (`/pionowo`);
+    - złoto z granatowym obrysem.
 
 ## Ryzyka przyjęte świadomie
 - Dźwięk przyspieszony („sped up”) albo w innej tonacji niż plik w bibliotece nie zostanie rozpoznany i wtedy działa dobór po tempie. Odpowiedź: do biblioteki wrzucać tę wersję, która gra na TikToku.

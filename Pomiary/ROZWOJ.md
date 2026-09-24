@@ -11,7 +11,7 @@ Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym
 | 7 wdrożenie | 7.1 i 7.2 scalone do `main` w PR #2 (`e9a4755`), na `46.62.151.181` działa bot testowy, testy w kontenerze 71 z 71. 7.3 wykonane na gałęzi `wdrozenie-poprawki` (2026-09-23), testy lokalnie 75 z 75, pomiar w progach. Odbiór 7.3 (Opus) 2026-09-23: OK, scalone w PR #3. `Pomiary/` zostaje w repozytorium (decyzja właściciela 2026-09-23). Serwer przełączony na głównego bota `@cwel54_bot`, punkty a do f i h zrobione 2026-09-23: pobieranie przez serwer lokalny odblokowane, limit pamięci 3 GB działa, cron ustawiony. Punkt g zrobiony 2026-09-23: wzór 153 MB pobrany w 9 s, analiza 51 s, szczyt pamięci 894 MB przy limicie 3 GB, wolumen serwera Bot API po skopiowaniu pusty. Część 7 zamknięta |
 | 3 render | scalona w PR #4, testy 116 z 116, pomiar A i B w progach (100% granic, mediana 8 ms; B 36,5 MB). Pomiar C tylko ręcznie zweryfikowany kodem, bez arkuszy PNG. Odbiór 2026-09-23 (Opus): OK. Test ręczny 2026-09-23: montaż odrzucony przez weryfikację długości (dźwięk ucięty przez `atrim`+`-shortest`), naprawa w zadaniu 3.7 (przycinanie opcjami wejścia, wymuszona długość wyjścia), wdrożona na serwer, powtórzona na projekcie `20260923_163553`: 32,0 s obraz i dźwięk zgodnie. Właściciel potwierdził wynik. Część 3 zamknięta, naprawa scalona w PR #5 |
 | 4 muzyka | kod gotowy na gałęzi `muzyka`, 2026-09-23. Testy 144 z 144, pomiar A/B/C w progach, arkusze D powstały. Tryb `dzwiek_wzoru` wyłączony decyzją właściciela (dziennik zadania 4.2 i 4.4): `wybierz_utwor` zawsze idzie po tempie. Scalona w PR #7 (`dc46f0b`) bez odbioru oceniającego |
-| 8 nakładka | kod gotowy na gałęzi `nakladka` od `dc46f0b`, 2026-09-24. Testy 172 z 172. Pomiar B w progach dla trybów alfa i zielen, tryb ekran na granicy (patrz „Znane problemy”). Sekcje A i C pominięte lokalnie (brak `dane/probki/wzory`), ścieżka sprawdzona ręcznie na syntetycznym wzorze. Bez odbioru i bez wdrożenia na serwer |
+| 8 nakładka | PR #9 scalony do `main` 2026-09-24 przed poprawkami z odbioru, więc `main` ma jeszcze błędy z listy poniżej. Zadanie 8.5 (cztery poprawki z odbioru) wykonane 2026-09-24 na gałęzi `nakladka`, testy 187 z 187, pomiar na wszystkich 5 prawdziwych wzorach z `dane/wzory/`: A 5 z 5 w granicy 0,5 s, B w progu 40% (mediana z 3 przebiegów), C pięć arkuszy. Zadanie 8.6 (znak wodny) w toku. Bez wdrożenia |
 | 5, 6, 9 | plany przepisane 2026-09-23 po przeglądzie wzorów (9 nowy), kod nie ruszony. Kolejność po części 8: 5, 6, 9 |
 
 Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`). Wdrożenie na serwer nadal przez `wdroz.ps1` (część 7).
@@ -19,6 +19,8 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 ## Wymagania od właściciela (dopisane po planach)
 
 1. Klipy i animacje (gify) mają być pobierane i cięte na krótkie wstawki, żeby dało się ich użyć w editach. Wpisane do `PLAN_EDITY_3_RENDER.md` (kontrakt `render.wstawki`, testy 9 do 11 w zadaniu 3.2, `gif` w typach klipów w zadaniu 3.3). Potwierdzone przez właściciela 2026-09-22: długość wstawki to mediana długości ujęć wzoru w granicach 0,5 do 2,0 s, kolejność rundami po materiałach w kolejności wysłania.
+
+2. **Edity promują czapki marki 1993 Supply (2026-09-24).** Wzór `0914` to własny edit właściciela: przez cały edit ma znak wodny „1993 Supply” (51% szerokości, środek na 80% wysokości, krycie około 0,6), a na końcu stronę sklepu z czapką. Plik znaku leży w `dane/promocyjne/1993supply_watermark.png`. Wpisane jako zadanie 8.6 i decyzja 20 w mapie.
 
 ## Znane problemy i ograniczenia
 
@@ -36,6 +38,9 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 4. Licznik trwających pobrań i aktywny projekt są jednym wspólnym stanem (bot obsługuje jednego właściciela i jedno zbieranie naraz). Przy wielu projektach naraz trzeba to przerobić.
 5. **Pobieranie na serwerze: rozwiązane 2026-09-23.** Serwer Bot API działa jako UID 1000 (`bot-api/Dockerfile` z zadania 7.3, plus poprawka `1611573` na `delgroup`), a wzór 153 MB przeszedł całą drogę na produkcji. Tym samym punkt 1 tej listy dotyczy już tylko pracy lokalnej na zwykłym API.
 6. **Narzut czasu nakładki `ekran` na granicy progu (2026-09-24, zadanie 8.4).** Pomiar `Pomiary/measure_nakladka.py`, sekcja B, na tej maszynie deweloperskiej: tryby `alfa` i `zielen` wygodnie poniżej 40% (widziane wartości od -45% do 61% w kolejnych przebiegach, zwykle ujemne albo kilkanaście procent), tryb `ekran` bywa nad progiem (54 do 95% w trzech przebiegach, jeden przebieg 59,1%, jeden w progu). Dwie przyczyny osobno potwierdzone: (a) czas absolutny pojedynczego przebiegu `przebieg_koncowy` na tej maszynie waha się nawet 2 do 3 razy między uruchomieniami tego samego kodu bez żadnej zmiany (test kontrolny: cztery identyczne przebiegi bez nakładki dały 79,4 do 82,1 s, ale osobne uruchomienia całego pomiaru dały bazę od 34 do 45 s) — więc procentowy próg jest z natury niestabilny na współdzielonej maszynie; (b) tryb `ekran` ma realnie droższy filtr niż `alfa`/`zielen`: `blend=all_mode=screen` operuje błędnie na surowym YUV (test na `render.py:409` potwierdził, że bez konwersji obraz wychodzi z fałszywymi kolorami), więc oba wejścia trzeba jawnie skonwertować przez `format=rgb24`, a wynik dociągnąć `scale=out_range=full` (bez tego biel na czerni wychodzi `(255,166,255)` zamiast `(255,255,255)`, `-color_range pc` na samym kodowaniu tego nie naprawia, sprawdzone eksperymentalnie). To dodatkowe przetwarzanie całej klatki jest prawdziwym, nie tylko szumowym kosztem. Zostawione jak jest: poprawność ważniejsza niż procent, a serwer produkcyjny (dedykowany, 2 CPU) powinien dać stabilniejszy pomiar niż ten laptop. Do decyzji właściciela: zaakceptować koszt trybu `ekran` czy szukać tańszej poprawki koloru później.
+   Odbiór 2026-09-24: `scale=out_range=full` koduje cały edit jako `yuvj420p` z `color_range=pc`. Zastępuje to `format=gbrp` na wejściach `blend` i `scale=out_range=tv,format=yuv420p` po nim (sprawdzone: biel 255, tło bez zmian, `yuv420p`). Pomiar B po zadaniu 8.5 liczy medianę z 3 przebiegów na przemian.
+7. **`energia_uderzen` na syntetycznych klikach (odbiór 2026-09-24).** Uderzenia wypadają 2 do 3 ms po początku kliku, więc odcinek przed uderzeniem łapie początek następnego kliku. Na klikach 120 BPM ze skokiem w 9 s wygrywa uderzenie 8,503 s zamiast 9,002 s, a cięcie 9,0 wychodzi z zapasem 3 ms. Testy dropu idą więc na 150 BPM, gdzie uderzenia leżą 0,2 s od cięć. Na prawdziwej muzyce energia jest rozłożona i to nie ma znaczenia.
+8. **Pliki w `dane/zdjęcia_bez_tła/` bez prawdziwej przezroczystości (2026-09-24).** Trzy pliki `Firefly_usun tło` są w RGB, bez kanału alfa: `32317` ma szachownicę wklejoną w obraz, `749723` białe tło, a `132215` czarne. Szachownica i biel wejdą do editu tak, jak są. Render kładzie prawdziwą przezroczystość na czarnym tle, więc czarne tło z `132215` wygląda tak samo. Pomiar bierze z tego katalogu tylko pliki z alfą. **Rozwiązane 2026-09-24:** właściciel usunął `32317` i `749723`. `132215` z czarnym tłem zostaje, bo wychodzi tak samo jak przezroczysty.
 
 ## Decyzje techniczne podjęte przy realizacji
 
@@ -47,6 +52,67 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 - Wyniki (`outputs/`), dane (`dane/`) i `.env` są poza gitem. Katalog `Pomiary/` od 2026-09-23 jest w repozytorium (decyzja właściciela), więc zmiany planów i dziennika trzeba commitować.
 
 ## Dziennik
+
+### 2026-09-24 (zadanie 8.5: cztery poprawki z odbioru)
+- **Analiza:** `PROG_DROPU = 0.1`, szukanie od uderzenia 8 (było od 4, próg 0,2). Test 1 zadania 8.1 przepisany na 150 BPM ze skokiem do 0,85 (zamiast 120 BPM/0,15), wynik około 0,15 średniej energii, przy starym progu dałby `None`. Testy 2 do 5 zadania 8.1 bez zmian. Commit `analiza: próg i przedział dropu`.
+- **`render.koniec_haka(plan, sekcje)`:** wydzielona z `okno_nakladki`, używana też jako start okna nakładki. Bez `sekcje` 40% `liczba_klatek` przyciągnięte do najbliższego początku ujęcia, z `sekcje.drop_ujecie` `klatka_od` pierwszego pasującego ujęcia, zawsze klamrowane do `[fps, liczba_klatek]`. Ten dolny klamer (co najmniej `fps`, czyli 1 s) dotyczy też `drop_ujecie: 0`: w testach z takim wzorem trzeba było przesunąć próbkowane klatki poza pierwszą sekundę, bo tam nakładka jeszcze nie wchodzi.
+  - Tryb `ekran`: oba wejścia `blend` w `format=gbrp` (zamiast `rgb24`), po `blend` `scale=out_range=tv,format=yuv420p` (zamiast `out_range=full`, który dawał `yuvj420p`/`color_range=pc` na cały edit). `zweryfikuj_wynik` odrzuca teraz wynik, którego `pix_fmt` nie jest `yuv420p`.
+  - Commit `render: koniec haka i zakres kolorów nakładki`.
+- **Bot:** nowa `wroc_po_zapisie(state)` — gdy dane stanu mają `projekt_id`, wraca do `Stany.zbieram` z tym samym `projekt_id`, inaczej `state.clear()`. Zastąpiła `state.clear()` w `obsluz_nakladka_dokument`, `obsluz_plansza_zalacznik` i `obsluz_wzor_plik` (ten ostatni miał ten sam błąd od części 1). `usun_pliki_zasobu` dostała parametr `pomin`: nowy plik pobiera się najpierw pod docelową nazwą, dopiero potem usuwane są pozostałe pliki `<wzor_id>.*` tego rodzaju poza nim (odwrócona kolejność względem 8.3, żeby nieudane pobranie nie zostawiało wzoru bez zasobu). Commit `bot: stan projektu po nakładce i planszy`.
+- **Pomiar (po zmianie układu `dane/` z wpisu poniżej):** `Pomiary/measure_nakladka.py` przepisany pod `dane/wzory/*.mp4` (zamiast `dane/probki/wzory/`), próg A na wszystkie znane wzory (dziś 5 z 5, `REFERENCJA_DROP_S` dostała `0914` i `0923`), sekcja B liczy medianę z 3 przebiegów na przemian (każda runda mierzy bez nakładki i wszystkie trzy tryby, potem `statistics.median` osobno dla każdej serii), materiał sekcji C to stała próbka z biblioteki właściciela (pierwsze 8 zdjęć, 4 nagrania, 2 zdjęcia bez tła z prawdziwą alfą przez `render.ma_alfa_z_pil`, twarde dowiązania do wspólnego katalogu projektu), plansza bez `dane/plansze/domyslna.*` bierze pierwszy plik bez przezroczystości z `dane/promocyjne/`. Uruchomiony na wszystkich 5 prawdziwych wzorach: **A 5 z 5 w granicy 0,5 s** (błędy 0,0 do 0,1 s), **B w progu** (mediany narzutu ujemne na tym przebiegu, bo maszyna akurat liczyła równolegle pełny zestaw testów — potwierdza tylko niestabilność z „Znanych problemów” punkt 6, nie regresję), **C pięć arkuszy** `outputs/porownanie_nakladka_*.png`. Testy 187 z 187. Commit `Pomiary: pomiar nakładki po poprawkach`.
+### 2026-09-24 (flaga jako nakładka, napisy z `0923` do planu 9, Opus)
+- **Flaga UE:** sprawdzone na klatce z materiałem, obok klatki `0914` z 12 s (`scratchpad`, porównanie trybów).
+  - Klip `European Union Flag ｜EU Flag Motion Background｜` z `dane/nagrania/` z kryciem 50% daje granat i półprzezroczyste gwiazdy jak we wzorach `0914` i `0923`.
+  - Tryb `ekran` rozjaśnia cały kadr, a właśnie ten tryb dałby fladze `tryb_nakladki` z części 8.
+  - Wcześniejsza uwaga, że flaga się nie nada, była błędna. Nie nada się tylko w obecnych trybach.
+  - Tryb `krycie` najpierw trafił do planu 8 jako zadanie 8.7. Wycofany, bo plan 8 jest w trakcie wykonania (prośba właściciela). Jest teraz w planie 9 jako zadanie 9.5, do zrobienia zaraz po scaleniu części 8 na gałęzi `krycie`.
+- **Napisy z `0923`:** klatki 0,5 do 13,6 s, dopisane do planu 9 jako zadania 9.6 do 9.8:
+  - pojedyncze słowa pismem odręcznym, złote z granatowym obrysem, na środku kadru, zmieniane mniej więcej co uderzenie;
+  - ostatnie słowo wlatuje z dużego powiększenia tuż po dropie (11,23 s);
+  - pionowy napis szeryfowy przy lewej krawędzi, pisany litera po literze w haku.
+  - W pomiarze treść to hasło właściciela, nie tekst ze wzoru.
+  - Gwiazd wokół twarzy (śledzenie postaci) nie ma w planach.
+- **Pliki:** właściciel usunął dwa pliki bez prawdziwej przezroczystości (znany problem 8).
+
+### 2026-09-24 (nowy układ `dane/`, wzory `0914` i `0923`, cel promocyjny, Opus)
+- **Układ `dane/` od właściciela:**
+  - `muzyka` (5 utworów);
+  - `nagrania` (29 klipów, około 11 GB, głównie 4K);
+  - `wzory` (5 plików mp4 luzem);
+  - `zdjęcia` (40);
+  - `zdjęcia_bez_tła` (9, z czego 6 z alfą);
+  - `promocyjne` (czapka, zdjęcia z czapką, znak wodny).
+  - `dane/probki/` zniknął. Blok WSPÓLNE we wszystkich planach 4, 5, 6, 8 i 9 opisuje nowy układ i stałą próbkę materiałów do arkuszy; wzory leżą w `dane/wzory/*.mp4`.
+  - Luźne pliki w `dane/wzory/` nie przeszkadzają botowi, bo `najnowszy_wzor`, `/status` i `--wszystkie` biorą tylko podkatalogi z `wzor.json`.
+  - `wdroz.ps1` pakuje `git archive main`, więc `dane/` nie jedzie na serwer.
+- **Nowe wzory:**
+  - `0914`: 30,8 s, 175,2 BPM, drop 8,50 s, ujęcie 6. Na arkuszu gwiazdy UE wchodzą w 8,5 s. Hak to postać w czapce przez 3,7 s, potem montaż z napisem przed dropem;
+  - `0923`: 26,1 s, 130,8 BPM, drop 11,23 s, ujęcie 6. Nakładka gwiazd wchodzi około 11,25 s. Wzór ma też napisy słowo po słowie i gwiazdy wokół postaci przed dropem, czego plany nie odtwarzają.
+  - Reguła z zadania 8.5 trafia na wszystkich 5 wzorach, więc próg A w planie 8 to teraz 5 z 5.
+- **Cel promocyjny:** właściciel wyjaśnił, że edity promują czapki. Stąd zadanie 8.6 (znak wodny według pomiaru z `0914`, bez znaku na planszy, na wierzchu warstw). W planie 6 napisy leżą pod znakiem i kończą się najwyżej na 75% wysokości.
+
+### 2026-09-24 (odbiór części 8, PR #9, Opus)
+- Werdykt: poprawki. Kod jest zgodny z planem i testy przechodzą (172 z 172, 164 s), ale na prawdziwych wzorach wychodzi błąd, którego pomiar nie złapał, bo sekcje A i C się nie uruchomiły.
+- **Drop na prawdziwych wzorach** (liczone na zapisanych analizach `outputs/wzor_*.json`, bo `wykryj_drop` bierze tylko pola z wersji 2):
+  - `0915`: 7,30 s, ujęcie 8 (referencja 7,2);
+  - `0922`: 10,97 s, ujęcie 2 (referencja 11,0);
+  - `0921`: brak dropu, bo najlepszy wynik to 0,129 średniej energii przy progu 0,2. Bez `sekcje` nakładka szła od pierwszej klatki i przykrywała hak.
+  - Formalnie 2 z 3 mieści się w progu A, ale błąd w `0921` jest poważny.
+- **Nowa reguła (sprawdzona na tych samych danych i na syntetycznych klikach):** szukanie od uderzenia 8, próg 0,1.
+  - Prawdziwe wzory: 7,30, 5,40 i 10,97 s, czyli 3 z 3;
+  - stała głośność (90, 120 i 150 BPM): najwyżej 0,065;
+  - stała melodia: 0,023;
+  - skok w drugiej połowie: 0,009.
+  - Przy szukaniu od 4 stała głośność dawała 0,114, bo pierwszy odcinek zaczyna się po pierwszym kliku.
+- **Tryb `ekran`:** wynik `yuvj420p` z `color_range=pc` na cały edit. Zamiennik sprawdzony w scratchpadzie.
+- **Bot:**
+  - `/nakladka` i `/plansza` w trakcie zbierania kasują `projekt_id` (`state.clear()`), więc `/gotowe` odpowiada `BRAK_STANU`. Ten sam błąd ma `/wzor` od części 1;
+  - stary plik jest usuwany przed pobraniem nowego.
+- **Test 1 zadania 8.1** przechodzi z zapasem 3 ms (znany problem 7), więc zmienia się na 150 BPM.
+- **Plany:**
+  - `PLAN_EDITY_8_NAKLADKA.md`: zadanie 8.5 z czterema poprawkami, testami i commitami; kontrakty z dopiskami „poprawka po odbiorze”; próg A to teraz 3 z 3;
+  - `PLAN_EDITY_6_TEKST.md`: `koniec_haka` przeniesiona do `render` (powstaje w 8.5), test 7 przepisany, bo nakładka nie leci już od pierwszej klatki.
+- **Od właściciela przed 8.5:** skopiować `dane/0915.mp4`, `dane/0921.mp4` i `dane/0922.mp4` do `dane/probki/wzory/`, bo bez tego sekcje A i C znów się pominą.
 
 ### 2026-09-24 (część 8, zadanie 8.4: pomiar, zamknięcie części 8 pod względem kodu)
 - `Pomiary/measure_nakladka.py` według układu `measure_muzyka.py`: sekcja A (`dane/probki/wzory/`, drop wobec referencji z arkuszy klatek `0915`/`0921`/`0922`, cache w `outputs/wzor_<nazwa>.json`, próg 2 z 3 w granicy 0,5 s), sekcja B (syntetyczna, zawsze dostępna: `przebieg_koncowy` na 20 s szumu 1080x1920, z nakładką każdego trybu i bez, próg narzutu 40%), sekcja C (`dane/probki/wzory/` i `dane/muzyka/`: pełny render z nakładką i planszą, arkusz `outputs/porownanie_nakladka_<wzor>.png`, nakładka i plansza przez `magazyn.plik_zasobu` z zapasem `domyslna.*`, a bez tego syntetyczne gwiazdy (PIL, wielokąty gwiazd zapisane jako mov z kodekiem png) i syntetyczna plansza „KONIEC” (PIL, jednolite tło i tekst)).
@@ -312,10 +378,8 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Następne kroki
 
-1. Właściciel przed częścią 4:
-   - scalenie PR z przepisanymi planami (`plany-4-9`), potem `git pull` na `main`;
-   - w `dane/muzyka/` dźwięki wzorów bez dopisku „ (1)” w nazwach, ta sama zawartość na serwerze;
-   - próbki materiałów w `dane/probki/materialy/` (np. z `dane/zdjęcia/` i `dane/gify/`).
-2. Części w kolejności 4, 8, 5, 6, 9 według planów (Sonnet), po każdej odbiór (Opus) na arkuszach porównawczych.
-3. Przed częścią 8: pliki nakładek i plansz (własne, nie ze wzoru).
-4. Po każdej części: scalenie, `wdroz.ps1`, a po częściach 4, 8 i 5 na serwerze `docker compose exec bot python src/analyze.py --wszystkie`.
+1. Właściciel: układ `dane/` z 2026-09-24 jest wpisany do planów (blok WSPÓLNE), więc niczego nie trzeba kopiować. Nakładka: klip flagi `dane/nagrania/European Union Flag ｜EU Flag Motion Background｜ FREE 4K ANIMATION.mp4` do `dane/nakladki/domyslna.mp4` albo przez `/nakladka`. Wygląda jak we wzorach dopiero z trybem `krycie` (zadanie 9.5).
+2. Sonnet na gałęzi `nakladka`: zadania 8.5 i 8.6 z `PLAN_EDITY_8_NAKLADKA.md`. PR #9 jest już scalony, więc commity trafiają do nowego PR-a z tej gałęzi.
+3. Ponowny odbiór części 8 (Opus) na arkuszach `outputs/porownanie_nakladka_*.png`, potem scalenie nowego PR-a z gałęzi `nakladka`, `wdroz.ps1` i na serwerze `docker compose exec bot python src/analyze.py --wszystkie`.
+4. Zaraz po scaleniu części 8: zadanie 9.5 (nakładka z kryciem) na gałęzi `krycie`, osobnym PR-em.
+5. Dalej części 5, 6 i 9 według planów (9.6 do 9.8, napisy w rytmie, po części 6), po każdej odbiór na arkuszach.

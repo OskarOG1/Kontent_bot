@@ -1,7 +1,9 @@
 import json
 import math
+import os
 import random
 import shutil
+import statistics
 import subprocess
 import sys
 import time
@@ -11,18 +13,24 @@ from tempfile import TemporaryDirectory
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 # Pomiar czesci 8 (nakladka, plansza, drop).
-# Sekcja A (prawdziwe wzory z dane/probki/wzory/): drop wykryty przez analyze.wykryj_drop
-#   wobec przyblizonej referencji z arkuszy klatek (kontrakt czesci 8). Prog: w granicy 0,5 s
-#   dla co najmniej 2 z 3 znanych wzorow. Pomijana, gdy brak dane/probki/wzory.
+# Sekcja A (prawdziwe wzory z dane/wzory/*.mp4): drop wykryty przez analyze.wykryj_drop
+#   wobec przyblizonej referencji z arkuszy klatek (kontrakt czesci 8, po poprawce 8.5).
+#   Prog: w granicy 0,5 s dla wszystkich znanych wzorow (dzis 5). Pomijana, gdy dane/wzory
+#   nie ma plikow mp4 lezacych bezposrednio w katalogu.
 # Sekcja B (syntetyczna, zawsze dostepna): narzut czasu przebiegu koncowego (1080x1920, 20 s)
-#   z nakladka w kazdym trybie (alfa, zielen, ekran) wobec przebiegu bez nakladki. Material to
-#   szum (jak w pomiarze czesci 3), bo jednolity kolor koduje sie tak szybko, ze narzut nakladki
+#   z nakladka w kazdym trybie (alfa, zielen, ekran) wobec przebiegu bez nakladki, mediana
+#   z 3 przebiegow na przemian (kazda runda mierzy bez i wszystkie tryby po kolei), bo
+#   pojedyncze przebiegi na tej maszynie roznily sie nawet 2 do 3 razy. Material to szum
+#   (jak w pomiarze czesci 3), bo jednolity kolor koduje sie tak szybko, ze narzut nakladki
 #   (dekodowanie i kompozycja drugiego wejscia) dominuje procentowo i nie odzwierciedla realnego
 #   materialu.
 # Sekcja C (prawdziwe wzory i biblioteka muzyki): render z nakladka i plansza dla kazdego
-#   wzoru, arkusz porownawczy. Nakladka i plansza z dane/nakladki/, dane/plansze/ przez
-#   magazyn.plik_zasobu (domyslna.*), a bez nich syntetyczne zastepniki zbudowane tutaj.
-#   Pomijana, gdy brak dane/probki/wzory albo dane/muzyka.
+#   wzoru, arkusz porownawczy. Material to stala probka z biblioteki wlasciciela (pierwsze 8
+#   zdjec, 4 nagrania, 2 zdjecia bez tla z prawdziwa alfa), jeden wspolny katalog projektu na
+#   caly przebieg (twarde dowiazania, kopie gdy sie nie da), usuwany na koncu. Nakladka i
+#   plansza z dane/nakladki/, dane/plansze/ przez magazyn.plik_zasobu (domyslna.*), plansza
+#   bez tego z pierwszego pliku bez przezroczystosci w dane/promocyjne/, a nakladka bez tego
+#   z syntetycznych gwiazd zbudowanych tutaj. Pomijana, gdy brak dane/wzory albo dane/muzyka.
 
 KATALOG_REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KATALOG_REPO / "src"))
@@ -42,9 +50,10 @@ KATALOG_OUTPUTS = KATALOG_REPO / "outputs"
 PLIK_WYNIKOW = KATALOG_OUTPUTS / "pomiar_nakladka.json"
 
 ROZSZERZENIA_WZOROW = {".mp4", ".mov", ".m4v", ".mkv", ".webm"}
-REFERENCJA_DROP_S = {"0915": 7.2, "0921": 5.5, "0922": 11.0}
+REFERENCJA_DROP_S = {"0914": 8.5, "0915": 7.2, "0921": 5.5, "0922": 11.0, "0923": 11.2}
 PROG_DROPU_S = 0.5
 PROG_NARZUTU_PROCENT = 40.0
+POWTORZENIA_B = 3
 ZIARNO_GWIAZD = 20260924
 
 WYNIKI_CALOSC: dict = {}
@@ -62,10 +71,10 @@ def zapisz_sekcje(nazwa: str, dane: dict) -> None:
 
 
 def znajdz_wzory() -> list[Path]:
-    katalog_wzorow = KATALOG_REPO / "dane" / "probki" / "wzory"
+    katalog_wzorow = KATALOG_REPO / "dane" / "wzory"
     if not katalog_wzorow.is_dir():
         return []
-    return sorted(p for p in katalog_wzorow.glob("*") if p.suffix.lower() in ROZSZERZENIA_WZOROW)
+    return sorted(p for p in katalog_wzorow.glob("*") if p.is_file() and p.suffix.lower() in ROZSZERZENIA_WZOROW)
 
 
 def znajdz_biblioteke_muzyki() -> Path | None:
@@ -94,8 +103,8 @@ def wczytaj_lub_przeanalizuj_wzor(sciezka: Path) -> dict:
 
 def sekcja_a(pliki_wzorow: list[Path]) -> dict:
     if not pliki_wzorow:
-        print("A pominieta: brak dane/probki/wzory")
-        return {"pominieta": True, "powod": "brak dane/probki/wzory"}
+        print("A pominieta: brak dane/wzory/*.mp4")
+        return {"pominieta": True, "powod": "brak dane/wzory/*.mp4"}
 
     wpisy = []
     trafienia = 0
@@ -119,7 +128,7 @@ def sekcja_a(pliki_wzorow: list[Path]) -> dict:
         print(f"A {nazwa}: {wpis}")
 
     wyniki = {"wzory": wpisy, "trafienia": trafienia, "ocenialne": ocenialne}
-    wyniki["progi"] = {"co_najmniej_2_z_3_w_granicy_0_5s": trafienia >= 2}
+    wyniki["progi"] = {"wszystkie_wzory_w_granicy_0_5s": ocenialne > 0 and trafienia == ocenialne}
     print(f"A: {wyniki['progi']}")
     return wyniki
 
@@ -136,34 +145,45 @@ def sekcja_b() -> dict:
         utwor = katalog / "utwor.wav"
         generuj.klik(utwor, 128, czas_s + 5.0)
 
-        wynik_bez = katalog / "bez.mp4"
-        start = time.monotonic()
-        render.przebieg_koncowy(polaczone, utwor, 0.0, liczba_klatek, fps, wynik_bez, 200)
-        czas_bez_s = time.monotonic() - start
-
-        tryby = {}
+        nakladki = {}
         for tryb, rozszerzenie in (("alfa", "mov"), ("zielen", "mp4"), ("ekran", "mp4")):
             nakladka = katalog / f"nak_{tryb}.{rozszerzenie}"
             generuj.nakladka_testowa(nakladka, 2.0, tryb, rozmiar=(szerokosc, wysokosc), fps=fps)
-            wykryty_tryb = render.tryb_nakladki(nakladka)
-            wynik_z = katalog / f"z_{tryb}.mp4"
+            nakladki[tryb] = (nakladka, render.tryb_nakladki(nakladka))
+
+        czasy_bez = []
+        czasy_z = {tryb: [] for tryb in nakladki}
+        for runda in range(POWTORZENIA_B):
+            wynik_bez = katalog / f"bez_{runda}.mp4"
             start = time.monotonic()
-            render.przebieg_koncowy(
-                polaczone, utwor, 0.0, liczba_klatek, fps, wynik_z, 200,
-                szerokosc=szerokosc, wysokosc=wysokosc,
-                nakladka=nakladka, tryb_nakladki_wartosc=wykryty_tryb,
-                nakladka_od_s=0.0, nakladka_do_s=czas_s,
-            )
-            czas_z_s = time.monotonic() - start
-            narzut_procent = round((czas_z_s - czas_bez_s) / czas_bez_s * 100, 1)
+            render.przebieg_koncowy(polaczone, utwor, 0.0, liczba_klatek, fps, wynik_bez, 200)
+            czasy_bez.append(time.monotonic() - start)
+            for tryb, (nakladka, wykryty_tryb) in nakladki.items():
+                wynik_z = katalog / f"z_{tryb}_{runda}.mp4"
+                start = time.monotonic()
+                render.przebieg_koncowy(
+                    polaczone, utwor, 0.0, liczba_klatek, fps, wynik_z, 200,
+                    szerokosc=szerokosc, wysokosc=wysokosc,
+                    nakladka=nakladka, tryb_nakladki_wartosc=wykryty_tryb,
+                    nakladka_od_s=0.0, nakladka_do_s=czas_s,
+                )
+                czasy_z[tryb].append(time.monotonic() - start)
+            opis_rundy = ", ".join(f"{tryb} {czasy_z[tryb][-1]:.2f} s" for tryb in czasy_z)
+            print(f"B runda {runda}: bez {czasy_bez[-1]:.2f} s, {opis_rundy}")
+
+        mediana_bez = statistics.median(czasy_bez)
+        tryby = {}
+        for tryb, (_, wykryty_tryb) in nakladki.items():
+            mediana_z = statistics.median(czasy_z[tryb])
+            narzut_procent = round((mediana_z - mediana_bez) / mediana_bez * 100, 1)
             tryby[tryb] = {
                 "wykryty_tryb": wykryty_tryb,
-                "czas_z_s": round(czas_z_s, 2),
+                "mediana_czasu_z_s": round(mediana_z, 2),
                 "narzut_procent": narzut_procent,
             }
             print(f"B {tryb}: {tryby[tryb]}")
 
-    wyniki = {"czas_bez_nakladki_s": round(czas_bez_s, 2), "tryby": tryby}
+    wyniki = {"mediana_czasu_bez_nakladki_s": round(mediana_bez, 2), "powtorzenia": POWTORZENIA_B, "tryby": tryby}
     wyniki["progi"] = {f"narzut_{tryb}_do_40_procent": dane["narzut_procent"] <= PROG_NARZUTU_PROCENT for tryb, dane in tryby.items()}
     print(f"B: {wyniki['progi']}")
     return wyniki
@@ -236,10 +256,23 @@ def wybierz_lub_zbuduj_nakladke(katalog_danych: Path, wzor_id: str, katalog_tymc
     return cel
 
 
+def znajdz_plansze_promocyjna() -> Path | None:
+    katalog = KATALOG_REPO / "dane" / "promocyjne"
+    if not katalog.is_dir():
+        return None
+    for plik in sorted(katalog.iterdir()):
+        if plik.is_file() and magazyn.typ_pliku(plik.name, None) == "zdjecie" and not render.ma_alfa_z_pil(plik):
+            return plik
+    return None
+
+
 def wybierz_lub_zbuduj_plansze(katalog_danych: Path, wzor_id: str, katalog_tymczasowy: Path) -> Path:
     istniejaca = magazyn.plik_zasobu(katalog_danych, "plansze", wzor_id)
     if istniejaca is not None:
         return istniejaca
+    promocyjna = znajdz_plansze_promocyjna()
+    if promocyjna is not None:
+        return promocyjna
     cel = katalog_tymczasowy / "plansza_koniec.jpg"
     if not cel.exists():
         zbuduj_plansze_koniec(cel)
@@ -253,17 +286,41 @@ def zbuduj_materialy_domyslne(katalog_materialow: Path) -> None:
         generuj.zdjecie_testowe(sciezka, rozmiar=(1200, 1600), kolor=generuj.kolor_ujecia(i))
 
 
-def znajdz_katalog_materialow() -> Path | None:
-    probki = KATALOG_REPO / "dane" / "probki" / "materialy"
-    if probki.is_dir() and any(probki.iterdir()):
-        return probki
-    return None
+def wybierz_pliki(katalog: Path, n: int) -> list[Path]:
+    if not katalog.is_dir():
+        return []
+    return sorted(p for p in katalog.iterdir() if p.is_file())[:n]
+
+
+def wybierz_zdjecia_bez_tla(katalog: Path, n: int) -> list[Path]:
+    if not katalog.is_dir():
+        return []
+    kandydaci = sorted(p for p in katalog.iterdir() if p.is_file() and render.ma_alfa_z_pil(p))
+    return kandydaci[:n]
+
+
+def zbuduj_projekt_materialow(katalog_materialow: Path) -> None:
+    katalog_materialow.mkdir(parents=True, exist_ok=True)
+    zrodla = (
+        wybierz_pliki(KATALOG_REPO / "dane" / "zdjęcia", 8)
+        + wybierz_pliki(KATALOG_REPO / "dane" / "nagrania", 4)
+        + wybierz_zdjecia_bez_tla(KATALOG_REPO / "dane" / "zdjęcia_bez_tła", 2)
+    )
+    if not zrodla:
+        zbuduj_materialy_domyslne(katalog_materialow)
+        return
+    for indeks, sciezka in enumerate(zrodla):
+        cel = katalog_materialow / f"{indeks + 1:010d}_m{sciezka.suffix.lower()}"
+        try:
+            os.link(sciezka, cel)
+        except OSError:
+            shutil.copy(sciezka, cel)
 
 
 def sekcja_c(pliki_wzorow: list[Path], katalog_muzyki) -> dict:
     if not pliki_wzorow:
-        print("C pominieta: brak dane/probki/wzory")
-        return {"pominieta": True, "powod": "brak dane/probki/wzory"}
+        print("C pominieta: brak dane/wzory/*.mp4")
+        return {"pominieta": True, "powod": "brak dane/wzory/*.mp4"}
     if katalog_muzyki is None:
         print("C pominieta: brak dane/muzyka")
         return {"pominieta": True, "powod": "brak dane/muzyka"}
@@ -272,15 +329,8 @@ def sekcja_c(pliki_wzorow: list[Path], katalog_muzyki) -> dict:
     wpisy = []
     with TemporaryDirectory() as katalog_tymczasowy:
         katalog_tymczasowy = Path(katalog_tymczasowy)
-        katalog_materialow_realny = znajdz_katalog_materialow()
         katalog_projektu = katalog_tymczasowy / "projekt"
-        if katalog_materialow_realny is not None:
-            (katalog_projektu / "materialy").mkdir(parents=True)
-            for plik in katalog_materialow_realny.iterdir():
-                if plik.is_file():
-                    shutil.copy(plik, katalog_projektu / "materialy" / plik.name)
-        else:
-            zbuduj_materialy_domyslne(katalog_projektu / "materialy")
+        zbuduj_projekt_materialow(katalog_projektu / "materialy")
 
         for sciezka in pliki_wzorow:
             nazwa = sciezka.stem
