@@ -29,7 +29,7 @@ Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania z Pomiary/PLAN_EDITY
   - Biblioteka muzyki to dźwięki samych wzorów (decyzja 14).
 - Środowisko:
   - lokalnie: Windows 11, Python 3.13 w `venv` repo (`venv/Scripts/python.exe`, zależności przypięte w `requirements.txt`), ffmpeg i ffprobe 8.1 w PATH, brak Dockera;
-  - serwer: Docker (obraz Debian, ffmpeg 7.1) na Ubuntu 24.04, bot z limitem 2 CPU i 3 GB;
+  - serwer: Docker (obraz Debian, ffmpeg 7.1) na Ubuntu 24.04, bot z limitem 2 CPU i 5 GB (od 2026-09-24, wcześniej 3 GB; serwer ma 7,6 GB);
   - ścieżki przez pathlib, procesy jako lista argumentów, bez powłoki.
 - Reguły repo:
   1. Każda zmiana ma pomiar w `Pomiary/measure_<temat>.py`. Tylko tam i w `Pomiary/arkusz.py` wolno pisać komentarze. Skrypt zaczyna od `sys.stdout.reconfigure(encoding='utf-8', errors='replace')` i zapisuje wyniki do `outputs/` po każdej sekcji.
@@ -58,6 +58,11 @@ Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania z Pomiary/PLAN_EDITY
   - Plansza w pomiarze: `dane/plansze/domyslna.*`, inaczej pierwszy plik bez przezroczystości z `dane/promocyjne/`, inaczej syntetyczna.
   - Oceniający wydaje werdykt na arkuszu, a progi liczbowe są dodatkiem.
   - Wzór ogląda się tylko w `outputs/`, nic z niego nie trafia do wyniku bota.
+- Czas w pomiarach (od 2026-09-24):
+  - na laptopie czas zegara skacze 2 do 3 razy między przebiegami. Pomiar B części 8 dał przebieg z nakładką o 45% szybszy niż bez niej;
+  - progi narzutu licz z czasu procesora: w ffmpeg flaga `-benchmark` i suma `utime` oraz `stime` z linii `bench:` (w pomiarze podmień `render.uruchom_ffmpeg`), a w Pythonie `time.process_time()`;
+  - gdzie czasu procesora nie da się zebrać, bierz medianę z 5 przebiegów na przemian. Próg oceniaj tylko wtedy, gdy rozrzut przebiegów bazowych jest poniżej 20%, a inaczej wpisz „niepewny” zamiast „w progu”;
+  - czas zegara podawaj w raporcie.
 - Dziennik `Pomiary/ROZWOJ.md`: przeczytaj na starcie (stan, znane problemy, decyzje), dopisuj wpis po każdym zadaniu, decyzji i odkryciu, bez tokenu i wartości z `.env`.
 - Raport na koniec sesji: wniosek, liczby z pomiaru, problemy. Bez opisu drogi.
 
@@ -315,6 +320,50 @@ Katalog: C:\Dev\edity-bot. Wykonaj zadanie 4.4 z Pomiary/PLAN_EDITY_4_MUZYKA.md;
 ```
 - **Commit:** `Pomiary: pomiar muzyki i arkusz porównawczy`
 
+### [Task 4.5: Pamięć analizy utworu (po teście ręcznym części 8, 2026-09-24)]
+- **Po co:**
+  - Na serwerze montaż kończył się kodem -9. Log jądra: `Memory cgroup out of memory: Killed process (python) anon-rss:2962848kB`, czyli zabity został `render.py`, a nie ffmpeg.
+  - `render.py` sam indeksuje bibliotekę (`przygotuj_zrodlo_dzwieku`, potem `music.indeksuj`, potem `analyze.analizuj_dzwiek`). Po wgraniu nowych utworów analizuje je w pierwszym montażu.
+  - Pomiar lokalny szczytu pamięci `analizuj_dzwiek` (2026-09-24, Opus): utwory 2,5 min około 2,8 do 3,0 GB, a `L_amour toujours` (4 min 11 s) około 4,0 GB. Szczyt rośnie z długością utworu, więc podniesiony limit 5 GB nie wystarczy dla dłuższego utworu.
+  - **Źródło:** szacowanie tempa wewnątrz `librosa.beat.beat_track`. Liczy tempogram (okno 384) na całej obwiedni z krokiem 128 naraz. Po kolei w jednym procesie dla 4-minutowego utworu: wczytanie 201 MB, obwiednia 666 MB, `beat_track` 3031 MB, reszta już bez wzrostu.
+  - Nakładka i znak wodny z części 8 nie mają z tym związku.
+- **Kontrakt:**
+  - `analyze.tempogram_sredni(obwiednia, sr) -> numpy.ndarray` o kształcie `(OKNO_TEMPOGRAMU, 1)`:
+    - średnia po czasie z `librosa.feature.tempogram(onset_envelope=..., sr=sr, hop_length=KROK_ROZKLADU, win_length=OKNO_TEMPOGRAMU)`;
+    - liczona kawałkami po `KAWALEK_TEMPOGRAMU = 4096` klatek obwiedni, z zakładką `OKNO_TEMPOGRAMU // 2` z każdej strony, którą się odcina przed sumowaniem;
+    - `OKNO_TEMPOGRAMU = 384`.
+  - `analizuj_dzwiek`:
+    - tempo z `librosa.feature.tempo(tg=tempogram_sredni(...), sr=sr, hop_length=KROK_ROZKLADU, start_bpm=START_BPM)`;
+    - potem `librosa.beat.beat_track(onset_envelope=..., bpm=<to tempo>, trim=False, units="time", ...)` bez własnego szacowania tempa;
+    - reszta funkcji bez zmian.
+  - **Sprawdzone prototypem (librosa 1.0.0) na 5 utworach z `dane/muzyka/` i 5 wzorach z `dane/wzory/`:**
+    - tempo identyczne, uderzenia identyczne (0 różnic);
+    - szczyt kroku rytmu przy 4-minutowym utworze 2871 MB, po zmianie 507 MB, a analiza jest szybsza (14,8 s wobec 8,7 s);
+    - przy wzorach 32 s: 397 MB wobec 112 MB.
+- **Context/Inputs:** `src/analyze.py` (`analizuj_dzwiek`, stałe na górze), `tests/test_analiza.py`, `tests/generuj.py` (`melodia`, `klik`). Gałąź `pamiec` od `main` (po części 8).
+- **Constraints:** testy w `tests/test_analiza.py`:
+  1. `tempogram_sredni` na sztucznej obwiedni 10 000 klatek (kilka kawałków) równa się `librosa.feature.tempogram(...).mean(axis=1)` (`numpy.allclose`, `rtol=1e-6`);
+  2. wszystkie dotychczasowe testy rytmu i analizy przechodzą bez zmian;
+  3. szczyt pamięci przez `tracemalloc` przy `analizuj_dzwiek` na melodii 120 s jest poniżej 600 MB. Najpierw sprawdź, że ten test nie przechodzi na starym kodzie (zapisz obie liczby w `ROZWOJ.md`). Jeśli `tracemalloc` nie widzi alokacji numpy, zastąp go pomiarem szczytu procesu w podprocesie i opisz to w dzienniku.
+- **Pomiar:** `Pomiary/measure_pamiec.py`, wynik w `outputs/pomiar_pamiec.json`.
+  - **Sekcja A:** każdy plik z `dane/muzyka/` i `dane/wzory/*.mp4`:
+    - tempo i uderzenia starą drogą (`beat_track` bez `bpm`, wywołany w pomiarze) wobec nowej;
+    - szczyt pamięci analizy, każdy plik w osobnym podprocesie. Na Windows `PeakWorkingSetSize` z `GetProcessMemoryInfo` przez ctypes, na Linuksie `resource.getrusage(...).ru_maxrss`.
+  - **Sekcja B:** szczyt pamięci procesu `render.py` przy pełnym montażu 1080x1920:
+    - pusty indeks biblioteki w katalogu tymczasowym z kopią `dane/muzyka/`, więc render indeksuje wszystkie utwory;
+    - z nakładką, planszą i znakiem wodnym.
+  - **Progi:**
+    - A: tempo i uderzenia identyczne dla 100% plików, a szczyt analizy najdłuższego utworu najwyżej 1 GB;
+    - B: szczyt najwyżej 2 GB.
+- **Po wdrożeniu (Ty):**
+  - indeksu nie trzeba przeliczać, bo wynik analizy jest identyczny;
+  - limit `mem_limit: "5g"` może zostać, a wrócić do `3g` po sprawdzeniu `docker stats` przy montażu z nowym utworem w bibliotece.
+- **Sonnet Prompt:**
+```text
+Katalog: C:\Dev\edity-bot. git pull na main, potem gałąź pamiec. Wykonaj zadanie 4.5 z Pomiary/PLAN_EDITY_4_MUZYKA.md; otwórz src/analyze.py, tests/test_analiza.py, tests/generuj.py, Pomiary/measure_muzyka.py jako wzór układu pomiaru. Weryfikacja: python -m pytest -q, potem python Pomiary/measure_pamiec.py. Commity: analiza: tempo liczone kawałkami, Pomiary: pomiar pamięci analizy.
+```
+- **Commity:** `analiza: tempo liczone kawałkami`, `Pomiary: pomiar pamięci analizy`.
+
 ## Gotowe, gdy
 - `python -m pytest -q` przechodzi w całości.
 - Pomiar: A, B i C w progach, arkusze D powstały.
@@ -331,6 +380,8 @@ Katalog: C:\Dev\edity-bot. Wykonaj zadanie 4.4 z Pomiary/PLAN_EDITY_4_MUZYKA.md;
 3. `render: utwór z biblioteki i dźwięk wzoru`
 4. `bot: muzyka z biblioteki`
 5. `Pomiary: pomiar muzyki i arkusz porównawczy`
+6. `analiza: tempo liczone kawałkami` (4.5, gałąź `pamiec`)
+7. `Pomiary: pomiar pamięci analizy` (4.5)
 
 ## Odbiór (oceniający)
 ```text
