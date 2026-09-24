@@ -240,3 +240,33 @@ def test_lut_transferu_z_jednym_ujeciem_i_zerowymi_probkami_bez_nan():
     lut = kolor.lut_transferu(zrodlo, cel, sila=1.0, rozmiar=9)
     assert numpy_bez_nan_i_inf(lut)
     assert lut.min() >= 0.0 and lut.max() <= 1.0
+
+def lab_wezla_szarosci(lut, wartosc_8bit: int):
+    krok = 255 // (lut.shape[0] - 1)
+    indeks = wartosc_8bit // krok
+    return kolor.rgb_do_lab(lut[indeks, indeks, indeks])
+
+
+def test_lut_ochrona_jasnych_zostawia_barwe_bieli_i_przesuwa_ciemne():
+    zrodlo = {"lab_srednia": [50.0, 0.0, 0.0], "lab_odchylenie": [20.0, 5.0, 5.0]}
+    cel = {"lab_srednia": [27.0, 12.0, -18.0], "lab_odchylenie": [17.5, 9.2, 16.8]}
+    lut = kolor.lut_transferu(zrodlo, cel, sila=1.0, rozmiar=52)
+    jasny = lab_wezla_szarosci(lut, 235)
+    ciemny = lab_wezla_szarosci(lut, 90)
+    b_ciemnego_przed = kolor.rgb_do_lab(np.array([90, 90, 90], dtype=np.uint8))[2]
+    assert abs(jasny[1]) < 2 and abs(jasny[2]) < 2
+    assert ciemny[2] <= b_ciemnego_przed - 10
+
+
+def test_lut_bez_ochrony_jasnych_to_czysty_transfer_reinharda():
+    zrodlo = {"lab_srednia": [55.0, 4.0, 6.0], "lab_odchylenie": [22.0, 6.0, 9.0]}
+    cel = {"lab_srednia": [30.0, 10.0, -15.0], "lab_odchylenie": [18.0, 9.0, 14.0]}
+    rozmiar = 9
+    os_siatki = np.arange(rozmiar, dtype=np.float64) / (rozmiar - 1)
+    r, g, b = np.meshgrid(os_siatki, os_siatki, os_siatki, indexing="ij")
+    lab = kolor.rgb_do_lab(np.stack([r, g, b], axis=-1))
+    stosunek = np.clip(np.array(cel["lab_odchylenie"]) / np.array(zrodlo["lab_odchylenie"]), 0.5, 2.0)
+    przeniesiony = (lab - np.array(zrodlo["lab_srednia"])) * stosunek + np.array(cel["lab_srednia"])
+    oczekiwany = np.clip(kolor.lab_do_rgb(lab * 0.4 + przeniesiony * 0.6), 0.0, 1.0)
+    lut = kolor.lut_transferu(zrodlo, cel, sila=0.6, rozmiar=rozmiar, ochrona_jasnych=False)
+    assert np.allclose(lut, oczekiwany)

@@ -7,6 +7,8 @@ MACIERZ_RGB_DO_XYZ = numpy.array([
 ])
 MACIERZ_XYZ_DO_RGB = numpy.linalg.inv(MACIERZ_RGB_DO_XYZ)
 BIEL_D65 = numpy.array([0.95047, 1.0, 1.08883])
+OCHRONA_JASNYCH_OD = 55.0
+OCHRONA_JASNYCH_DO = 90.0
 
 
 def gamma_do_liniowego(kanal: numpy.ndarray) -> numpy.ndarray:
@@ -109,7 +111,7 @@ def cel_sekcji(kolorystyka: dict, sekcje: dict | None, numer_wzoru: int) -> dict
     return polacz_statystyki(uzyteczne)
 
 
-def lut_transferu(zrodlo: dict, cel: dict, sila: float, rozmiar: int = 33) -> numpy.ndarray:
+def lut_transferu(zrodlo: dict, cel: dict, sila: float, rozmiar: int = 33, ochrona_jasnych: bool = True) -> numpy.ndarray:
     os_siatki = numpy.arange(rozmiar, dtype=numpy.float64) / (rozmiar - 1)
     r, g, b = numpy.meshgrid(os_siatki, os_siatki, os_siatki, indexing="ij")
     lab = rgb_do_lab(numpy.stack([r, g, b], axis=-1))
@@ -121,6 +123,9 @@ def lut_transferu(zrodlo: dict, cel: dict, sila: float, rozmiar: int = 33) -> nu
 
     stosunek = numpy.clip(odchylenie_cel / numpy.maximum(odchylenie_zr, 1e-6), 0.5, 2.0)
     lab_przeniesiony = (lab - srednia_zr) * stosunek + srednia_cel
+    if ochrona_jasnych:
+        waga = numpy.clip((OCHRONA_JASNYCH_DO - lab[..., 0]) / (OCHRONA_JASNYCH_DO - OCHRONA_JASNYCH_OD), 0.0, 1.0)
+        lab_przeniesiony[..., 1:] = lab[..., 1:] + (lab_przeniesiony[..., 1:] - lab[..., 1:]) * waga[..., None]
     lab_zmieszany = lab * (1.0 - sila) + lab_przeniesiony * sila
     return numpy.clip(lab_do_rgb(lab_zmieszany), 0.0, 1.0)
 

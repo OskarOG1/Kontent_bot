@@ -244,8 +244,41 @@ Katalog: C:\Dev\edity-bot, gałąź kolor. Wykonaj zadanie 5.5 z Pomiary/PLAN_ED
 ```
 - **Commit:** `kolor: poprawki z odbioru`.
 
+### [Task 5.6: Niebo bez przebarwienia (znany problem 11, 2026-09-25)]
+- **Po co:**
+  - Test ręczny części 5 na serwerze: przy sile 0,6 jasne niebo na zdjęciu tłumu z flagami robi się różowo-fioletowe.
+  - Cel montażu wzoru `0915` (to on leży na serwerze jako `20260923_143107`) ma a +11,8 i b −17,6, czyli fiolet. Transfer przesuwa barwę każdego piksela o tyle samo, także prawie białego nieba i białej ściany.
+  - Sprawdzone prototypem (Opus, 2026-09-25) na zdjęciach z projektu testowego: gdy zmiana barwy słabnie w jasnych partiach, róż znika z nieba i ściany, a portrety w haku i ciemne ujęcia wyglądają jak dotąd. Średnie a/b pikseli, które w oryginale mają L > 70:
+    - `8d75cf40c8d7a3eaceb27b9dcf6083cd.jpg` (tłum z flagami): (5,0; −13,6) przed, (1,6; −1,2) po;
+    - `2402ce4e43187bb07ec41db88ff06fad.jpg` (biała ściana): (8,9; −3,1) przed, (0,7; 0,3) po;
+    - `b80a5cedb15e50edd08a59328da10190.jpg` (mgła): (10,6; −7,7) przed, (5,8; −3,9) po.
+- **Kontrakt:** `kolor.lut_transferu(zrodlo, cel, sila, rozmiar=33, ochrona_jasnych=True)`:
+  - dla każdego koloru siatki zmiana a i b (różnica między kolorem przeniesionym a wejściowym) mnoży się przez wagę `clip((OCHRONA_JASNYCH_DO - L) / (OCHRONA_JASNYCH_DO - OCHRONA_JASNYCH_OD), 0, 1)`, gdzie L to jasność koloru wejściowego;
+  - stałe w `src/kolor.py`: `OCHRONA_JASNYCH_OD = 55`, `OCHRONA_JASNYCH_DO = 90`. Kolor z L do 55 zmienia się jak dotąd, a kolor z L od 90 zachowuje swoje a i b;
+  - jasność L przenosi się jak dotąd, a mieszanie z `sila` idzie po wadze;
+  - `ochrona_jasnych=False` daje dokładnie dzisiejszy wynik (potrzebne w pomiarze do porównania przed i po);
+  - render woła `lut_transferu` bez zmian, więc ochrona działa wszędzie.
+- **Context/Inputs:** `src/kolor.py` (`lut_transferu`), `tests/test_kolor.py`, `Pomiary/measure_kolor.py`, `src/render.py` (tylko `przygotuj_zdjecie` i `obraz_do_statystyk`, używane w pomiarze).
+- **Constraints:**
+  - testy w `tests/test_kolor.py`:
+    1. cel o średniej (27; 12; −18) jak montaż `0915`, źródło neutralne, siła 1,0: kolor wejściowy (235, 235, 235) wychodzi z |a| i |b| poniżej 2, a kolor (90, 90, 90) przesuwa się w b o co najmniej 10 w stronę celu;
+    2. `ochrona_jasnych=False` daje tablicę identyczną jak przed zmianą (porównanie z wartościami policzonymi wzorem Reinharda w teście);
+    3. wszystkie dotychczasowe testy przechodzą bez zmiany progów;
+  - pomiar: nowa sekcja D w `Pomiary/measure_kolor.py`, którą da się uruchomić osobno (`python Pomiary/measure_kolor.py --sekcja D`; bez argumentu idą wszystkie sekcje jak dotąd):
+    - trzy zdjęcia wymienione wyżej, z `dane/zdjęcia/`, przygotowane jak w renderze (`render.przygotuj_zdjecie`, potem `render.obraz_do_statystyk`);
+    - LUT przy sile 0,6 do celu montażu z `outputs/wzor_0915.json` (`kolor.cel_sekcji` z `drop_ujecie`), nałożony przez ffmpeg `lut3d` jak w renderze, raz z `ochrona_jasnych=False`, raz z `True`;
+    - wynik: średnie a/b pikseli z L > 70 w oryginale, dla obu wersji, oraz arkusz `outputs/porownanie_kolor_niebo.png` (oryginał, przed, po; wiersz na zdjęcie);
+    - próg D: po poprawce chroma `sqrt(a² + b²)` tych pikseli mniejsza niż przed na każdym zdjęciu, a na zdjęciach tłumu i ściany najwyżej 3;
+  - potem cały pomiar `python Pomiary/measure_kolor.py`: progi A i B dalej spełnione (ΔE przy 0,6 mniejsze niż przy 0 w każdej sekcji), wynik zapisz w `ROZWOJ.md` obok liczb z zadania 5.4.
+- **Sonnet Prompt:**
+```text
+Katalog: C:\Dev\edity-bot. git pull na main, potem gałąź niebo. Wykonaj zadanie 5.6 z Pomiary/PLAN_EDITY_5_KOLOR.md; otwórz src/kolor.py, tests/test_kolor.py, Pomiary/measure_kolor.py, src/render.py (tylko przygotuj_zdjecie i obraz_do_statystyk). Niezacommitowane zmiany w Pomiary/ dołącz do swojego commita, nie chowaj ich do stash. Weryfikacja: python -m pytest -q, python Pomiary/measure_kolor.py --sekcja D, potem python Pomiary/measure_kolor.py. Commity: kolor: ochrona jasnych partii przed przebarwieniem, Pomiary: sekcja D pomiaru koloru.
+```
+- **Commity:** `kolor: ochrona jasnych partii przed przebarwieniem`, `Pomiary: sekcja D pomiaru koloru`.
+- **Po wdrożeniu (Ty):** `wdroz.ps1`, bez `--wszystkie` (kolorystyka wzoru się nie zmienia), potem ten sam projekt przy sile 0,6: niebo na zdjęciu tłumu z flagami ma być białoniebieskie.
+
 ## Gotowe, gdy
-- `python -m pytest -q` przechodzi w całości, łącznie z testami zadania 5.5.
+- `python -m pytest -q` przechodzi w całości, łącznie z testami zadań 5.5 i 5.6.
 - Pomiar: ΔE przy sile 0,6 mniejsze niż przy 0 w każdej sekcji każdego wzoru, analiza najwyżej 1,3 raza dłuższa, arkusze powstały.
 - Wdrożenie (Ty): `wdroz.ps1`, potem na serwerze `time docker compose exec bot python src/analyze.py --wszystkie`.
   - Czas zapisz w `ROZWOJ.md`. Sam czas nie jest progiem (decyzja właściciela 2026-09-24), ale bot przerywa analizę po 300 s (`LIMIT_ANALIZY_S`).
@@ -261,6 +294,8 @@ Katalog: C:\Dev\edity-bot, gałąź kolor. Wykonaj zadanie 5.5 z Pomiary/PLAN_ED
 3. `render: kolor wzoru na segment`
 4. `Pomiary: pomiar koloru`
 5. `kolor: poprawki z odbioru` (5.5)
+6. `kolor: ochrona jasnych partii przed przebarwieniem` (5.6, gałąź `niebo`)
+7. `Pomiary: sekcja D pomiaru koloru` (5.6)
 
 ## Odbiór (oceniający)
 ```text
