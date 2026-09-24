@@ -68,3 +68,61 @@ def statystyki_obrazu(tablica_rgb) -> dict:
         "lab_srednia": [float(wartosc) for wartosc in srednia],
         "lab_odchylenie": [float(wartosc) for wartosc in odchylenie],
     }
+
+
+def polacz_statystyki(wpisy: list[dict]) -> dict:
+    wagi = numpy.array([wpis["probki"] for wpis in wpisy], dtype=numpy.float64)
+    srednie = numpy.array([wpis["lab_srednia"] for wpis in wpisy], dtype=numpy.float64)
+    odchylenia = numpy.array([wpis["lab_odchylenie"] for wpis in wpisy], dtype=numpy.float64)
+    suma_wag = wagi.sum()
+    srednia = (wagi[:, None] * srednie).sum(axis=0) / suma_wag
+    wariancja = (wagi[:, None] * (odchylenia ** 2 + (srednie - srednia) ** 2)).sum(axis=0) / suma_wag
+    return {
+        "lab_srednia": [float(wartosc) for wartosc in srednia],
+        "lab_odchylenie": [float(wartosc) for wartosc in numpy.sqrt(wariancja)],
+    }
+
+
+def indeksy_sekcji(liczba_ujec: int, sekcje: dict | None, numer_wzoru: int) -> list[int]:
+    calosc = list(range(liczba_ujec - 1))
+    if not sekcje:
+        return calosc
+    drop_ujecie = sekcje["drop_ujecie"]
+    if numer_wzoru < drop_ujecie:
+        return [i for i in calosc if i < drop_ujecie]
+    return [i for i in calosc if i >= drop_ujecie]
+
+
+def cel_sekcji(kolorystyka: dict, sekcje: dict | None, numer_wzoru: int) -> dict:
+    ujecia = kolorystyka["ujecia"]
+    calosc = [ujecia[i] for i in range(len(ujecia) - 1)]
+    sekcja = [ujecia[i] for i in indeksy_sekcji(len(ujecia), sekcje, numer_wzoru)]
+    uzyteczne = [wpis for wpis in sekcja if wpis["probki"] > 0]
+    if not uzyteczne:
+        uzyteczne = [wpis for wpis in calosc if wpis["probki"] > 0] or calosc
+    return polacz_statystyki(uzyteczne)
+
+
+def lut_transferu(zrodlo: dict, cel: dict, sila: float, rozmiar: int = 33) -> numpy.ndarray:
+    os_siatki = numpy.arange(rozmiar, dtype=numpy.float64) / (rozmiar - 1)
+    r, g, b = numpy.meshgrid(os_siatki, os_siatki, os_siatki, indexing="ij")
+    lab = rgb_do_lab(numpy.stack([r, g, b], axis=-1))
+
+    srednia_zr = numpy.array(zrodlo["lab_srednia"], dtype=numpy.float64)
+    odchylenie_zr = numpy.array(zrodlo["lab_odchylenie"], dtype=numpy.float64)
+    srednia_cel = numpy.array(cel["lab_srednia"], dtype=numpy.float64)
+    odchylenie_cel = numpy.array(cel["lab_odchylenie"], dtype=numpy.float64)
+
+    stosunek = numpy.clip(odchylenie_cel / numpy.maximum(odchylenie_zr, 1e-6), 0.5, 2.0)
+    lab_przeniesiony = (lab - srednia_zr) * stosunek + srednia_cel
+    lab_zmieszany = lab * (1.0 - sila) + lab_przeniesiony * sila
+    return numpy.clip(lab_do_rgb(lab_zmieszany), 0.0, 1.0)
+
+
+def zapisz_cube(lut: numpy.ndarray, sciezka) -> None:
+    rozmiar = lut.shape[0]
+    permutowany = numpy.transpose(lut, (2, 1, 0, 3))
+    with open(sciezka, "w", encoding="utf-8") as plik:
+        plik.write(f"LUT_3D_SIZE {rozmiar}\n")
+        for r, g, b in permutowany.reshape(-1, 3):
+            plik.write(f"{r:.6f} {g:.6f} {b:.6f}\n")
