@@ -142,11 +142,16 @@ def test_nakladka_ekran_gora_biala_dol_niebieski_bez_zmian(tmp_path):
 
     wyjscie, _ = zrenderuj(tmp_path, projekt, wzor, nakladka=nakladka)
 
+    dane = uruchom_ffprobe(wyjscie)
+    strumien = strumien_wideo(dane)
+    assert strumien["pix_fmt"] == "yuv420p"
+    assert strumien.get("color_range") != "pc"
+
     klatki = dekoduj_klatki(wyjscie, tmp_path, "dek.raw")
-    srodek = klatki[klatki.shape[0] // 2]
-    gora = pas_gorny(srodek)
-    dol = pas_dolny(srodek)
-    assert jest_bialy(gora)
+    ostatnia = klatki[-1]
+    gora = pas_gorny(ostatnia)
+    dol = pas_dolny(ostatnia)
+    assert gora[0] >= 250 and gora[1] >= 250 and gora[2] >= 250
     assert abs(int(dol[2]) - 255) <= 6 and dol[0] <= 6 and dol[1] <= 6
 
 
@@ -219,7 +224,7 @@ def test_bez_nakladki_i_planszy_dwa_wejscia_w_przebiegu_koncowym(tmp_path, monke
     assert przebiegi_koncowe[0].count("-i") == 2
 
 
-def test_nakladka_bez_sekcji_leci_od_poczatku_editu(tmp_path):
+def test_nakladka_bez_sekcji_zaczyna_sie_od_konca_haka(tmp_path):
     projekt = zbuduj_projekt_niebieski(tmp_path)
     wzor = {
         "ciecia_uderzenia": [0.0, 1.0, 2.0, 3.0],
@@ -232,8 +237,32 @@ def test_nakladka_bez_sekcji_leci_od_poczatku_editu(tmp_path):
 
     wyjscie, podsumowanie = zrenderuj(tmp_path, projekt, wzor, nakladka=nakladka)
 
-    assert podsumowanie["nakladka"]["od_s"] == 0.0
+    fps = 30
+    material_zastepczy = [{"plik": "x", "typ": "zdjecie", "message_id": 0}]
+    _, uderzenia = analyze.analizuj_rytm(tmp_path / "klik.wav")
+    plan = render.plan_ujec(wzor, uderzenia, material_zastepczy, fps)
+    granica = render.koniec_haka(plan, wzor.get("sekcje"))
+
+    assert podsumowanie["nakladka"]["od_s"] == pytest.approx(granica / fps, abs=1e-6)
 
     klatki = dekoduj_klatki(wyjscie, tmp_path, "dek.raw")
-    gora = pas_gorny(klatki[0])
-    assert jest_czerwony(gora)
+    przed = pas_gorny(klatki[max(0, granica - 3)])
+    po = pas_gorny(klatki[min(klatki.shape[0] - 1, granica + 3)])
+    assert jest_niebieski(przed)
+    assert jest_czerwony(po)
+
+
+def plan_dziesieciu_ujec():
+    return {"fps": 30, "liczba_klatek": 300, "ujecia": [{"klatka_od": i * 30, "numer_wzoru": i} for i in range(10)]}
+
+
+def test_koniec_haka_bez_sekcji_czterdziesci_procent():
+    assert render.koniec_haka(plan_dziesieciu_ujec(), None) == 120
+
+
+def test_koniec_haka_z_sekcjami_uzywa_drop_ujecie():
+    assert render.koniec_haka(plan_dziesieciu_ujec(), {"drop_ujecie": 3}) == 90
+
+
+def test_koniec_haka_drop_ujecie_poza_zakresem_wraca_do_40_procent():
+    assert render.koniec_haka(plan_dziesieciu_ujec(), {"drop_ujecie": 99}) == 120
