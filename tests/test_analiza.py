@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import tracemalloc
 import warnings
 from pathlib import Path
 
@@ -353,6 +354,32 @@ def test_wykryj_drop_bez_dzwieku_daje_brak(tmp_path):
     wideo_z_cieciami(sciezka, [1.0], 2.0)
     wzor = analyze.analizuj_wzor(sciezka, "abc")
     assert wzor["sekcje"] is None
+
+
+def test_tempogram_sredni_rowny_pelnemu_liczonemu_naraz():
+    import librosa
+
+    obwiednia = np.random.default_rng(0).random(10_000).astype(np.float64)
+    sr = analyze.CZESTOTLIWOSC_ANALIZY
+    wynik = analyze.tempogram_sredni(obwiednia, sr)
+    oczekiwany = librosa.feature.tempogram(
+        onset_envelope=obwiednia, sr=sr, hop_length=analyze.KROK_ROZKLADU, win_length=analyze.OKNO_TEMPOGRAMU,
+    ).mean(axis=1)
+    assert wynik.shape == (analyze.OKNO_TEMPOGRAMU, 1)
+    assert np.allclose(wynik.reshape(-1), oczekiwany, rtol=1e-6)
+
+
+def test_analizuj_dzwiek_szczyt_pamieci_ponizej_600mb(tmp_path):
+    wav = tmp_path / "melodia.wav"
+    melodia(wav, 120, 120.0, ziarno=1)
+    tracemalloc.start()
+    try:
+        wynik = analyze.analizuj_dzwiek(wav)
+        _, szczyt = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert wynik["tempo_bpm"] is not None
+    assert szczyt < 600 * 1024 * 1024
 
 
 def test_wykryj_drop_przyciaga_do_najblizszego_ciecia(tmp_path):

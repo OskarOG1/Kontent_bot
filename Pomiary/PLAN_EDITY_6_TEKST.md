@@ -30,7 +30,7 @@ Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania 6.1 do 6.4 z Pomiary
   - Biblioteka muzyki to dźwięki samych wzorów (decyzja 14).
 - Środowisko:
   - lokalnie: Windows 11, Python 3.13 w `venv` repo (`venv/Scripts/python.exe`, zależności przypięte w `requirements.txt`), ffmpeg i ffprobe 8.1 w PATH, brak Dockera;
-  - serwer: Docker (obraz Debian, ffmpeg 7.1) na Ubuntu 24.04, bot z limitem 2 CPU i 3 GB;
+  - serwer: Docker (obraz Debian, ffmpeg 7.1) na Ubuntu 24.04, bot z limitem 2 CPU i 5 GB (od 2026-09-24, wcześniej 3 GB; serwer ma 7,6 GB);
   - ścieżki przez pathlib, procesy jako lista argumentów, bez powłoki.
 - Reguły repo:
   1. Każda zmiana ma pomiar w `Pomiary/measure_<temat>.py`. Tylko tam i w `Pomiary/arkusz.py` wolno pisać komentarze. Skrypt zaczyna od `sys.stdout.reconfigure(encoding='utf-8', errors='replace')` i zapisuje wyniki do `outputs/` po każdej sekcji.
@@ -59,6 +59,11 @@ Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania 6.1 do 6.4 z Pomiary
   - Plansza w pomiarze: `dane/plansze/domyslna.*`, inaczej pierwszy plik bez przezroczystości z `dane/promocyjne/`, inaczej syntetyczna.
   - Oceniający wydaje werdykt na arkuszu, a progi liczbowe są dodatkiem.
   - Wzór ogląda się tylko w `outputs/`, nic z niego nie trafia do wyniku bota.
+- Czas w pomiarach (od 2026-09-24):
+  - na laptopie czas zegara skacze 2 do 3 razy między przebiegami. Pomiar B części 8 dał przebieg z nakładką o 45% szybszy niż bez niej;
+  - progi narzutu licz z czasu procesora: w ffmpeg flaga `-benchmark` i suma `utime` oraz `stime` z linii `bench:` (w pomiarze podmień `render.uruchom_ffmpeg`), a w Pythonie `time.process_time()`;
+  - gdzie czasu procesora nie da się zebrać, bierz medianę z 5 przebiegów na przemian. Próg oceniaj tylko wtedy, gdy rozrzut przebiegów bazowych jest poniżej 20%, a inaczej wpisz „niepewny” zamiast „w progu”;
+  - czas zegara podawaj w raporcie.
 - Dziennik `Pomiary/ROZWOJ.md`: przeczytaj na starcie (stan, znane problemy, decyzje), dopisuj wpis po każdym zadaniu, decyzji i odkryciu, bez tokenu i wartości z `.env`.
 - Raport na koniec sesji: wniosek, liczby z pomiaru, problemy. Bez opisu drogi.
 
