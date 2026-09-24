@@ -56,6 +56,21 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-24 (zadanie 5.1: statystyki Lab ujęć wzoru, gałąź `kolor`)
+- `src/kolor.py` (nowy): `rgb_do_lab`/`lab_do_rgb` (sRGB D65, standardowa macierz sRGB→XYZ IEC 61966-2-1, progi gamma 0,04045/0,0031308), `statystyki_obrazu` (średnia i odchylenie Lab po wszystkich pikselach, dowolny kształt wejścia z ostatnim wymiarem 3). Zgodność sprawdzona ręcznie: biel daje (100, 0, 0), czysta czerwień sRGB (53,28; 80,35; 67,22), obie w tolerancji 1 z kontraktu.
+- `src/analyze.py`: `WERSJA_WZORU = 4`, `uruchom_probkowanie` (ffmpeg `fps=10,scale=135:240` do rawvideo, stdin/stdout zamknięte, stderr do pliku tymczasowego przez `NamedTemporaryFile(delete=False)`, plik zostaje na dysku jako log, nieusuwany), `statystyki_koloru` (przypisanie klatek do ujęć przez `indeks_ujecia`, ujęcie bez klatki bierze najbliższą czasowo pojedynczą klatkę i `probki: 0`). `analizuj_wzor` startuje próbkowanie przed `wykryj_ciecia` w `tempfile.TemporaryDirectory()`, czeka na nie (limit 300 s) dopiero po całej reszcie analizy (cięcia, dźwięk, drop), `finally` zawsze zabija i `wait()`-uje proces próbkowania, żeby katalog tymczasowy dało się usunąć na Windows i żeby wyjątek w dowolnym miejscu (np. `wykryj_ciecia`) nie zostawiał procesu ffmpeg.
+- `tests/generuj.py`: `wideo_z_cieciami` dostał opcjonalny `kolory: list[tuple]`, nadpisujący domyślny `kolor_ujecia(numer)` (modulo długości listy) — potrzebne do testu z konkretnymi barwami (pomarańczowy/niebieski), bo automatyczne kolory z HSV nie dają kontroli nad kanałem b.
+- Testy: `tests/test_kolor.py` (nowy, 5 testów: biel, czerwień, float 0..1, odwracalność `lab_do_rgb`, zerowe odchylenie na jednolitym kolorze) i `tests/test_analiza.py` (+8: dwa ujęcia pomarańcz/niebieski dają b>20/b<−20, ujęcie 0,05 s dostaje najbliższą klatkę i `probki: 0` — test bezpośrednio na `statystyki_koloru` z ręcznie złożonym plikiem klatek, bez ffmpeg, `--wszystkie` i CLI dają `wersja: 4` z `kolorystyka`, proces próbkowania nie zostaje żywy gdy `wykryj_ciecia` rzuci wyjątek; 3 istniejące testy `wersja: 3`→`4`, jedna nazwa testu przemianowana).
+- Cały zestaw: 197 z 197 w 172 s (189 + 8 nowych, zero regresji). Weryfikacja zadania (`test_kolor.py` + `test_analiza.py`): 41 z 41 w 85 s.
+- Commit `kolor: statystyki Lab ujęć wzoru`.
+
+### 2026-09-24 (doprecyzowanie pomiaru części 5, przed startem zadań, gałąź `kolor`)
+- Właściciel doprecyzował próg z zadania 5.1 „analiza z próbkowaniem najwyżej 1,3 raza dłuższa”: dotyczy czasu zegara (sprawdza równoległość próbkowania i wykrywania cięć), nie czasu procesora, bo drugie dekodowanie z definicji zwiększa czas procesora. Czas procesora analizy tylko do raportu.
+- Czas zegara analizy: mediana z 5 przebiegów na przemian (z próbkowaniem i bez), próg oceniany tylko gdy rozrzut przebiegów bazowych poniżej 20%, inaczej wpis „niepewny” (zgodnie z zasadą z bloku WSPÓLNE).
+- Narzut renderu przy sile 0,6 wobec 0 (zadanie 5.4, sekcja B) liczony z czasu procesora ffmpeg (`-benchmark`, `render.uruchom_ffmpeg` podmienione w pomiarze), jak w bloku WSPÓLNE.
+- Stan przed startem: `main` zaktualizowany do `3108718` (PR #11, gałąź `pamiec` scalona), `python -m pytest -q` 189 z 189 (184 s). Gałąź `kolor` utworzona od `main`.
+- Przy aktualizacji `main` w working tree pojawiły się niescommitowane zmiany `Pomiary/ROZWOJ.md` i `Pomiary/PLAN_EDITY_9_FABRYKA.md` (dopisek o zadaniu 9.5, skalowanie nakładki contain) sprzed sesji, niezwiązane z częścią 5. Odłożone na `git stash` (nie usunięte), żeby nie wmieszać ich w commity części 5.
+
 ### 2026-09-24 (zadanie 4.5: tempo liczone kawałkami, gałąź `pamiec`)
 - `analyze.tempogram_sredni(obwiednia, sr)` liczy `librosa.feature.tempogram` kawałkami po `KAWALEK_TEMPOGRAMU = 4096` klatek obwiedni z zakładką `OKNO_TEMPOGRAMU // 2 = 192` z każdej strony, odciętą przed sumowaniem. `analizuj_dzwiek` liczy tempo z tego uśrednionego tempogramu (`librosa.feature.tempo`), a `beat_track` dostaje je jako `bpm=`, więc nie liczy własnego tempogramu na całej obwiedni.
 - Test równoważności (`test_tempogram_sredni_rowny_pelnemu_liczonemu_naraz`): na sztucznej obwiedni 10 000 klatek wynik kawałkowy zgadza się z jednorazowym liczeniem na całości (`numpy.allclose`, `rtol=1e-6`).
