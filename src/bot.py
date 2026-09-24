@@ -402,7 +402,7 @@ async def obsluz_wzor_plik(
         await message.answer(komunikaty.BLAD_POBIERANIA)
         return
 
-    await state.clear()
+    await wroc_po_zapisie(state)
     zapowiedz = asyncio.Event()
 
     async def zadanie() -> None:
@@ -419,13 +419,23 @@ async def obsluz_wzor_niepoprawny(message: Message) -> None:
     await message.answer(komunikaty.WZOR_NIEPOPRAWNY_TYP)
 
 
-def usun_pliki_zasobu(katalog_danych: Path, rodzaj: str, wzor_id: str) -> None:
+def usun_pliki_zasobu(katalog_danych: Path, rodzaj: str, wzor_id: str, pomin: Path | None = None) -> None:
     katalog = Path(katalog_danych) / rodzaj
     if not katalog.is_dir():
         return
     for plik in katalog.glob(f"{wzor_id}.*"):
-        if plik.is_file():
+        if plik.is_file() and plik != pomin:
             plik.unlink()
+
+
+async def wroc_po_zapisie(state: FSMContext) -> None:
+    dane_stanu = await state.get_data()
+    projekt_id = dane_stanu.get("projekt_id")
+    if projekt_id:
+        await state.set_state(Stany.zbieram)
+        await state.update_data(projekt_id=projekt_id)
+    else:
+        await state.clear()
 
 
 async def obsluz_cmd_nakladka(message: Message, state: FSMContext, konf: Konfiguracja, command: CommandObject) -> None:
@@ -456,7 +466,6 @@ async def obsluz_nakladka_dokument(message: Message, state: FSMContext, konf: Ko
         await message.answer(komunikaty.NAKLADKA_NIEPOPRAWNY_TYP)
         return
 
-    usun_pliki_zasobu(konf.katalog_danych, "nakladki", wzor_id)
     cel = konf.katalog_danych / "nakladki" / f"{wzor_id}.{rozszerzenie}"
     try:
         await pobierz_plik(message.bot, dokument.file_id, cel)
@@ -468,7 +477,8 @@ async def obsluz_nakladka_dokument(message: Message, state: FSMContext, konf: Ko
         await message.answer(komunikaty.BLAD_POBIERANIA)
         return
 
-    await state.clear()
+    usun_pliki_zasobu(konf.katalog_danych, "nakladki", wzor_id, pomin=cel)
+    await wroc_po_zapisie(state)
     tryb = render.tryb_nakladki(cel)
     await message.answer(komunikaty.nakladka_zapisana(tryb))
 
@@ -501,7 +511,6 @@ async def obsluz_plansza_zalacznik(message: Message, state: FSMContext, konf: Ko
         return
     _, rozszerzenie, file_id, _, _ = zalacznik
 
-    usun_pliki_zasobu(konf.katalog_danych, "plansze", wzor_id)
     cel = konf.katalog_danych / "plansze" / f"{wzor_id}.{rozszerzenie}"
     try:
         await pobierz_plik(message.bot, file_id, cel)
@@ -513,7 +522,8 @@ async def obsluz_plansza_zalacznik(message: Message, state: FSMContext, konf: Ko
         await message.answer(komunikaty.BLAD_POBIERANIA)
         return
 
-    await state.clear()
+    usun_pliki_zasobu(konf.katalog_danych, "plansze", wzor_id, pomin=cel)
+    await wroc_po_zapisie(state)
     await message.answer(komunikaty.PLANSZA_ZAPISANA)
 
 
