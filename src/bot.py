@@ -44,6 +44,7 @@ class Stany(StatesGroup):
     czekam_na_wzor = State()
     czekam_na_nakladke = State()
     czekam_na_plansze = State()
+    czekam_na_znak = State()
     zbieram = State()
 
 
@@ -163,6 +164,7 @@ async def renderuj_w_tle(
     zapowiedz: asyncio.Event,
     nakladka: Path | None = None,
     plansza: Path | None = None,
+    znak: Path | None = None,
 ) -> None:
     await zapowiedz.wait()
     dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
@@ -182,6 +184,8 @@ async def renderuj_w_tle(
         argumenty += ["--nakladka", str(nakladka)]
     if plansza is not None:
         argumenty += ["--plansza", str(plansza)]
+    if znak is not None:
+        argumenty += ["--znak", str(znak)]
     wynik = await kolejka_modul.uruchom(argumenty, limit_s=LIMIT_RENDERU_S)
     if wynik.przekroczono_czas or wynik.kod != 0:
         opis = "przekroczono limit czasu" if wynik.przekroczono_czas else (pierwsza_linia(wynik.stderr) or f"kod {wynik.kod}")
@@ -254,6 +258,8 @@ async def obsluz_cmd_gotowe(
     wzor_id = wzor_json.parent.name
     nakladka = magazyn.plik_zasobu(konf.katalog_danych, "nakladki", wzor_id)
     plansza = magazyn.plik_zasobu(konf.katalog_danych, "plansze", wzor_id)
+    znak = konf.katalog_danych / "znak_wodny.png"
+    znak = znak if znak.is_file() else None
 
     dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
     dane_projektu["wzor_id"] = wzor_id
@@ -270,7 +276,7 @@ async def obsluz_cmd_gotowe(
     zapowiedz = asyncio.Event()
 
     async def zadanie() -> None:
-        await renderuj_w_tle(message, katalog_projektu, wzor_json, katalog_muzyki, konf, zapowiedz, nakladka, plansza)
+        await renderuj_w_tle(message, katalog_projektu, wzor_json, katalog_muzyki, konf, zapowiedz, nakladka, plansza, znak)
 
     pozycja = await kolejka_obiekt.dodaj(zadanie)
     try:
@@ -319,6 +325,7 @@ async def obsluz_cmd_status(
         ma_nakladke = magazyn.plik_zasobu(konf.katalog_danych, "nakladki", wzor_id) is not None
         ma_plansze = magazyn.plik_zasobu(konf.katalog_danych, "plansze", wzor_id) is not None
         linie.append(komunikaty.status_zasobow_wzoru(wzor_id, ma_nakladke, ma_plansze))
+    linie.append(komunikaty.status_znaku((konf.katalog_danych / "znak_wodny.png").is_file()))
     await message.answer("\n".join(linie))
 
 
@@ -527,6 +534,41 @@ async def obsluz_plansza_zalacznik(message: Message, state: FSMContext, konf: Ko
     await message.answer(komunikaty.PLANSZA_ZAPISANA)
 
 
+async def obsluz_cmd_znak(message: Message, state: FSMContext, konf: Konfiguracja, command: CommandObject) -> None:
+    if (command.args or "").strip() == "usun":
+        (konf.katalog_danych / "znak_wodny.png").unlink(missing_ok=True)
+        await message.answer(komunikaty.ZNAK_USUNIETY)
+        return
+    await state.set_state(Stany.czekam_na_znak)
+    await message.answer(komunikaty.ZNAK_PROSBA)
+
+
+async def obsluz_znak_niepoprawny_zalacznik(message: Message) -> None:
+    await message.answer(komunikaty.ZNAK_NIEPOPRAWNY_TYP)
+
+
+async def obsluz_znak_dokument(message: Message, state: FSMContext, konf: Konfiguracja) -> None:
+    dokument = message.document
+    rozszerzenie = Path(dokument.file_name or "").suffix.lstrip(".").lower()
+    if rozszerzenie != "png":
+        await message.answer(komunikaty.ZNAK_NIEPOPRAWNY_TYP)
+        return
+
+    cel = konf.katalog_danych / "znak_wodny.png"
+    try:
+        await pobierz_plik(message.bot, dokument.file_id, cel)
+    except TelegramEntityTooLarge:
+        await message.answer(komunikaty.limit_rozmiaru(None, efektywny_limit_mb(konf)))
+        return
+    except Exception:
+        log.exception("pobieranie znaku wodnego nie powiodlo sie, file_id=%s", dokument.file_id)
+        await message.answer(komunikaty.BLAD_POBIERANIA)
+        return
+
+    await wroc_po_zapisie(state)
+    await message.answer(komunikaty.ZNAK_ZAPISANY)
+
+
 async def obsluz_material(
     message: Message,
     state: FSMContext,
@@ -603,6 +645,7 @@ def zbuduj_router() -> Router:
     router.message.register(obsluz_cmd_wzor, Command("wzor"))
     router.message.register(obsluz_cmd_nakladka, Command("nakladka"))
     router.message.register(obsluz_cmd_plansza, Command("plansza"))
+    router.message.register(obsluz_cmd_znak, Command("znak"))
     router.message.register(obsluz_cmd_nowy, Command("nowy"))
     router.message.register(obsluz_cmd_gotowe, Command("gotowe"))
     router.message.register(obsluz_cmd_anuluj, Command("anuluj"))
@@ -613,6 +656,8 @@ def zbuduj_router() -> Router:
     router.message.register(obsluz_nakladka_niepoprawny_zalacznik, StateFilter(Stany.czekam_na_nakladke))
     router.message.register(obsluz_plansza_zalacznik, StateFilter(Stany.czekam_na_plansze), to_material)
     router.message.register(obsluz_plansza_niepoprawny_zalacznik, StateFilter(Stany.czekam_na_plansze))
+    router.message.register(obsluz_znak_dokument, StateFilter(Stany.czekam_na_znak), F.document)
+    router.message.register(obsluz_znak_niepoprawny_zalacznik, StateFilter(Stany.czekam_na_znak))
     router.message.register(obsluz_material, StateFilter(Stany.zbieram), to_material)
     router.message.register(obsluz_tekst, StateFilter(Stany.zbieram), F.text)
     router.message.register(obsluz_plik_bez_stanu, to_material)

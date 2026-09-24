@@ -24,13 +24,15 @@ sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 #   (jak w pomiarze czesci 3), bo jednolity kolor koduje sie tak szybko, ze narzut nakladki
 #   (dekodowanie i kompozycja drugiego wejscia) dominuje procentowo i nie odzwierciedla realnego
 #   materialu.
-# Sekcja C (prawdziwe wzory i biblioteka muzyki): render z nakladka i plansza dla kazdego
-#   wzoru, arkusz porownawczy. Material to stala probka z biblioteki wlasciciela (pierwsze 8
-#   zdjec, 4 nagrania, 2 zdjecia bez tla z prawdziwa alfa), jeden wspolny katalog projektu na
-#   caly przebieg (twarde dowiazania, kopie gdy sie nie da), usuwany na koncu. Nakladka i
-#   plansza z dane/nakladki/, dane/plansze/ przez magazyn.plik_zasobu (domyslna.*), plansza
-#   bez tego z pierwszego pliku bez przezroczystosci w dane/promocyjne/, a nakladka bez tego
-#   z syntetycznych gwiazd zbudowanych tutaj. Pomijana, gdy brak dane/wzory albo dane/muzyka.
+# Sekcja C (prawdziwe wzory i biblioteka muzyki): render z nakladka, plansza i znakiem wodnym
+#   dla kazdego wzoru, arkusz porownawczy. Material to stala probka z biblioteki wlasciciela
+#   (pierwsze 8 zdjec, 4 nagrania, 2 zdjecia bez tla z prawdziwa alfa), jeden wspolny katalog
+#   projektu na caly przebieg (twarde dowiazania, kopie gdy sie nie da), usuwany na koncu.
+#   Nakladka i plansza z dane/nakladki/, dane/plansze/ przez magazyn.plik_zasobu (domyslna.*),
+#   plansza bez tego z pierwszego pliku bez przezroczystosci w dane/promocyjne/, a nakladka
+#   bez tego z syntetycznych gwiazd zbudowanych tutaj. Znak wodny z dane/znak_wodny.png, a bez
+#   niego z dane/promocyjne/1993supply_watermark.png. Pomijana, gdy brak dane/wzory albo
+#   dane/muzyka.
 
 KATALOG_REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KATALOG_REPO / "src"))
@@ -256,6 +258,16 @@ def wybierz_lub_zbuduj_nakladke(katalog_danych: Path, wzor_id: str, katalog_tymc
     return cel
 
 
+def znajdz_znak_wodny() -> Path | None:
+    wlasny = KATALOG_REPO / "dane" / "znak_wodny.png"
+    if wlasny.is_file():
+        return wlasny
+    domyslny = KATALOG_REPO / "dane" / "promocyjne" / "1993supply_watermark.png"
+    if domyslny.is_file():
+        return domyslny
+    return None
+
+
 def znajdz_plansze_promocyjna() -> Path | None:
     katalog = KATALOG_REPO / "dane" / "promocyjne"
     if not katalog.is_dir():
@@ -326,6 +338,7 @@ def sekcja_c(pliki_wzorow: list[Path], katalog_muzyki) -> dict:
         return {"pominieta": True, "powod": "brak dane/muzyka"}
 
     katalog_danych = KATALOG_REPO / "dane"
+    znak = znajdz_znak_wodny()
     wpisy = []
     with TemporaryDirectory() as katalog_tymczasowy:
         katalog_tymczasowy = Path(katalog_tymczasowy)
@@ -342,7 +355,7 @@ def sekcja_c(pliki_wzorow: list[Path], katalog_muzyki) -> dict:
                 render.renderuj(
                     wzor_json, katalog_projektu, None, wyjscie,
                     szerokosc=1080, wysokosc=1920, fps=30, limit_mb=200, muzyka=katalog_muzyki,
-                    nakladka=nakladka, plansza=plansza,
+                    nakladka=nakladka, plansza=plansza, znak=znak,
                 )
             except Exception as blad:
                 wpisy.append({"wzor": nazwa, "blad": str(blad)})

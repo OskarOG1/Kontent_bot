@@ -2,6 +2,7 @@ import json
 
 import numpy as np
 import pytest
+from PIL import Image
 
 import analyze
 import generuj
@@ -32,7 +33,15 @@ def zbuduj_projekt_niebieski(tmp_path, n=4):
     return zbuduj_projekt(tmp_path, dodaj)
 
 
-def zrenderuj(tmp_path, projekt, wzor, nakladka=None, plansza=None, szerokosc=270, wysokosc=480, fps=30):
+def zbuduj_projekt_czarny(tmp_path, n=4):
+    def dodaj(katalog):
+        for i in range(n):
+            generuj.zdjecie_testowe(katalog / f"000000000{i}_m.jpg", rozmiar=(800, 600), kolor=(0, 0, 0))
+
+    return zbuduj_projekt(tmp_path, dodaj)
+
+
+def zrenderuj(tmp_path, projekt, wzor, nakladka=None, plansza=None, znak=None, szerokosc=270, wysokosc=480, fps=30):
     wzor_json = tmp_path / "wzor.json"
     wzor_json.write_text(json.dumps(wzor), encoding="utf-8")
     utwor = tmp_path / "klik.wav"
@@ -41,7 +50,7 @@ def zrenderuj(tmp_path, projekt, wzor, nakladka=None, plansza=None, szerokosc=27
     podsumowanie = render.renderuj(
         wzor_json, projekt, utwor, wyjscie,
         szerokosc=szerokosc, wysokosc=wysokosc, fps=fps, limit_mb=50,
-        nakladka=nakladka, plansza=plansza,
+        nakladka=nakladka, plansza=plansza, znak=znak,
     )
     return wyjscie, podsumowanie
 
@@ -266,3 +275,80 @@ def test_koniec_haka_z_sekcjami_uzywa_drop_ujecie():
 
 def test_koniec_haka_drop_ujecie_poza_zakresem_wraca_do_40_procent():
     assert render.koniec_haka(plan_dziesieciu_ujec(), {"drop_ujecie": 99}) == 120
+
+
+def test_znak_wodny_pozycja_i_krycie(tmp_path):
+    projekt = zbuduj_projekt_czarny(tmp_path)
+    wzor = wzor_4_ciecia_z_dropem(0)
+    znak = tmp_path / "znak.png"
+    generuj.znak_testowy(znak, rozmiar=(200, 50))
+
+    wyjscie, podsumowanie = zrenderuj(tmp_path, projekt, wzor, znak=znak)
+    assert podsumowanie["znak"] is True
+
+    klatki = dekoduj_klatki(wyjscie, tmp_path, "dek.raw")
+    klatka = klatki[klatki.shape[0] // 2]
+    wysokosc, szerokosc = klatka.shape[:2]
+
+    srodek_x = szerokosc // 2
+    srodek_y = round(wysokosc * 0.8)
+    piksel_srodkowy = klatka[srodek_y, srodek_x].astype(np.int32)
+    assert 140 <= piksel_srodkowy.mean() <= 175
+
+    piksel_poza = klatka[5, 5]
+    assert piksel_poza.max() <= 6
+
+    kolumna = klatka[srodek_y, :, 0].astype(np.int32)
+    jasne_poziomo = np.where(kolumna > 100)[0]
+    assert jasne_poziomo.size > 0
+    szerokosc_znaku = jasne_poziomo[-1] - jasne_poziomo[0] + 1
+    assert abs(szerokosc_znaku / szerokosc - 0.51) <= 2 / szerokosc + 0.02
+
+    wiersz = klatka[:, srodek_x, 0].astype(np.int32)
+    jasne_pionowo = np.where(wiersz > 100)[0]
+    assert jasne_pionowo.size > 0
+    assert 0.75 <= jasne_pionowo[0] / wysokosc <= 0.85
+    assert 0.75 <= jasne_pionowo[-1] / wysokosc <= 0.85
+
+
+def test_znak_wodny_bez_na_planszy(tmp_path):
+    projekt = zbuduj_projekt_czarny(tmp_path)
+    wzor = wzor_4_ciecia_z_dropem(0)
+    znak = tmp_path / "znak.png"
+    generuj.znak_testowy(znak, rozmiar=(200, 50))
+    plansza = tmp_path / "plansza.jpg"
+    generuj.zdjecie_testowe(plansza, rozmiar=(1600, 900), kolor=(0, 0, 0))
+
+    wyjscie, podsumowanie = zrenderuj(tmp_path, projekt, wzor, znak=znak, plansza=plansza)
+    assert podsumowanie["plansza"] == "plansza.jpg"
+
+    fps = 30
+    material_zastepczy = [{"plik": "x", "typ": "zdjecie", "message_id": 0}]
+    _, uderzenia = analyze.analizuj_rytm(tmp_path / "klik.wav")
+    plan = render.plan_ujec(wzor, uderzenia, material_zastepczy, fps)
+
+    klatki = dekoduj_klatki(wyjscie, tmp_path, "dek.raw")
+    ostatnie_ujecie = plan["ujecia"][-1]
+    srodek = ostatnie_ujecie["klatka_od"] + ostatnie_ujecie["liczba_klatek"] // 2
+    srodek = min(srodek, klatki.shape[0] - 1)
+    klatka_planszy = klatki[srodek]
+    wysokosc, szerokosc = klatka_planszy.shape[:2]
+    piksel = klatka_planszy[round(wysokosc * 0.8), szerokosc // 2].astype(np.int32)
+    assert piksel.max() <= 6
+
+
+def test_znak_wodny_nad_nakladka_alfa(tmp_path):
+    projekt = zbuduj_projekt_czarny(tmp_path)
+    wzor = wzor_4_ciecia_z_dropem(0)
+    nakladka = tmp_path / "nakladka.png"
+    Image.new("RGBA", (270, 480), (220, 30, 30, 255)).save(nakladka)
+    znak = tmp_path / "znak.png"
+    generuj.znak_testowy(znak, rozmiar=(200, 50))
+
+    wyjscie, _ = zrenderuj(tmp_path, projekt, wzor, nakladka=nakladka, znak=znak)
+
+    klatki = dekoduj_klatki(wyjscie, tmp_path, "dek.raw")
+    klatka = klatki[-2]
+    wysokosc, szerokosc = klatka.shape[:2]
+    piksel = klatka[round(wysokosc * 0.8), szerokosc // 2].astype(np.int32)
+    assert piksel[1] > 100 and piksel[2] > 100

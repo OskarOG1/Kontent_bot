@@ -33,6 +33,9 @@ PIX_FMT_Z_ALFA = {
     "rgba64le", "rgba64be", "bgra64le", "bgra64be",
 }
 PROG_ZIELENI = 0.3
+UDZIAL_SZEROKOSCI_ZNAKU = 0.51
+POZYCJA_ZNAKU_PION = 0.8
+KRYCIE_ZNAKU = 0.65
 
 
 def uruchom_ffmpeg(argumenty: list[str]) -> None:
@@ -215,6 +218,21 @@ def tryb_nakladki(sciezka) -> str:
     return "ekran"
 
 
+def wymiary_i_pozycja_znaku(sciezka: Path, szerokosc: int, wysokosc: int) -> tuple[int, int, int, int]:
+    with Image.open(sciezka) as obraz:
+        obraz = obraz.convert("RGBA")
+        bbox = obraz.getchannel("A").getbbox() or (0, 0, obraz.width, obraz.height)
+        szerokosc_bbox = bbox[2] - bbox[0]
+        skala = (szerokosc * UDZIAL_SZEROKOSCI_ZNAKU) / szerokosc_bbox
+        docelowa_szerokosc = max(1, round(obraz.width * skala))
+        docelowa_wysokosc = max(1, round(obraz.height * skala))
+        srodek_x = (bbox[0] + bbox[2]) / 2 * skala
+        srodek_y = (bbox[1] + bbox[3]) / 2 * skala
+    x = round(szerokosc / 2 - srodek_x)
+    y = round(wysokosc * POZYCJA_ZNAKU_PION - srodek_y)
+    return docelowa_szerokosc, docelowa_wysokosc, x, y
+
+
 def przygotuj_materialy(materialy: list[dict], katalog_pracy: Path, szerokosc: int, wysokosc: int) -> tuple[list[dict], list[dict]]:
     dobre = []
     pominiete = []
@@ -369,6 +387,8 @@ def przebieg_koncowy(
     tryb_nakladki_wartosc: str | None = None,
     nakladka_od_s: float | None = None,
     nakladka_do_s: float | None = None,
+    znak: Path | None = None,
+    znak_do_s: float | None = None,
 ) -> None:
     czas_trwania_s = liczba_klatek / fps
     wyciszenie_s = min(0.5, czas_trwania_s)
@@ -421,6 +441,18 @@ def przebieg_koncowy(
             f"[1:a]afade=t=out:st={poczatek_wyciszenia:.6f}:d={wyciszenie_s:.6f}[a]"
         )
         mapa_wideo = "[v]"
+
+    if znak is not None:
+        znak = Path(znak)
+        okno_znaku_s = round(znak_do_s, 6)
+        indeks_znaku = wejscia.count("-i")
+        wejscia += ["-loop", "1", "-t", f"{okno_znaku_s:.6f}", "-i", str(znak)]
+        dw, dh, x, y = wymiary_i_pozycja_znaku(znak, szerokosc, wysokosc)
+        filtr += (
+            f";[{indeks_znaku}:v]scale={dw}:{dh},format=rgba,colorchannelmixer=aa={KRYCIE_ZNAKU}[zw];"
+            f"{mapa_wideo}[zw]overlay={x}:{y}:enable='between(t,0,{okno_znaku_s:.6f})'[vz]"
+        )
+        mapa_wideo = "[vz]"
 
     uruchom_ffmpeg([
         *wejscia,
@@ -515,6 +547,14 @@ def okno_nakladki(wzor: dict, plan: dict, plansza_uzyta: bool) -> tuple[float, f
     return round(klatka_start / fps, 6), round(klatka_koniec / fps, 6)
 
 
+def okno_znaku(plan: dict, plansza_uzyta: bool) -> float:
+    plan_ujecia = plan["ujecia"]
+    liczba_klatek = plan["liczba_klatek"]
+    fps = plan["fps"]
+    klatka_koniec = plan_ujecia[-1]["klatka_od"] if plansza_uzyta else liczba_klatek
+    return round(klatka_koniec / fps, 6)
+
+
 def renderuj(
     wzor_json: Path,
     katalog_projektu: Path,
@@ -527,6 +567,7 @@ def renderuj(
     muzyka: Path | None = None,
     nakladka: Path | None = None,
     plansza: Path | None = None,
+    znak: Path | None = None,
 ) -> dict:
     czas_startu = time.time()
     wzor_json = Path(wzor_json)
@@ -603,11 +644,14 @@ def renderuj(
             tryb_nak = None
             nakladka_od_s = nakladka_do_s = None
 
+    znak_do_s = okno_znaku(plan, plansza_uzyta) if znak is not None else None
+
     przebieg_koncowy(
         polaczone, utwor, plan["start_audio_s"], plan["liczba_klatek"], fps, wyjscie, limit_mb,
         szerokosc=szerokosc, wysokosc=wysokosc,
         nakladka=nakladka, tryb_nakladki_wartosc=tryb_nak,
         nakladka_od_s=nakladka_od_s, nakladka_do_s=nakladka_do_s,
+        znak=znak, znak_do_s=znak_do_s,
     )
     zweryfikuj_wynik(wyjscie, szerokosc, wysokosc, fps, plan["liczba_klatek"], limit_mb)
 
@@ -634,6 +678,7 @@ def renderuj(
             if nakladka is not None else None
         ),
         "plansza": Path(plansza).name if plansza_uzyta else None,
+        "znak": znak is not None,
         "drop_s": pozycja_dropu_w_planie(wzor, plan["ujecia"], fps),
     }
 
@@ -658,6 +703,7 @@ def glowna(argumenty: list[str] | None = None) -> int:
     parser.add_argument("--limit-mb", type=float, default=50)
     parser.add_argument("--nakladka")
     parser.add_argument("--plansza")
+    parser.add_argument("--znak")
     ustalone = parser.parse_args(argumenty)
     try:
         renderuj(
@@ -667,6 +713,7 @@ def glowna(argumenty: list[str] | None = None) -> int:
             muzyka=Path(ustalone.muzyka) if ustalone.muzyka else None,
             nakladka=Path(ustalone.nakladka) if ustalone.nakladka else None,
             plansza=Path(ustalone.plansza) if ustalone.plansza else None,
+            znak=Path(ustalone.znak) if ustalone.znak else None,
         )
     except Exception as blad:
         print(str(blad), file=sys.stderr)
