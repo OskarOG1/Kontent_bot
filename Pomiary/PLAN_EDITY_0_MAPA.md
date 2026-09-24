@@ -26,14 +26,14 @@ Prawdziwe wzory (`0915`, `0921`, `0922`, wszystkie 4K) mają ten sam format:
 | 2 | PLAN_EDITY_2_ANALIZA | wzór mp4 zamienia się w `wzor.json`: cięcia, tempo, uderzenia | wykonana, PR #1, odbiór OK | nic | Sonnet |
 | 7 | PLAN_EDITY_7_WDROZENIE | bot w Dockerze na VPS z lokalnym serwerem Bot API | wykonana, PR #2 i #3, serwer na `@cwel54_bot` | zrobione | Sonnet pliki, Ty serwer |
 | 3 | PLAN_EDITY_3_RENDER | `/gotowe` zwraca edit 9:16, klipy cięte na wstawki | wykonana, PR #4 i #5 (naprawa dźwięku 3.7), wdrożona, test ręczny OK | nic | Sonnet |
-| 4 | PLAN_EDITY_4_MUZYKA | dźwięk wzoru rozpoznany w bibliotece i montaż na tym samym fragmencie utworu; dobór po tempie jako zapas; arkusz porównawczy | do zrobienia (przepisana 2026-09-23) | utwory wzorów w `dane/muzyka/` (nazwy bez „ (1)”), próbki w `dane/probki/materialy/` | Sonnet |
-| 8 | PLAN_EDITY_8_NAKLADKA | drop we wzorze, Twoja nakładka od dropu, Twoja plansza na końcu | do zrobienia (nowa 2026-09-23) | pliki nakładek i plansz | Sonnet |
+| 4 | PLAN_EDITY_4_MUZYKA | biblioteka muzyki, dobór utworu po tempie z fragmentem z profilu energii, arkusz porównawczy; rozpoznanie dźwięku wzoru w kodzie, ale wyłączone (decyzja 14) | wykonana, PR #7, bez odbioru oceniającego | utwory wzorów w `dane/muzyka/` (nazwy bez „ (1)”), próbki w `dane/probki/materialy/` | Sonnet |
+| 8 | PLAN_EDITY_8_NAKLADKA | drop we wzorze, Twoja nakładka od dropu, Twoja plansza na końcu | w toku, gałąź `nakladka` | pliki nakładek i plansz | Sonnet |
 | 5 | PLAN_EDITY_5_KOLOR | kolorystyka wzoru na sekcję (hak, montaż), LUT na każdy segment | do zrobienia (przepisana 2026-09-23) | nic | Sonnet |
 | 6 | PLAN_EDITY_6_TEKST | Twoje napisy w haku, styl jak we wzorach, strefy bezpieczne TikToka | do zrobienia (przepisana 2026-09-23) | akceptacja czcionki | Sonnet |
 | 9 | PLAN_EDITY_9_FABRYKA | restart bez strat, biblioteka wzorów z wyborem, warianty, partie, `/ponow` | do zrobienia (nowa 2026-09-23) | nic | Sonnet |
 
 ## Kolejność (poprawiona 2026-09-23)
-1. Zrobione: części 1, 2, 7 i 3.
+1. Zrobione: części 1, 2, 7, 3 i 4.
 2. Część 4 idzie pierwsza, bo bez niej edit leci na intro utworu, a nie na fragmencie ze wzoru, i reszta stylu traci sens.
 3. Część 8 wprowadza sekcje wzoru, na których stoją części 5 i 6. Nakładka to najbardziej rozpoznawalny element wzorów.
 4. Części 5 i 6: obie zależą od 8, a między sobą nie, więc 6 może iść przed 5.
@@ -59,6 +59,7 @@ Po każdej części: odbiór, scalenie, `wdroz.ps1` i, gdy trzeba, `analyze.py -
     - analiza zapisuje w `wzor.json` odcisk dźwięku (chroma i obwiednia), a indeks biblioteki ma odciski utworów;
     - render rozpoznaje utwór i przesunięcie, z progiem zgodności 0,5 (prawdziwe pary mają 0,78 i 0,81, niepasujące najwyżej 0,12), i tnie dokładnie w czasach cięć wzoru;
     - dobór po tempie działa tylko wtedy, gdy żaden utwór nie pasuje, a fragment wybiera korelacja profilu energii, nie najgłośniejsze okno.
+    - **Zmiana w części 4 (decyzja właściciela 2026-09-23): rozpoznanie wyłączone, `wybierz_utwor` zawsze dobiera po tempie.** Na prawdziwych utworach metoda z kontraktu nie odtworzyła liczb z przeglądu. Zgodność z NIEWŁAŚCIWYM utworem wyszła ponad progiem: 0,829 dla `0915` i 0,76 dla `0922`. Przesunięcie wychodziło 116 s zamiast 40,36 s, bo dropy obu utworów hardstyle są szumowe. Przyczyną nie jest liczba plików w bibliotece: więcej podobnych utworów daje więcej fałszywych trafień, nie mniej. Dobór po tempie i tak trafia właściwe utwory dla `0915` i `0922`, bo tempa się zgadzają (164,1 i 175,2 BPM). Kod rozpoznania zostaje. Powrót wymaga innej metody, np. porównania najlepszego wyniku z drugim zamiast stałego progu, i nowego pomiaru na prawdziwej bibliotece.
 15. Sekcje wzoru: drop wykrywany jest ze skoku energii dźwięku wzoru w jego pierwszej połowie i przyciągany do cięcia. Na nim stoją nakładka (8), kolor (5) i napisy (6). Każde ujęcie planu niesie `numer_wzoru`.
 16. Nakładki i plansze to Twoje pliki (`dane/nakladki/`, `dane/plansze/`, na wzór albo `domyslna`), nigdy wycinki ze wzoru.
     - Kolejność warstw: materiał z kolorem, nakładka, napisy.

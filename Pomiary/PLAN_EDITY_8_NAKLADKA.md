@@ -160,7 +160,7 @@ Numery linii z `57ba8fe` (przed częścią 4), więc szukaj po nazwach.
   2. ten sam układ ze skokiem głośności w 22 s (druga połowa) i bez innego skoku: `sekcje: null`;
   3. stała głośność: `sekcje: null`;
   4. wideo bez dźwięku: `sekcje: null`;
-  5. skok w 9,4 s przy cięciach co 1 s: `drop_s` 9.0 (najbliższe cięcie w granicy 1 s);
+  5. klik 150 BPM ze skokiem w 8,9 s (`glosnosc=[(0, 0.15), (8.9, 1.0)]`, pierwsze głośne uderzenie około 9,2 s) przy cięciach co 1 s: `drop_s` 9.0 i `drop_ujecie` 9, czyli najbliższe cięcie, a nie pierwsze po uderzeniu. Poprawka 2026-09-23: wcześniejszy wariant (120 BPM, skok w 9,4 s) dawał uderzenie 9,501 s, prawie dokładnie w połowie między cięciami 9 i 10, więc wynik zależał od milisekund i wychodził 10,0;
   6. `wersja: 3`, a `--wszystkie` dokłada `sekcje` do istniejącego wzoru.
 - **Sonnet Prompt:**
 ```text

@@ -3,6 +3,8 @@ from pathlib import Path
 POMOC = (
     "Cześć! Montuję edity wideo 9:16 według Twojego wzoru.\n"
     "/wzor, żeby wysłać nowy wzorcowy edit.\n"
+    "/nakladka, żeby ustawić nakładkę graficzną od dropu (/nakladka usun, żeby ją usunąć).\n"
+    "/plansza, żeby ustawić planszę końcową (/plansza usun, żeby ją usunąć).\n"
     "/nowy, żeby zacząć zbierać materiały do nowego editu.\n"
     "/gotowe, żeby zamknąć zbieranie i wysłać projekt do kolejki.\n"
     "/anuluj, żeby porzucić bieżący projekt.\n"
@@ -12,6 +14,8 @@ POMOC = (
 KOMENDY = (
     ("start", "Pomoc i lista komend"),
     ("wzor", "Wyślij nowy wzorcowy edit"),
+    ("nakladka", "Ustaw nakładkę graficzną wzoru"),
+    ("plansza", "Ustaw planszę końcową wzoru"),
     ("nowy", "Zacznij nowy projekt"),
     ("gotowe", "Zamknij zbieranie i wyślij do kolejki"),
     ("anuluj", "Porzuć bieżący projekt"),
@@ -44,6 +48,36 @@ MONTUJE = "Montuję."
 
 BLAD_WYSYLKI = "Nie udało się wysłać wyniku. Spróbuj ponownie /gotowe."
 
+NAKLADKA_WYSLIJ_JAKO_PLIK = "Zdjęcie albo wideo wysłane nie jako plik traci przezroczystość. Wyślij nakładkę jako plik."
+NAKLADKA_NIEPOPRAWNY_TYP = "Nieobsługiwany format nakładki. Wyślij webm, mov, png, gif albo mp4."
+NAKLADKA_USUNIETA = "Nakładka usunięta."
+
+PLANSZA_NIEPOPRAWNY_TYP = "Nie rozpoznaję tego typu pliku. Wyślij zdjęcie albo klip jako planszę."
+PLANSZA_USUNIETA = "Plansza usunięta."
+PLANSZA_ZAPISANA = "Plansza zapisana."
+
+
+def nakladka_prosba(wzor_id: str) -> str:
+    return (
+        "Wyślij nakładkę jako plik: webm albo mov z przezroczystością, png, albo mp4 na zielonym lub czarnym tle. "
+        f"Będzie użyta dla wzoru {wzor_id}."
+    )
+
+
+def nakladka_zapisana(tryb: str) -> str:
+    opisy = {"alfa": "przezroczystość", "zielen": "zielone tło", "ekran": "czarne tło"}
+    return f"Nakładka zapisana: {opisy.get(tryb, tryb)}."
+
+
+def plansza_prosba(wzor_id: str) -> str:
+    return f"Wyślij planszę końcową jako zdjęcie albo klip. Będzie użyta dla wzoru {wzor_id}."
+
+
+def status_zasobow_wzoru(wzor_id: str, ma_nakladke: bool, ma_plansze: bool) -> str:
+    nakladka = "tak" if ma_nakladke else "nie"
+    plansza = "tak" if ma_plansze else "nie"
+    return f"Wzór {wzor_id}: nakładka {nakladka}, plansza {plansza}."
+
 
 def formatuj_mb(wartosc: float) -> str:
     return f"{wartosc:.1f}".replace(".", ",")
@@ -70,7 +104,15 @@ def blad_analizy(opis: str) -> str:
     return f"Analiza wzoru nie powiodła się: {opis}"
 
 
-def podsumowanie_wzoru(czas_s: float, liczba_ujec: int, srednia_s: float, tempo_bpm: float | None, ma_dzwiek: bool) -> str:
+def linia_dropu(sekcje: dict | None) -> str:
+    if not sekcje or sekcje.get("drop_ujecie") is None:
+        return "bez dropu"
+    return f"drop w {formatuj_liczbe(sekcje['drop_s'], 1)} s (ujęcie {sekcje['drop_ujecie']})"
+
+
+def podsumowanie_wzoru(
+    czas_s: float, liczba_ujec: int, srednia_s: float, tempo_bpm: float | None, ma_dzwiek: bool, sekcje: dict | None = None,
+) -> str:
     if not ma_dzwiek:
         rytm = "brak dźwięku, więc bez tempa"
     elif tempo_bpm is None:
@@ -79,7 +121,7 @@ def podsumowanie_wzoru(czas_s: float, liczba_ujec: int, srednia_s: float, tempo_
         rytm = f"tempo {formatuj_liczbe(tempo_bpm, 1)} BPM"
     return (
         f"Wzór przeanalizowany: {formatuj_liczbe(czas_s, 1)} s, ujęć {liczba_ujec}, "
-        f"średnia długość ujęcia {formatuj_liczbe(srednia_s, 2)} s, {rytm}."
+        f"średnia długość ujęcia {formatuj_liczbe(srednia_s, 2)} s, {rytm}, {linia_dropu(sekcje)}."
     )
 
 

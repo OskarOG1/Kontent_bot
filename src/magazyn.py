@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROZSZERZENIA_ZDJECIE = {"jpg", "jpeg", "png", "webp", "heic", "heif"}
 ROZSZERZENIA_KLIP = {"mp4", "mov", "m4v", "webm", "mkv", "gif"}
+ROZSZERZENIA_NAKLADEK = {"webm", "mov", "mp4", "png", "gif"}
 
 
 def teraz() -> datetime:
@@ -99,6 +100,24 @@ def lista_materialow(katalog_projektu: Path) -> list[dict]:
         wpisy.append({"plik": plik, "typ": typ, "message_id": int(dopasowanie.group(1))})
     wpisy.sort(key=lambda wpis: wpis["message_id"])
     return wpisy
+
+
+def plik_zasobu(katalog_danych: Path, rodzaj: str, wzor_id: str) -> Path | None:
+    katalog = Path(katalog_danych) / rodzaj
+    if not katalog.is_dir():
+        return None
+    rozszerzenia = ROZSZERZENIA_NAKLADEK if rodzaj == "nakladki" else ROZSZERZENIA_ZDJECIE | ROZSZERZENIA_KLIP
+
+    def najnowszy_dla(nazwa_bazowa: str) -> Path | None:
+        kandydaci = [
+            plik for plik in katalog.iterdir()
+            if plik.is_file() and plik.stem == nazwa_bazowa and plik.suffix.lstrip(".").lower() in rozszerzenia
+        ]
+        if not kandydaci:
+            return None
+        return max(kandydaci, key=lambda plik: plik.stat().st_mtime)
+
+    return najnowszy_dla(wzor_id) or najnowszy_dla("domyslna")
 
 
 def wczytaj_projekt(katalog_projektu: Path) -> dict:

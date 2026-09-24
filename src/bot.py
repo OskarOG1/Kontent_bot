@@ -12,7 +12,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
 from aiogram.exceptions import TelegramAPIError, TelegramEntityTooLarge
-from aiogram.filters import Command, StateFilter
+from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -23,6 +23,7 @@ import konfiguracja as konfiguracja_modul
 import kolejka as kolejka_modul
 import magazyn
 import music
+import render
 from konfiguracja import Konfiguracja
 
 log = logging.getLogger("bot")
@@ -41,6 +42,8 @@ SKRYPT_RENDERU = Path(__file__).resolve().parent / "render.py"
 
 class Stany(StatesGroup):
     czekam_na_wzor = State()
+    czekam_na_nakladke = State()
+    czekam_na_plansze = State()
     zbieram = State()
 
 
@@ -158,6 +161,8 @@ async def renderuj_w_tle(
     katalog_muzyki: Path,
     konf: Konfiguracja,
     zapowiedz: asyncio.Event,
+    nakladka: Path | None = None,
+    plansza: Path | None = None,
 ) -> None:
     await zapowiedz.wait()
     dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
@@ -167,15 +172,17 @@ async def renderuj_w_tle(
 
     limit_mb = efektywny_limit_wysylki_mb(konf)
     wynik_mp4 = katalog_projektu / "wynik.mp4"
-    wynik = await kolejka_modul.uruchom(
-        [
-            sys.executable, str(SKRYPT_RENDERU),
-            "--wzor", str(wzor_json), "--projekt", str(katalog_projektu),
-            "--muzyka", str(katalog_muzyki), "--wyjscie", str(wynik_mp4),
-            "--limit-mb", str(limit_mb),
-        ],
-        limit_s=LIMIT_RENDERU_S,
-    )
+    argumenty = [
+        sys.executable, str(SKRYPT_RENDERU),
+        "--wzor", str(wzor_json), "--projekt", str(katalog_projektu),
+        "--muzyka", str(katalog_muzyki), "--wyjscie", str(wynik_mp4),
+        "--limit-mb", str(limit_mb),
+    ]
+    if nakladka is not None:
+        argumenty += ["--nakladka", str(nakladka)]
+    if plansza is not None:
+        argumenty += ["--plansza", str(plansza)]
+    wynik = await kolejka_modul.uruchom(argumenty, limit_s=LIMIT_RENDERU_S)
     if wynik.przekroczono_czas or wynik.kod != 0:
         opis = "przekroczono limit czasu" if wynik.przekroczono_czas else (pierwsza_linia(wynik.stderr) or f"kod {wynik.kod}")
         dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
@@ -244,8 +251,12 @@ async def obsluz_cmd_gotowe(
         await message.answer(komunikaty.BRAK_MUZYKI)
         return
 
+    wzor_id = wzor_json.parent.name
+    nakladka = magazyn.plik_zasobu(konf.katalog_danych, "nakladki", wzor_id)
+    plansza = magazyn.plik_zasobu(konf.katalog_danych, "plansze", wzor_id)
+
     dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
-    dane_projektu["wzor_id"] = wzor_json.parent.name
+    dane_projektu["wzor_id"] = wzor_id
     dane_projektu["stan"] = "w_kolejce"
     magazyn.zapisz_projekt(katalog_projektu, dane_projektu)
 
@@ -259,7 +270,7 @@ async def obsluz_cmd_gotowe(
     zapowiedz = asyncio.Event()
 
     async def zadanie() -> None:
-        await renderuj_w_tle(message, katalog_projektu, wzor_json, katalog_muzyki, konf, zapowiedz)
+        await renderuj_w_tle(message, katalog_projektu, wzor_json, katalog_muzyki, konf, zapowiedz, nakladka, plansza)
 
     pozycja = await kolejka_obiekt.dodaj(zadanie)
     try:
@@ -302,6 +313,12 @@ async def obsluz_cmd_status(
         liczba_wzorow = sum(1 for katalog in katalog_wzorow.iterdir() if katalog.is_dir() and (katalog / "wzor.json").is_file())
     linie.append(komunikaty.status_kolejki(kolejka_obiekt.dlugosc(), liczba_wzorow))
     linie.append(komunikaty.status_muzyki(len(music.pliki_muzyki(konf.katalog_danych / "muzyka"))))
+    aktywny_wzor = magazyn.najnowszy_wzor(konf.katalog_danych)
+    if aktywny_wzor is not None:
+        wzor_id = aktywny_wzor.parent.name
+        ma_nakladke = magazyn.plik_zasobu(konf.katalog_danych, "nakladki", wzor_id) is not None
+        ma_plansze = magazyn.plik_zasobu(konf.katalog_danych, "plansze", wzor_id) is not None
+        linie.append(komunikaty.status_zasobow_wzoru(wzor_id, ma_nakladke, ma_plansze))
     await message.answer("\n".join(linie))
 
 
@@ -328,6 +345,7 @@ def podsumuj_wzor(dane: dict) -> str:
         zrodlo["czas_s"] / liczba_ujec,
         dane["tempo_bpm"],
         zrodlo["ma_dzwiek"],
+        dane.get("sekcje"),
     )
 
 
@@ -399,6 +417,104 @@ async def obsluz_wzor_plik(
 
 async def obsluz_wzor_niepoprawny(message: Message) -> None:
     await message.answer(komunikaty.WZOR_NIEPOPRAWNY_TYP)
+
+
+def usun_pliki_zasobu(katalog_danych: Path, rodzaj: str, wzor_id: str) -> None:
+    katalog = Path(katalog_danych) / rodzaj
+    if not katalog.is_dir():
+        return
+    for plik in katalog.glob(f"{wzor_id}.*"):
+        if plik.is_file():
+            plik.unlink()
+
+
+async def obsluz_cmd_nakladka(message: Message, state: FSMContext, konf: Konfiguracja, command: CommandObject) -> None:
+    wzor_json = magazyn.najnowszy_wzor(konf.katalog_danych)
+    if wzor_json is None:
+        await message.answer(komunikaty.BRAK_WZORU)
+        return
+    wzor_id = wzor_json.parent.name
+    if (command.args or "").strip() == "usun":
+        usun_pliki_zasobu(konf.katalog_danych, "nakladki", wzor_id)
+        await message.answer(komunikaty.NAKLADKA_USUNIETA)
+        return
+    await state.set_state(Stany.czekam_na_nakladke)
+    await state.update_data(wzor_id=wzor_id)
+    await message.answer(komunikaty.nakladka_prosba(wzor_id))
+
+
+async def obsluz_nakladka_niepoprawny_zalacznik(message: Message) -> None:
+    await message.answer(komunikaty.NAKLADKA_WYSLIJ_JAKO_PLIK)
+
+
+async def obsluz_nakladka_dokument(message: Message, state: FSMContext, konf: Konfiguracja) -> None:
+    dane_stanu = await state.get_data()
+    wzor_id = dane_stanu.get("wzor_id")
+    dokument = message.document
+    rozszerzenie = Path(dokument.file_name or "").suffix.lstrip(".").lower()
+    if rozszerzenie not in magazyn.ROZSZERZENIA_NAKLADEK:
+        await message.answer(komunikaty.NAKLADKA_NIEPOPRAWNY_TYP)
+        return
+
+    usun_pliki_zasobu(konf.katalog_danych, "nakladki", wzor_id)
+    cel = konf.katalog_danych / "nakladki" / f"{wzor_id}.{rozszerzenie}"
+    try:
+        await pobierz_plik(message.bot, dokument.file_id, cel)
+    except TelegramEntityTooLarge:
+        await message.answer(komunikaty.limit_rozmiaru(None, efektywny_limit_mb(konf)))
+        return
+    except Exception:
+        log.exception("pobieranie nakladki nie powiodlo sie, file_id=%s", dokument.file_id)
+        await message.answer(komunikaty.BLAD_POBIERANIA)
+        return
+
+    await state.clear()
+    tryb = render.tryb_nakladki(cel)
+    await message.answer(komunikaty.nakladka_zapisana(tryb))
+
+
+async def obsluz_cmd_plansza(message: Message, state: FSMContext, konf: Konfiguracja, command: CommandObject) -> None:
+    wzor_json = magazyn.najnowszy_wzor(konf.katalog_danych)
+    if wzor_json is None:
+        await message.answer(komunikaty.BRAK_WZORU)
+        return
+    wzor_id = wzor_json.parent.name
+    if (command.args or "").strip() == "usun":
+        usun_pliki_zasobu(konf.katalog_danych, "plansze", wzor_id)
+        await message.answer(komunikaty.PLANSZA_USUNIETA)
+        return
+    await state.set_state(Stany.czekam_na_plansze)
+    await state.update_data(wzor_id=wzor_id)
+    await message.answer(komunikaty.plansza_prosba(wzor_id))
+
+
+async def obsluz_plansza_niepoprawny_zalacznik(message: Message) -> None:
+    await message.answer(komunikaty.PLANSZA_NIEPOPRAWNY_TYP)
+
+
+async def obsluz_plansza_zalacznik(message: Message, state: FSMContext, konf: Konfiguracja) -> None:
+    dane_stanu = await state.get_data()
+    wzor_id = dane_stanu.get("wzor_id")
+    zalacznik = rozpoznaj_zalacznik(message)
+    if zalacznik is None:
+        await message.answer(komunikaty.PLANSZA_NIEPOPRAWNY_TYP)
+        return
+    _, rozszerzenie, file_id, _, _ = zalacznik
+
+    usun_pliki_zasobu(konf.katalog_danych, "plansze", wzor_id)
+    cel = konf.katalog_danych / "plansze" / f"{wzor_id}.{rozszerzenie}"
+    try:
+        await pobierz_plik(message.bot, file_id, cel)
+    except TelegramEntityTooLarge:
+        await message.answer(komunikaty.limit_rozmiaru(None, efektywny_limit_mb(konf)))
+        return
+    except Exception:
+        log.exception("pobieranie planszy nie powiodlo sie, file_id=%s", file_id)
+        await message.answer(komunikaty.BLAD_POBIERANIA)
+        return
+
+    await state.clear()
+    await message.answer(komunikaty.PLANSZA_ZAPISANA)
 
 
 async def obsluz_material(
@@ -475,12 +591,18 @@ def zbuduj_router() -> Router:
     router = Router()
     router.message.register(obsluz_start, Command("start"))
     router.message.register(obsluz_cmd_wzor, Command("wzor"))
+    router.message.register(obsluz_cmd_nakladka, Command("nakladka"))
+    router.message.register(obsluz_cmd_plansza, Command("plansza"))
     router.message.register(obsluz_cmd_nowy, Command("nowy"))
     router.message.register(obsluz_cmd_gotowe, Command("gotowe"))
     router.message.register(obsluz_cmd_anuluj, Command("anuluj"))
     router.message.register(obsluz_cmd_status, Command("status"))
     router.message.register(obsluz_wzor_plik, StateFilter(Stany.czekam_na_wzor), to_wideo)
     router.message.register(obsluz_wzor_niepoprawny, StateFilter(Stany.czekam_na_wzor))
+    router.message.register(obsluz_nakladka_dokument, StateFilter(Stany.czekam_na_nakladke), F.document)
+    router.message.register(obsluz_nakladka_niepoprawny_zalacznik, StateFilter(Stany.czekam_na_nakladke))
+    router.message.register(obsluz_plansza_zalacznik, StateFilter(Stany.czekam_na_plansze), to_material)
+    router.message.register(obsluz_plansza_niepoprawny_zalacznik, StateFilter(Stany.czekam_na_plansze))
     router.message.register(obsluz_material, StateFilter(Stany.zbieram), to_material)
     router.message.register(obsluz_tekst, StateFilter(Stany.zbieram), F.text)
     router.message.register(obsluz_plik_bez_stanu, to_material)
