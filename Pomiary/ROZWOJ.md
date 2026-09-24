@@ -53,6 +53,13 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-24 (test ręczny części 8: OOM przy montażu, limit pamięci podniesiony)
+- Test ręczny właściciela na Telegramie po wdrożeniu 8.5/8.6: `/gotowe` dało „Montaż nie powiódł się: kod -9” dwa razy z rzędu (14:47 i 14:54).
+- **Przyczyna (log serwera, `dmesg`):** `Memory cgroup out of memory: Killed process (python) anon-rss:2962848kB`. Proces `render.py` w kontenerze `bot` dobił do limitu `mem_limit: "3g"` z `docker-compose.yml` i został zabity SIGKILL. Serwer ma 7,6 GB RAM, w chwili zdarzenia wolne było 4,4 GB, więc to limit kontenera, nie brak pamięci na hoście.
+- **Dlaczego dopiero teraz:** część 8 dokłada do jednego przebiegu ffmpeg dodatkowe strumienie (nakładka, znak wodny) obok materiałów właściciela, więc szczyt pamięci renderu wyraźnie wzrósł względem stanu z części 3/4, na którym limit 3 GB był dobrany.
+- **Decyzja właściciela:** podnieść limit. `docker-compose.yml`: `mem_limit` z `3g` na `5g` dla usługi `bot`. Wdrożone przez `wdroz.ps1` (zwykła ścieżka, nie ręczna zmiana na serwerze, żeby nie zgubić się przy następnym wdrożeniu).
+- Do obserwacji: czy 5 GB wystarczy przy większych materiałach (prawdziwe zdjęcia/klipy z telefonu bywają dużo cięższe niż próbki testowe); jeśli znowu kod -9, kolejny krok to zmierzenie realnego szczytu pamięci renderu (np. `docker stats` podczas testu), nie dalsze podnoszenie limitu na ślepo.
+
 ### 2026-09-24 (zadanie 8.5: cztery poprawki z odbioru)
 - **Analiza:** `PROG_DROPU = 0.1`, szukanie od uderzenia 8 (było od 4, próg 0,2). Test 1 zadania 8.1 przepisany na 150 BPM ze skokiem do 0,85 (zamiast 120 BPM/0,15), wynik około 0,15 średniej energii, przy starym progu dałby `None`. Testy 2 do 5 zadania 8.1 bez zmian. Commit `analiza: próg i przedział dropu`.
 - **`render.koniec_haka(plan, sekcje)`:** wydzielona z `okno_nakladki`, używana też jako start okna nakładki. Bez `sekcje` 40% `liczba_klatek` przyciągnięte do najbliższego początku ujęcia, z `sekcje.drop_ujecie` `klatka_od` pierwszego pasującego ujęcia, zawsze klamrowane do `[fps, liczba_klatek]`. Ten dolny klamer (co najmniej `fps`, czyli 1 s) dotyczy też `drop_ujecie: 0`: w testach z takim wzorem trzeba było przesunąć próbkowane klatki poza pierwszą sekundę, bo tam nakładka jeszcze nie wchodzi.
