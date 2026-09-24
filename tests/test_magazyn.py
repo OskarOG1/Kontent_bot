@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -118,3 +119,38 @@ def test_najnowszy_wzor_bez_wzorow(tmp_path):
     assert magazyn.najnowszy_wzor(tmp_path) is None
     (tmp_path / "wzory").mkdir()
     assert magazyn.najnowszy_wzor(tmp_path) is None
+
+
+def test_plik_zasobu_wzor_ma_pierwszenstwo_przed_domyslna(tmp_path):
+    katalog = tmp_path / "nakladki"
+    katalog.mkdir(parents=True)
+    (katalog / "domyslna.png").write_bytes(b"d")
+    wzoru = katalog / "w1.png"
+    wzoru.write_bytes(b"w")
+    assert magazyn.plik_zasobu(tmp_path, "nakladki", "w1") == wzoru
+
+
+def test_plik_zasobu_dwa_rozszerzenia_wygrywa_nowszy(tmp_path):
+    katalog = tmp_path / "nakladki"
+    katalog.mkdir(parents=True)
+    starszy = katalog / "w1.png"
+    starszy.write_bytes(b"a")
+    nowszy = katalog / "w1.mp4"
+    nowszy.write_bytes(b"b")
+    czas = starszy.stat().st_mtime
+    os.utime(nowszy, (czas + 10, czas + 10))
+    assert magazyn.plik_zasobu(tmp_path, "nakladki", "w1") == nowszy
+
+
+def test_plik_zasobu_bez_plikow_zwraca_none(tmp_path):
+    assert magazyn.plik_zasobu(tmp_path, "nakladki", "w1") is None
+    (tmp_path / "nakladki").mkdir()
+    assert magazyn.plik_zasobu(tmp_path, "nakladki", "w1") is None
+
+
+def test_plik_zasobu_uzywa_domyslna_gdy_brak_pliku_wzoru(tmp_path):
+    katalog = tmp_path / "plansze"
+    katalog.mkdir(parents=True)
+    domyslna = katalog / "domyslna.jpg"
+    domyslna.write_bytes(b"d")
+    assert magazyn.plik_zasobu(tmp_path, "plansze", "w1") == domyslna

@@ -10,6 +10,7 @@ from aiogram.fsm.storage.base import StorageKey
 from aiogram.types import File
 
 import bot
+import generuj
 import kolejka
 import magazyn
 from konfiguracja import Konfiguracja
@@ -739,3 +740,165 @@ async def test_status_nie_liczy_katalogu_bez_wzor_json(srodowisko):
 
     await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/status")))
     assert "wzorów zapisanych: 1" in teksty_odpowiedzi(sesja)[-1]
+
+
+async def test_nakladka_bez_wzoru_daje_brak_wzoru(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nakladka")))
+    assert teksty_odpowiedzi(sesja)[-1] == "Najpierw wyślij wzór przez /wzor."
+
+
+async def test_plansza_bez_wzoru_daje_brak_wzoru(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/plansza")))
+    assert teksty_odpowiedzi(sesja)[-1] == "Najpierw wyślij wzór przez /wzor."
+
+
+async def test_nakladka_png_zapisuje_plik_i_podaje_tryb_drugi_zastepuje_pierwszy(srodowisko, tmp_path):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    przygotuj_wzor_i_utwor(konf)
+
+    prawdziwy_png = tmp_path / "n.png"
+    generuj.nakladka_testowa(prawdziwy_png, 0.5, "png")
+    sesja.tresc_pliku = prawdziwy_png.read_bytes()
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nakladka")))
+    wiadomosc = zbuduj_wiadomosc(document=dokument("f_nak", "u_nak", nazwa="n.png", file_size=1000))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+
+    zapisany = konf.katalog_danych / "nakladki" / "w1.png"
+    assert zapisany.exists()
+    assert teksty_odpowiedzi(sesja)[-1] == "Nakładka zapisana: przezroczystość."
+
+    inny_png = tmp_path / "n2.png"
+    generuj.nakladka_testowa(inny_png, 0.5, "png")
+    sesja.tresc_pliku = inny_png.read_bytes()
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nakladka")))
+    wiadomosc2 = zbuduj_wiadomosc(document=dokument("f_nak2", "u_nak2", nazwa="n2.png", file_size=1000))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc2))
+
+    pliki = list((konf.katalog_danych / "nakladki").glob("w1.*"))
+    assert len(pliki) == 1
+
+
+async def test_nakladka_usun_usuwa_plik(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    przygotuj_wzor_i_utwor(konf)
+    katalog = konf.katalog_danych / "nakladki"
+    katalog.mkdir(parents=True)
+    (katalog / "w1.png").write_bytes(b"x")
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nakladka usun")))
+
+    assert not (katalog / "w1.png").exists()
+    assert teksty_odpowiedzi(sesja)[-1] == "Nakładka usunięta."
+
+
+async def test_nakladka_zdjecie_daje_prosbe_o_plik(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    przygotuj_wzor_i_utwor(konf)
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nakladka")))
+    wiadomosc = zbuduj_wiadomosc(photo=zdjecie("f_p", "u_p", file_size=1000))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+    assert "jako plik" in teksty_odpowiedzi(sesja)[-1]
+    assert not (konf.katalog_danych / "nakladki").exists()
+
+
+async def test_plansza_przyjmuje_zdjecie(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    przygotuj_wzor_i_utwor(konf)
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/plansza")))
+    wiadomosc = zbuduj_wiadomosc(photo=zdjecie("f_p", "u_p", file_size=1000))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+    zapisany = konf.katalog_danych / "plansze" / "w1.jpg"
+    assert zapisany.exists()
+    assert teksty_odpowiedzi(sesja)[-1] == "Plansza zapisana."
+
+
+async def test_render_dostaje_nakladke_i_plansze_gdy_sa_pliki(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+    katalog_nakladek = konf.katalog_danych / "nakladki"
+    katalog_nakladek.mkdir(parents=True)
+    (katalog_nakladek / "w1.png").write_bytes(b"x")
+    katalog_plansz = konf.katalog_danych / "plansze"
+    katalog_plansz.mkdir(parents=True)
+    (katalog_plansz / "w1.jpg").write_bytes(b"y")
+
+    wywolania = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    argumenty = wywolania[0]
+    assert Path(argumenty[argumenty.index("--nakladka") + 1]) == katalog_nakladek / "w1.png"
+    assert Path(argumenty[argumenty.index("--plansza") + 1]) == katalog_plansz / "w1.jpg"
+
+
+async def test_render_bez_plikow_bez_argumentow_nakladki_i_planszy(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+
+    wywolania = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    argumenty = wywolania[0]
+    assert "--nakladka" not in argumenty
+    assert "--plansza" not in argumenty
+
+
+async def test_podsumowanie_wzoru_z_dropem_zawiera_drop_w(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        sciezka = Path(argumenty[3])
+        wzor_przygotowany(sciezka)
+        dane = json.loads(sciezka.read_text(encoding="utf-8"))
+        dane["sekcje"] = {"drop_s": 7.3, "drop_ujecie": 9, "koniec_haka_uderzenia": 19.75}
+        sciezka.write_text(json.dumps(dane), encoding="utf-8")
+        return kolejka.Wynik(kod=0, stdout="", stderr="", czas_s=0.1, przekroczono_czas=False)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_wzor(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    assert "drop w 7,3 s (ujęcie 9)" in teksty_odpowiedzi(sesja)[-1]
+
+
+async def test_podsumowanie_wzoru_bez_dropu(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wzor_przygotowany(Path(argumenty[3]))
+        return kolejka.Wynik(kod=0, stdout="", stderr="", czas_s=0.1, przekroczono_czas=False)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_wzor(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    assert "bez dropu" in teksty_odpowiedzi(sesja)[-1]
+
+
+async def test_status_pokazuje_nakladke_i_plansze(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    przygotuj_wzor_i_utwor(konf)
+    katalog_nakladek = konf.katalog_danych / "nakladki"
+    katalog_nakladek.mkdir(parents=True)
+    (katalog_nakladek / "w1.png").write_bytes(b"x")
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/status")))
+    ostatnia = teksty_odpowiedzi(sesja)[-1]
+    assert "nakładka tak" in ostatnia
+    assert "plansza nie" in ostatnia
