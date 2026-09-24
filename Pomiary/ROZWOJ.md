@@ -58,6 +58,12 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-24 (scalenie i wdrożenie części 5)
+- PR #12 (`kolor` → `main`) scalony na GitHubie (`a4a9751`, merge commit). Lokalny `main` zaktualizowany (fast-forward).
+- `wdroz.ps1 -Serwer root@46.62.151.181`: oba obrazy przebudowane, kontenery `bot` i `bot-api` odtworzone i wstały, bot loguje `Start polling` jako `@cwel54_bot`.
+- `docker compose exec bot python src/analyze.py --wszystkie`: `Przeliczone: 1, pominiete: 0, bledy: 0` w 94,8 s (limit `LIMIT_ANALIZY_S` 300 s, próg podniesienia 240 s nieprzekroczony, limit zostaje). Jedyny wzór na serwerze (`20260923_143107`) ma teraz `wersja: 4`, `kolorystyka` i `sekcje` niepuste.
+- Zostaje właścicielowi: ewentualne `SILA_KOLORU` w `.env` serwera (domyślne 0,6 obowiązuje bez zmian) i test ręczny (`--sila-koloru 0` i `0.6` na tym samym projekcie, ocena haka/montażu/czapek na czarnym tle).
+
 ### 2026-09-24 (zadanie 5.5: poprawki z odbioru, gałąź `kolor`)
 - `src/render.py`:
   - `statystyki_klipu` dostała `czas_klipu_s` i próbkuje z `min(dlugosc_s, czas_klipu_s - start_s)` zamiast z `dlugosc_s` wprost. Każda z trzech klatek (25/50/75%) idzie przez nowy `probuj_klatke_klipu`, który łapie `RuntimeError` z `uruchom_ffmpeg` i brak pliku, i po prostu pomija tę klatkę zamiast wywalać `Image.open`. Gdy żadna z trzech nie wyjdzie, próbuje ostatniej klatki klipu (`-sseof -0.1`, to samo skalowanie). Gdy i to zawiedzie, zwraca `None` zamiast rzucać.
