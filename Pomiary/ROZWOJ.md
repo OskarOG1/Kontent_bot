@@ -12,8 +12,9 @@ Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym
 | 3 render | scalona w PR #4, testy 116 z 116, pomiar A i B w progach (100% granic, mediana 8 ms; B 36,5 MB). Pomiar C tylko ręcznie zweryfikowany kodem, bez arkuszy PNG. Odbiór 2026-09-23 (Opus): OK. Test ręczny 2026-09-23: montaż odrzucony przez weryfikację długości (dźwięk ucięty przez `atrim`+`-shortest`), naprawa w zadaniu 3.7 (przycinanie opcjami wejścia, wymuszona długość wyjścia), wdrożona na serwer, powtórzona na projekcie `20260923_163553`: 32,0 s obraz i dźwięk zgodnie. Właściciel potwierdził wynik. Część 3 zamknięta, naprawa scalona w PR #5 |
 | 4 muzyka | kod gotowy na gałęzi `muzyka`, 2026-09-23. Testy 144 z 144, pomiar A/B/C w progach, arkusze D powstały. Tryb `dzwiek_wzoru` wyłączony decyzją właściciela (dziennik zadania 4.2 i 4.4): `wybierz_utwor` zawsze idzie po tempie. Scalona w PR #7 (`dc46f0b`) bez odbioru oceniającego. Zadanie 4.5 (pamięć analizy utworu) wykonane 2026-09-24 na gałęzi `pamiec`: testy 189 z 189, pomiar A i B w progach (szczyt analizy najdłuższego utworu 727,9 MB, szczyt renderu 737,5 MB). Wdrożona 2026-09-24. Test na serwerze: montaż z pustym indeksem (6 utworów do przeliczenia) kończy się kodem 0 w 190 s, szczyt renderu 981 MB, szczyt kontenera 1567 MB przy limicie 5 GB (wcześniej kod -9 przy 2,96 GB) |
 | 8 nakładka | scalona w PR #9 i #10 (2026-09-24), wdrożona. Testy 187 z 187 (190 s). Odbiór ponowny 2026-09-24 (Opus): OK. Pomiar A 5 z 5 wzorów w granicy 0,5 s (maks 0,1 s), arkusze C poprawne (hak czysty, nakładka od dropu, plansza bez nakładki i bez znaku, znak wodny jak w `0914`). Pomiar B niewiarygodny (narzut ujemny), zasada czasu procesora dopisana do bloku WSPÓLNE. Test ręczny: kod -9 przez brak pamięci w analizie utworów z części 4, nie przez nakładkę (znany problem 9) |
-| 5 kolor | kod gotowy na gałęzi `kolor`, 2026-09-24. Testy 214 z 214 (225 s). Pomiar A i B w progach (ΔE przy sile 0,6 mniejsze niż przy 0 w każdej sekcji wszystkich 5 prawdziwych wzorów), arkusze C (15) powstały. Narzut renderu 44 do 112% (bez ustalonego progu, do decyzji właściciela). Czas próbkowania „niepewny" (rozrzut przebiegów bazowych nad progiem 20%, na jednym, największym wzorze). Odbiór 2026-09-24 (Opus): poprawki w zadaniu 5.5 (klip krótszy od ujęcia wywraca montaż, wzór z jednym ujęciem, ciche nieudane próbkowanie). Siła domyślna 0,6 potwierdzona na arkuszach. Bez wdrożenia |
-| 6, 9 | plany przepisane 2026-09-23 po przeglądzie wzorów (9 nowy), kod nie ruszony. Kolejność po części 5: 6, 9 |
+| 5 kolor | kod gotowy na gałęzi `kolor`, 2026-09-24. Testy 214 z 214 (225 s). Pomiar A i B w progach (ΔE przy sile 0,6 mniejsze niż przy 0 w każdej sekcji wszystkich 5 prawdziwych wzorów), arkusze C (15) powstały. Narzut renderu 44 do 112% (bez ustalonego progu, do decyzji właściciela). Czas próbkowania „niepewny" (rozrzut przebiegów bazowych nad progiem 20%, na jednym, największym wzorze). Odbiór 2026-09-24 (Opus): poprawki w zadaniu 5.5 (klip krótszy od ujęcia wywraca montaż, wzór z jednym ujęciem, ciche nieudane próbkowanie). Siła domyślna 0,6 potwierdzona na arkuszach. Bez wdrożenia. Scalona w PR #12, wdrożona 2026-09-24. Zadanie 5.6 (niebo bez przebarwienia) scalone w PR #13 i wdrożone 2026-09-25, pełny pomiar po nim zaliczony |
+| 9 fabryka | zadanie 9.5 (nakładka z kryciem, pierścień w całości w kadrze) scalone w PR #14 i wdrożone 2026-09-25, odbiór OK. Reszta części 9 do zrobienia |
+| 6 tekst | plan poprawiony 2026-09-25, kod nie ruszony. Następna w kolejce |
 
 Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`). Wdrożenie na serwer nadal przez `wdroz.ps1` (część 7).
 
@@ -59,6 +60,42 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 - Wyniki (`outputs/`), dane (`dane/`) i `.env` są poza gitem. Katalog `Pomiary/` od 2026-09-23 jest w repozytorium (decyzja właściciela), więc zmiany planów i dziennika trzeba commitować.
 
 ## Dziennik
+
+### 2026-09-25 (wdrożenie 5.6 i 9.5, test lokalny, pełny pomiar koloru, Opus)
+- **Scalenie i wdrożenie:**
+  - PR #13 (5.6, niebo) i PR #14 (9.5, nakładka z kryciem) scalone przez właściciela na GitHubie; `main` na `6792b6d`;
+  - `wdroz.ps1 -Serwer root@46.62.151.181`: obraz `bot` przebudowany, oba kontenery odtworzone, bot loguje `Start polling` jako `@cwel54_bot`;
+  - w kontenerze jest `ochrona_jasnych` w `src/kolor.py` i `KRYCIE_NAKLADKI` w `src/render.py`. Bez `analyze.py --wszystkie`, bo `wzor.json` się nie zmienia;
+  - pierwsze uruchomienie `wdroz.ps1` z `2>&1` padło na `NativeCommandError` (PowerShell 5.1 traktuje stderr `git fetch` jako błąd). Bez przekierowania przeszło.
+- **Test lokalny zamiast ręcznego na Telegramie** (właściciel poprosił, żebym sprawdził sam):
+  - projekt odtworzony lokalnie 1:1 z `20260924_145749` z serwera: 21 zdjęć i 3 nagrania dopasowane po rozmiarach plików, wzór `outputs/wzor_0915.json` (szablon serwera to `0915`), pierścień `dane/zdjęcia/European_stars.png` (ten sam plik co nakładka wzoru na serwerze), plansza i znak z `dane/promocyjne/`, siła 0,6;
+  - pierścień (tryb `alfa`): cały, na środku kadru, od dropu 7,27 s do planszy 31,1 s. Plansza bez nakładki i bez znaku, wynik 32,0 s;
+  - niebo na prawdziwym zdjęciu tłumu z flagami (`bfeb2392…`, to ono było w zgłoszeniu): zmiana barwy jasnych partii (L > 70) wobec oryginału spadła z 18,2 do 5,0. Niebo zostaje ciepłe jak w oryginale (a/b 5,6; 13,7 → 5,5; 8,6), bez różu. Ściana „We are Europe” biała;
+  - flaga (tryb `krycie`, jak po `/nakladka usun`): działa, ale przy wzorze `0915` montaż robi się mocno niebieski. Symulacja na tych samych klatkach przy kryciu 40% i 30% zmienia niewiele, bo niebieski daje głównie cel koloru montażu `0915` (fioletowy granat). Właściciel: „klatki się szybko zmieniają, tego nie będzie widać”, zostaje 50%.
+- **Pełny pomiar koloru po 5.6** (`outputs/pomiar_kolor.json`, WYNIK: ZALICZONE, wznowiony z pliku częściowego po przerwaniu w nocy):
+  - ΔE (hak / montaż) na 5 wzorach:
+
+    | Wzór | Siła 0 | 0,6 | 1,0 |
+    |---|---|---|---|
+    | `0914` | 34,7 / 34,8 | 20,6 / 14,3 | 15,6 / 2,4 |
+    | `0915` | 39,7 / 33,9 | 23,8 / 14,6 | 18,1 / 6,6 |
+    | `0921` | 48,7 / 18,4 | 30,1 / 8,3 | 22,4 / 1,7 |
+    | `0922` | 37,0 / 36,1 | 22,2 / 15,4 | 16,0 / 3,9 |
+    | `0923` | 45,5 / 26,8 | 26,1 / 11,2 | 19,3 / 3,6 |
+
+  - próg „0,6 lepsze niż 0 w każdej sekcji” spełniony. Hak przy 0,6 ma ΔE wyższe niż przed 5.6 (było 13,6 do 19,4), bo jasne partie (skóra, niebo) nie dostają już pełnego odcienia ciepłego celu. Montaż prawie bez zmian (było 7,6 do 14,4). To zamierzony koszt poprawki;
+  - sekcja D bez zmian wobec osobnego uruchomienia (chroma jasnych: tłum 14,45 → 2,03, ściana 9,43 → 0,76, mgła 13,09 → 6,96);
+  - czas: narzut renderu 51 do 152%, a czas analizy „niepewny” (rozrzut bazowych 43%). Liczby zafałszowane równoległymi renderami testu lokalnego, a czas i tak nie jest progiem (decyzja właściciela).
+- **Plan 6 poprawiony przed startem:** próg „narzut poniżej 30%” zamieniony na sam raport, `fonttools` dopisywany do `requirements.txt` (nie było go w żadnym pliku wymagań), w „Stan wejściowy” dopisany stan `main` po częściach 5, 5.6 i 9.5.
+
+### 2026-09-25 (zadanie 6.1: czcionki i obraz napisu, gałąź `tekst`, Sonnet)
+- Gałąź `tekst` utworzona od `main` (część 8 i 5 scalone, zadanie 9.5 też).
+- `src/tekst.py`: `PRESETY` (`szeryf`: Libre Baskerville Bold z cieniem, `blok`: Anton z obrysem, wersaliki), `znaki_czcionki`, `oczysc`, `obraz_tekstu`. Wagę na czcionkach zmiennych (Libre Baskerville, Noto Serif, Oswald) ustawia `set_variation_by_axes` po osi `Weight` (Pillow zwraca oś jako `{"name": b"Weight", ...}`, nie `"axis"`). Anton jest statyczny, bez wagi.
+- Czcionki pobrane z `google/fonts` (gałąź `main`, katalog `ofl/`) do `zasoby/czcionki/<rodzina>/` razem z `OFL.txt`: `librebaskerville`, `notoserif`, `anton`, `oswald`. Wszystkie cztery mają komplet polskich znaków (`ąćęłńóśźżĄĆĘŁŃÓŚŹŻ`), więc zapasowe czcionki (Noto Serif, Oswald) w praktyce się nie uruchamiają, tylko kod je przewiduje.
+- `fonttools` dopisany do `requirements.txt` (nie testowego), przypięty na `4.66.0`, bo `znaki_czcionki` jest częścią `src/`, a nie tylko testów czy pomiarów.
+- Dopasowanie długiego słowa do strefy bezpiecznej liczy margines na cień (przesunięcie razy 3, bo rozmycie Gaussa rozlewa się też w bok) i obrys, odejmuje go od szerokości strefy przed łamaniem i doborem rozmiaru czcionki: bez tego rozmyty cień wychodził poza strefę nawet gdy sam tekst się mieścił.
+- Testy `tests/test_tekst.py` (+11, nowy plik): komplet polskich znaków w obu presetach, obraz niepusty przy znakach specjalnych, długie słowo w strefie, wszystkie pozycje i presety w strefie, `oczysc` usuwa emoji, `szeryf` zachowuje wielkość liter a `blok` wymusza wersaliki (porównanie pikseli obrazu małych i wielkich liter). `python -m pytest -q tests/test_tekst.py`: 11 z 11 w 1,5 s.
+- Commit `tekst: czcionki i obraz napisu`.
 
 ### 2026-09-25 (odbiór zadania 9.5: nakładka z kryciem, gałąź `krycie`, Opus)
 - **Werdykt: OK.** Kod Sonneta zgodny z kontraktem „Nakładka z kryciem” i „Skalowanie nakładki” z planu 9:
@@ -590,8 +627,8 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Następne kroki
 
-1. Zadanie 9.5: commit `render: nakładka z kryciem` na gałęzi `krycie`, PR, scalenie, `wdroz.ps1`. Na serwerze przy wzorze `20260923_143107` dalej wygrywa pierścień (teraz cały, na środku kadru), a flagę da dopiero `/nakladka usun`.
-2. Wynik wznowionego pełnego pomiaru koloru (zadanie 5.6) do dziennika. Wdrożenie 5.6 razem z 9.5, potem test ręczny nieba przy sile 0,6.
-3. Część 6 (napisy w haku), potem 9.1 do 9.4 oraz 9.6 do 9.8. Od właściciela: teksty haków i akceptacja czcionki na arkuszu.
-4. Przy okazji wdrożenia: `docker stats` w trakcie montażu. Gdy szczyt zostaje poniżej 2 GB, limit pamięci wraca z 5g do 3g.
-5. Właściciel: własny znak wodny przez `/znak` (PNG z przezroczystością), jeśli ma być inny niż plik z `dane/promocyjne/`.
+1. Część 6 (napisy w haku) na gałęzi `tekst` od `main`, zadania 6.1 do 6.4. Od właściciela: akceptacja czcionki na `outputs/tekst.png` i 2–3 linie tekstu (jedna z emoji) do testu ręcznego.
+2. Po części 6: 9.6 do 9.8 (słowa w rytmie, napis pionowy, pomiar ze sloganem), potem 9.1 do 9.4 (restart, biblioteka wzorów, warianty).
+3. Przy okazji wdrożenia: `docker stats` w trakcie montażu. Gdy szczyt zostaje poniżej 2 GB, limit pamięci wraca z 5g do 3g.
+4. Właściciel: własny znak wodny przez `/znak` (PNG z przezroczystością), jeśli ma być inny niż plik z `dane/promocyjne/`; pliki `scratch_*` z katalogu głównego repo do usunięcia.
+5. Pomysły na później, bez planu: długość nakładki brana ze wzoru (w `0923` flaga trwa około 2 s po dropie); krycie flagi niżej niż 50%, jeśli na telefonie wyjdzie za ciężko.

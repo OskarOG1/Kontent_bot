@@ -7,3 +7,4 @@ numpy==2.5.3
 soundfile==0.14.0
 pillow==12.3.0
 pillow-heif==1.8.0
+fonttools==4.66.0
