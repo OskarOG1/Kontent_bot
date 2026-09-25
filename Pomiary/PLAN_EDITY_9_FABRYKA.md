@@ -4,6 +4,12 @@
 **Zadania 9.5 do 9.8 (dopisane 2026-09-24):**
 - 9.5 (nakładka z kryciem) wymaga tylko części 8. Można ją zrobić zaraz po scaleniu części 8, na własnej gałęzi `krycie`, przed częściami 5 i 6;
 - 9.6 i 9.7 (napisy w rytmie) wymagają części 6, czyli modułu `tekst`, `tekst.oczysc`, `tekst.PRESETY` i czcionek w `zasoby/`.
+- Kolejność od 2026-09-25: po scaleniu części 6 idą najpierw 9.6 do 9.8 na własnej gałęzi `rytm` od `main`, z osobnym PR-em (prompt niżej). Potem 9.1 do 9.4 na gałęzi `fabryka`.
+
+Prompt startowy dla 9.6 do 9.8:
+```text
+Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania 9.6, 9.7 i 9.8 z Pomiary/PLAN_EDITY_9_FABRYKA.md na gałęzi `rytm` od aktualnego `main` (przed startem `git pull`), zaczynając od „Stan wejściowy”. Zadania 9.1 do 9.5 pomiń. Na starcie przeczytaj Pomiary/ROZWOJ.md i dopisuj do niego po każdym zadaniu. Otwieraj tylko pliki wymienione w zadaniu. Po każdym zadaniu uruchom jego weryfikację i zrób commit o nazwie podanej w zadaniu. Pliki robocze trzymaj poza repo. Na koniec zdaj krótki raport.
+```
 
 **Gałąź:** `fabryka` od `main` po scaleniu poprzednich części.
 **Efekt:**
@@ -71,6 +77,7 @@ Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania z Pomiary/PLAN_EDITY
 
 ## Stan wejściowy
 `main` zawiera commity `bot: muzyka z biblioteki` (część 4) i `bot: nakładka i plansza wzoru` (część 8), a `python -m pytest -q` przechodzi. Zanotuj w `ROZWOJ.md`, czy są już części 5 i 6 oraz commit `render: nakładka z kryciem` (zadanie 9.5 zrobione wcześniej na gałęzi `krycie`, wtedy je pomiń). Bez części 6 wykonaj 9.1 do 9.5, a 9.6 do 9.8 odłóż. Utwórz gałąź `fabryka` od `main`. Inaczej zatrzymaj się i zapytaj.
+Stan na 2026-09-25: `main` ma części 4, 8, 5 (z 5.5 i 5.6) i zadanie 9.5, a część 6 jest po odbiorze na gałęzi `tekst` i po scaleniu będzie w `main` (commit `tekst: poprawki po odbiorze`). Zadania 9.6 do 9.8 idą na gałęzi `rytm`, a nie `fabryka` (patrz nagłówek). Jeśli `main` nie ma commita `tekst: poprawki po odbiorze`, zatrzymaj się i zapytaj.
 
 ## Kontrakt z wcześniejszych części
 Numery linii z `57ba8fe`, więc szukaj po nazwach.
@@ -94,6 +101,11 @@ Numery linii z `57ba8fe`, więc szukaj po nazwach.
   - `renderuj` tworzy `praca/` przez `mkdir(exist_ok=True)`, więc pozostałości przerwanego przebiegu zostają;
   - `wstawki` (140) układa kawałki rundami w kolejności materiałów.
 - `tests/pomocnicze.py`: `SesjaTestowa` (95) obsługuje `SendMessage`, `SendDocument` i `GetFile`; `zbuduj_wiadomosc` (38), `zbuduj_update` (49).
+- Część 6 (napisy w haku, stan z gałęzi `tekst`):
+  - `src/tekst.py`: `PRESETY` (`szeryf`, `blok`), `POZYCJE`, `STREFA_BEZPIECZNA`, `znaki_czcionki`, `oczysc`, `wybierz_czcionke`, `obraz_tekstu(tekst, szerokosc, wysokosc, styl, dolna_granica=None)`, `okna_tekstow(liczba_linii, plan, koniec_haka_klatka)`;
+  - `src/render.py`: `koniec_haka(plan, sekcje)`, `wczytaj_linie_tekstu`, `materializuj_tekst` (obraz do pliku `webm` VP9 z alfą, z dokładną liczbą klatek okna), `przygotuj_teksty(...)` zwraca listę `{plik, od_s, do_s}` i podsumowanie `teksty`;
+  - `przebieg_koncowy(..., teksty=)`: napisy po nakładce, a przed znakiem wodnym, każdy jako wejście `-c:v libvpx-vp9 -i`, z przenikaniem 4 klatek;
+  - konfiguracja `STYL_TEKSTU` i `POZYCJA_TEKSTU`, CLI `--styl-tekstu` i `--pozycja-tekstu`.
 
 ## Kontrakty ustalane w tej części
 
@@ -157,6 +169,7 @@ Numery linii z `57ba8fe`, więc szukaj po nazwach.
   - w trybie `dzwiek_wzoru` biorą się uderzenia wzoru minus pierwsze cięcie;
   - bez uderzeń (`bez_rytmu`) siatka co `round(fps / 2)` klatek.
 - Każda warstwa to jeden klip RGBA na cały kadr (`praca/slowa.mov`, `praca/pionowo.mov`, kodek `png`). Klatki rysuje PIL i podaje przez stdin ffmpeg. W przebiegu końcowym warstwa to jedno wejście z `setpts` na swój początek i `overlay`.
+- Klip warstwy ma dokładnie tyle klatek, ile trwa jej okno. Nigdy nie podawaj obrazu przez `-loop 1 -t`: takie wejście, które kończy się dużo przed końcem wyniku (tu na dropie), zawiesza przebieg końcowy na prawdziwym materiale bez błędu (znany problem 12 w `ROZWOJ.md`; napisy z części 6 przeszły z tego powodu na pliki `webm`). Testy na materiale syntetycznym tego nie łapią, łapie to dopiero pomiar 9.8.
 - Kolejność warstw: materiał, nakładka, napisy linii (część 6), słowa w rytmie, napis pionowy, znak wodny (8.6).
 - Bez słów i bez napisu pionowego polecenie przebiegu końcowego się nie zmienia.
 - Warianty (9.3) i `/ponow` biorą te same napisy.
@@ -313,7 +326,7 @@ Katalog: C:\Dev\edity-bot. git pull na main, potem gałąź krycie. Wykonaj zada
   9. słowa i linie z części 6 razem: ostatnia linia kończy się na początku pierwszego słowa.
 - **Sonnet Prompt:**
 ```text
-Katalog: C:\Dev\edity-bot, gałąź fabryka. Wykonaj zadanie 9.6 z Pomiary/PLAN_EDITY_9_FABRYKA.md; otwórz src/tekst.py, src/render.py, src/bot.py, src/komunikaty.py, tests/generuj.py, tests/test_bot.py, nowy tests/test_rytm.py. Czcionki pobierz z repozytorium google/fonts z OFL.txt, ścieżki sprawdź. Weryfikacja: python -m pytest -q
+Katalog: C:\Dev\edity-bot, gałąź rytm. Wykonaj zadanie 9.6 z Pomiary/PLAN_EDITY_9_FABRYKA.md; otwórz src/tekst.py, src/render.py, src/bot.py, src/komunikaty.py, tests/generuj.py, tests/test_bot.py, nowy tests/test_rytm.py. Czcionki pobierz z repozytorium google/fonts z OFL.txt, ścieżki sprawdź. Weryfikacja: python -m pytest -q
 ```
 - **Commit:** `render i bot: słowa w rytmie`
 
@@ -337,7 +350,7 @@ Katalog: C:\Dev\edity-bot, gałąź fabryka. Wykonaj zadanie 9.6 z Pomiary/PLAN_
   4. bot: `/pionowo` zapisuje i czyści pole, a 41 znaków daje komunikat z limitem.
 - **Sonnet Prompt:**
 ```text
-Katalog: C:\Dev\edity-bot, gałąź fabryka. Wykonaj zadanie 9.7 z Pomiary/PLAN_EDITY_9_FABRYKA.md; otwórz src/tekst.py, src/render.py, src/bot.py, src/komunikaty.py, tests/test_rytm.py, tests/test_bot.py. Weryfikacja: python -m pytest -q
+Katalog: C:\Dev\edity-bot, gałąź rytm. Wykonaj zadanie 9.7 z Pomiary/PLAN_EDITY_9_FABRYKA.md; otwórz src/tekst.py, src/render.py, src/bot.py, src/komunikaty.py, tests/test_rytm.py, tests/test_bot.py. Weryfikacja: python -m pytest -q
 ```
 - **Commit:** `render i bot: napis pionowy`
 
@@ -347,24 +360,26 @@ Katalog: C:\Dev\edity-bot, gałąź fabryka. Wykonaj zadanie 9.7 z Pomiary/PLAN_
   - **Sekcja A:** dla każdego wzoru z `dane/wzory/*.mp4` render z muzyką z biblioteki:
     - odsetek słów zaczynających się na klatce uderzenia z `uderzenia_wyniku` (±1 klatka);
     - odległość początku akcentu od początku nakładki w uderzeniach.
-  - **Sekcja B:** narzut czasu przebiegu końcowego (1080x1920, 20 s) ze słowami i napisem pionowym wobec przebiegu bez nich, mediana z 3 przebiegów na przemian.
+  - **Sekcja B:** narzut czasu procesora przebiegu końcowego (1080x1920, 20 s) ze słowami i napisem pionowym wobec przebiegu bez nich (`-benchmark`, jak w `Pomiary/measure_tekst.py`).
+  - W całym pomiarze `render.uruchom_ffmpeg` podmieniony na wersję z limitem 900 s (jak `LIMIT_RENDERU_S` bota): zawieszony przebieg ma trafić do wyniku jako błąd wzoru, a pomiar ma iść dalej.
   - **Sekcja C:**
     - arkusze `outputs/porownanie_rytm_<wzor>.png`;
     - obraz `outputs/rytm_klatki.png`: klatki wyniku w chwilach słów obok klatek `0923` z 9,6, 10,3, 10,8, 11,1, 11,8 i 12,3 s, do porównania wyglądu.
 - **Constraints:** progi:
   - A: 100% słów na uderzeniu, a akcent najwyżej 1 uderzenie od nakładki;
-  - B: narzut najwyżej 30%;
+  - B: tylko raport (czas nie jest progiem, decyzja właściciela 2026-09-24);
+  - A i C: żaden render nie przekroczył limitu 900 s;
   - C: pliki powstały, a werdykt wydaje właściciel.
 - **Sonnet Prompt:**
 ```text
-Katalog: C:\Dev\edity-bot, gałąź fabryka. Wykonaj zadanie 9.8 z Pomiary/PLAN_EDITY_9_FABRYKA.md; otwórz src/render.py, src/tekst.py, Pomiary/arkusz.py, Pomiary/measure_nakladka.py jako wzór układu. Weryfikacja: python Pomiary/measure_rytm.py
+Katalog: C:\Dev\edity-bot, gałąź rytm. Wykonaj zadanie 9.8 z Pomiary/PLAN_EDITY_9_FABRYKA.md; otwórz src/render.py, src/tekst.py, Pomiary/arkusz.py, Pomiary/measure_nakladka.py jako wzór układu. Weryfikacja: python Pomiary/measure_rytm.py
 ```
 - **Commit:** `Pomiary: pomiar napisów w rytmie`
 
 ## Gotowe, gdy
 - `python -m pytest -q` przechodzi w całości.
 - Pomiar: A w progach, B zaraportowane, arkusze C powstały.
-- Pomiar napisów (9.8) w progach A i B, a arkusze C ocenione przez Ciebie. Zadanie 9.5 scalone osobnym PR-em.
+- Pomiar napisów (9.8): A w progach, B zaraportowane, arkusze C ocenione przez Ciebie. Zadania 9.5 i 9.6 do 9.8 scalone osobnymi PR-ami.
 - Test ręczny (Ty) na serwerze po `wdroz.ps1`:
   - `/gotowe` na projekcie, a w trakcie montażu `docker compose restart bot`: po starcie bot pisze o wznowieniu i odsyła wynik;
   - `/wzory`: wybór i usunięcie z potwierdzeniem;
@@ -378,9 +393,9 @@ Katalog: C:\Dev\edity-bot, gałąź fabryka. Wykonaj zadanie 9.8 z Pomiary/PLAN_
 3. `render i bot: warianty i partie`
 4. `Pomiary: pomiar fabryki`
 5. `render: nakładka z kryciem` (9.5, gałąź `krycie`)
-6. `render i bot: słowa w rytmie` (9.6)
-7. `render i bot: napis pionowy` (9.7)
-8. `Pomiary: pomiar napisów w rytmie` (9.8)
+6. `render i bot: słowa w rytmie` (9.6, gałąź `rytm`)
+7. `render i bot: napis pionowy` (9.7, gałąź `rytm`)
+8. `Pomiary: pomiar napisów w rytmie` (9.8, gałąź `rytm`)
 
 ## Odbiór (oceniający)
 ```text

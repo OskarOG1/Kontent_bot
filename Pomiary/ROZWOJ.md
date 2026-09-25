@@ -62,6 +62,14 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-25 (sprawdzenie poprawek części 6 i plan 9.6 do 9.8, Opus)
+- Poprawki po odbiorze części 6 (`tekst: poprawki po odbiorze`) zgodne z listą: podpis wspomina o usuniętych znakach także przy samych emoji, funkcje pomocnicze w testach bez `_`, test napisu nad znakiem wodnym w obu presetach. `tests/test_tekst.py` i `tests/test_bot.py`: 81 z 81, cały zestaw według Sonneta 254 z 254. Część 6 gotowa do PR po akceptacji czcionki.
+- `PLAN_EDITY_9_FABRYKA.md` uzupełniony przed 9.6 do 9.8:
+  - własna gałąź `rytm` i osobny PR, z własnym promptem startowym, przed 9.1 do 9.4;
+  - kontrakt z części 6 (`tekst`, `przygotuj_teksty`, `materializuj_tekst`, `przebieg_koncowy(..., teksty=)`);
+  - warstwy słów i napisu pionowego tylko jako klipy z dokładną liczbą klatek, nigdy `-loop 1 -t` (znany problem 12);
+  - pomiar 9.8 z limitem 900 s na każde wywołanie `ffmpeg`, narzut B tylko jako raport zamiast progu 30%.
+
 ### 2026-09-25 (poprawki po odbiorze części 6, gałąź `tekst`, Sonnet)
 - `src/komunikaty.py` (`linia_tekstow`): gdy wszystkie linie były samymi emoji (`linie: 0`, `usuniete_znaki` > 0), podpis teraz i tak dodaje wzmiankę o usuniętych znakach, bez zdania „Napisy: 0.”. Test w `tests/test_bot.py`: podsumowanie `{"linie": 0, "usuniete_znaki": 3}` daje w podpisie „Usunięte znaki bez czcionki: 3”, bez „Napisy:”.
 - `tests/test_tekst.py`: `_ramka_niezerowej_alfy` i `_w_strefie` przemianowane na `ramka_niezerowej_alfy` i `w_strefie` (reguła 3 WSPÓLNE, bez `_` na początku), import zmieniony na `import tekst` jak w pozostałych plikach testów.
@@ -685,8 +693,8 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Następne kroki
 
-1. Część 6: poprawki po odbiorze (dziennik 2026-09-25, odbiór części 6), akceptacja czcionki przez właściciela, PR, scalenie, `wdroz.ps1`, potem test ręczny z 2–3 liniami (jedna z emoji).
-2. Po części 6: 9.6 do 9.8 (słowa w rytmie, napis pionowy, pomiar ze sloganem), potem 9.1 do 9.4 (restart, biblioteka wzorów, warianty).
+1. Część 6: poprawki po odbiorze zrobione. Zostały: akceptacja czcionki przez właściciela, PR, scalenie, `wdroz.ps1`, potem test ręczny z 2–3 liniami (jedna z emoji).
+2. Po scaleniu części 6: 9.6 do 9.8 (słowa w rytmie, napis pionowy, pomiar ze sloganem) na gałęzi `rytm` z promptem z nagłówka `PLAN_EDITY_9_FABRYKA.md`, potem 9.1 do 9.4 (restart, biblioteka wzorów, warianty) na gałęzi `fabryka`.
 3. Przy okazji wdrożenia: `docker stats` w trakcie montażu. Gdy szczyt zostaje poniżej 2 GB, limit pamięci wraca z 5g do 3g.
 4. Właściciel: własny znak wodny przez `/znak` (PNG z przezroczystością), jeśli ma być inny niż plik z `dane/promocyjne/`; pliki `scratch_*` z katalogu głównego repo do usunięcia.
 5. Pomysły na później, bez planu: długość nakładki brana ze wzoru (w `0923` flaga trwa około 2 s po dropie); krycie flagi niżej niż 50%, jeśli na telefonie wyjdzie za ciężko.
