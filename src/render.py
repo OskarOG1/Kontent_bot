@@ -778,7 +778,10 @@ def przygotuj_slowa(
     koniec_haka_klatka = koniec_haka(plan, wzor.get("sekcje"))
     uderzenia = uderzenia_wyniku(uderzenia_utworu, start_audio_s, liczba_klatek_calosci, fps)
 
-    okna = tekst.okna_slow(len(slowa_surowe), uderzenia, koniec_haka_klatka, fps=fps, liczba_klatek_calosci=liczba_klatek_calosci)
+    try:
+        okna = tekst.okna_slow(len(slowa_surowe), uderzenia, koniec_haka_klatka, fps=fps, liczba_klatek_calosci=liczba_klatek_calosci)
+    except ValueError as blad:
+        return None, {"pominiete": str(blad)}
 
     poczatek_warstwy = okna[0][0]
     koniec_warstwy = okna[-1][1]
@@ -816,7 +819,10 @@ def przygotuj_pionowy(
         return None, None
 
     fps = plan["fps"]
-    poczatek, koniec_pisania, koniec_napisu = tekst.okno_pionowe(plan, len(tresc_surowa), fps, koniec)
+    try:
+        poczatek, koniec_pisania, koniec_napisu = tekst.okno_pionowe(plan, len(tresc_surowa), fps, koniec)
+    except ValueError as blad:
+        return None, {"pominiety": str(blad)}
     liczba_klatek_warstwy = koniec_napisu - poczatek
 
     def klatka_dla(indeks_lokalny: int):

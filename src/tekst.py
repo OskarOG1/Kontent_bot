@@ -19,7 +19,7 @@ PRESETY = {
         "zapasowa": KATALOG_CZCIONEK / "notoserif" / "NotoSerif.ttf",
         "waga_zapasowa": 700,
         "wersaliki": False,
-        "wysokosc_wersalika": 0.032,
+        "wysokosc_wersalika": 0.020,
         "cien": True,
         "obrys": False,
     },
@@ -29,7 +29,7 @@ PRESETY = {
         "zapasowa": KATALOG_CZCIONEK / "oswald" / "Oswald.ttf",
         "waga_zapasowa": 700,
         "wersaliki": True,
-        "wysokosc_wersalika": 0.04,
+        "wysokosc_wersalika": 0.026,
         "cien": False,
         "obrys": True,
     },
@@ -39,7 +39,7 @@ PRESETY = {
         "zapasowa": KATALOG_CZCIONEK / "kaushanscript" / "KaushanScript-Regular.ttf",
         "waga_zapasowa": None,
         "wersaliki": False,
-        "wysokosc_wersalika": 0.05,
+        "wysokosc_wersalika": 0.075,
         "cien": True,
         "obrys": True,
     },
@@ -91,10 +91,10 @@ def wybierz_czcionke(preset):
     return preset["zapasowa"], preset["waga_zapasowa"]
 
 
-def dopasuj_wysokosc(sciezka, waga, docelowa_wysokosc_px):
+def dopasuj_wysokosc(sciezka, waga, docelowa_wysokosc_px, znak_pomiaru="H"):
     rozmiar = max(int(docelowa_wysokosc_px * 1.4), 12)
     czcionka = wczytaj_czcionke(sciezka, rozmiar, waga)
-    bbox = czcionka.getbbox("AĄŻ")
+    bbox = czcionka.getbbox(znak_pomiaru)
     wysokosc = bbox[3] - bbox[1]
     if wysokosc > 0:
         rozmiar = max(int(rozmiar * docelowa_wysokosc_px / wysokosc), 12)
@@ -265,7 +265,7 @@ def obraz_slowa(tresc: str, szerokosc: int, wysokosc: int, skala: float = 1.0):
 
     sciezka_czcionki, waga = wybierz_czcionke(preset)
     docelowa_wysokosc = preset["wysokosc_wersalika"] * wysokosc * skala
-    czcionka = dopasuj_wysokosc(sciezka_czcionki, waga, docelowa_wysokosc)
+    czcionka = dopasuj_wysokosc(sciezka_czcionki, waga, docelowa_wysokosc, znak_pomiaru="x")
     szer = szerokosc_napisu(rysownik, tresc, czcionka)
     while szer > szerokosc_uzyteczna and czcionka.size > 4:
         czcionka = wczytaj_czcionke(sciezka_czcionki, czcionka.size - 1, waga)
@@ -379,20 +379,21 @@ def okno_pionowe(plan: dict, liczba_znakow: int, fps: float, koniec: int) -> tup
     plan_ujecia = plan["ujecia"]
     poczatki_ujec = sorted({ujecie["klatka_od"] for ujecie in plan_ujecia})
 
-    if len(poczatki_ujec) < 2:
-        raise ValueError("Za dużo znaków w napisie pionowym, najwyżej 0")
+    poczatek_preferowany = poczatki_ujec[1] if len(poczatki_ujec) > 1 else 0
+    if poczatek_preferowany + KROK_ZNAKOW_KLATKI * liczba_znakow + fps <= koniec:
+        poczatek = poczatek_preferowany
+    else:
+        poczatek = 0
 
-    poczatek = poczatki_ujec[1]
     koniec_pisania = poczatek + KROK_ZNAKOW_KLATKI * liczba_znakow
     minimalny_koniec = koniec_pisania + fps
 
-    kandydaci = [k for k in poczatki_ujec if k > minimalny_koniec]
-    if plan["liczba_klatek"] > minimalny_koniec:
-        kandydaci.append(plan["liczba_klatek"])
-    koniec_napisu = min(kandydaci) if kandydaci else minimalny_koniec
-
-    if koniec_napisu > koniec:
+    if minimalny_koniec > koniec:
         maks_znakow = max(int((koniec - poczatek - fps) // KROK_ZNAKOW_KLATKI), 0)
         raise ValueError(f"Za dużo znaków w napisie pionowym, najwyżej {maks_znakow}")
+
+    kandydaci = [k for k in poczatki_ujec if k > minimalny_koniec]
+    kandydaci.append(plan["liczba_klatek"])
+    koniec_napisu = min(min(kandydaci), koniec)
 
     return poczatek, koniec_pisania, koniec_napisu

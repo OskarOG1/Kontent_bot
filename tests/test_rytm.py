@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 import generuj
+import komunikaty
 import render
 import tekst
 from test_render import dekoduj_klatki, zbuduj_projekt
@@ -184,7 +185,34 @@ def test_okno_pionowe_geometria():
 def test_okno_pionowe_za_duzo_znakow_rzuca_blad_z_maksimum():
     plan = plan_syntetyczny()
     with pytest.raises(ValueError, match="0"):
-        tekst.okno_pionowe(plan, 40, 30, 60)
+        tekst.okno_pionowe(plan, 5, 30, 20)
+
+
+def test_okno_pionowe_startuje_od_zera_gdy_drugie_ujecie_za_pozno():
+    plan = plan_syntetyczny()
+    poczatek, koniec_pisania, koniec = tekst.okno_pionowe(plan, 40, 30, 130)
+    assert poczatek == 0
+    assert koniec_pisania == 80
+    assert koniec == 130
+
+
+def test_okno_pionowe_jedno_ujecie_w_haku_startuje_od_zera():
+    plan = plan_syntetyczny(poczatki=(0,))
+    poczatek, koniec_pisania, koniec = tekst.okno_pionowe(plan, 5, 30, 200)
+    assert poczatek == 0
+
+
+def test_okno_pionowe_liczba_z_komunikatu_przechodzi_a_o_1_wiecej_rzuca():
+    plan = plan_syntetyczny()
+    tekst.okno_pionowe(plan, 35, 30, 100)
+    with pytest.raises(ValueError, match="35"):
+        tekst.okno_pionowe(plan, 36, 30, 100)
+
+
+def test_okno_pionowe_konczy_sie_na_koniec_gdy_nastepne_ciecie_dalej():
+    plan = plan_syntetyczny(poczatki=(0, 30, 500))
+    poczatek, koniec_pisania, koniec = tekst.okno_pionowe(plan, 5, 30, 100)
+    assert koniec == 100
 
 
 def wzor_dlugi_do_pionowego():
@@ -248,3 +276,46 @@ def test_renderuj_slowa_i_linie_razem_linia_konczy_sie_na_pierwszym_slowie(tmp_p
     podsumowanie = render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50)
 
     assert podsumowanie["teksty"]["okna"][-1][1] == podsumowanie["slowa"]["okna"][0][0]
+
+
+def test_renderuj_za_duzo_slow_pomija_warstwe_i_nie_pada(tmp_path):
+    def dodaj(katalog):
+        for i in range(4):
+            generuj.zdjecie_testowe(katalog / f"000000000{i}_m.jpg", rozmiar=(800, 600), kolor=(20, 20, 20))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    zapisz_projekt_slowa(projekt, " ".join(f"slowo{i}" for i in range(12)))
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_prosty()), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=120, czas_s=6.0, pierwsze_uderzenie_s=0.0)
+    fps = 30
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50)
+
+    assert "pominiete" in podsumowanie["slowa"]
+    podpis = komunikaty.podsumowanie_renderu(podsumowanie)
+    assert "Słowa w rytmie pominięte" in podpis
+
+
+def test_renderuj_za_dlugi_pionowy_pomija_warstwe_i_nie_pada(tmp_path):
+    def dodaj(katalog):
+        for i in range(4):
+            generuj.zdjecie_testowe(katalog / f"000000000{i}_m.jpg", rozmiar=(800, 600), kolor=(20, 20, 20))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    dane = {"teksty": [], "pionowo": "a" * 40}
+    (projekt / "projekt.json").write_text(json.dumps(dane), encoding="utf-8")
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_prosty()), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=120, czas_s=6.0, pierwsze_uderzenie_s=0.0)
+    fps = 30
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50)
+
+    assert "pominiety" in podsumowanie["pionowo"]
+    podpis = komunikaty.podsumowanie_renderu(podsumowanie)
+    assert "Napis pionowy pominięty" in podpis
