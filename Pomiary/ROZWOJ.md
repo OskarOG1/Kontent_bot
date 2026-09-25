@@ -14,7 +14,7 @@ Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym
 | 8 nakładka | scalona w PR #9 i #10 (2026-09-24), wdrożona. Testy 187 z 187 (190 s). Odbiór ponowny 2026-09-24 (Opus): OK. Pomiar A 5 z 5 wzorów w granicy 0,5 s (maks 0,1 s), arkusze C poprawne (hak czysty, nakładka od dropu, plansza bez nakładki i bez znaku, znak wodny jak w `0914`). Pomiar B niewiarygodny (narzut ujemny), zasada czasu procesora dopisana do bloku WSPÓLNE. Test ręczny: kod -9 przez brak pamięci w analizie utworów z części 4, nie przez nakładkę (znany problem 9) |
 | 5 kolor | kod gotowy na gałęzi `kolor`, 2026-09-24. Testy 214 z 214 (225 s). Pomiar A i B w progach (ΔE przy sile 0,6 mniejsze niż przy 0 w każdej sekcji wszystkich 5 prawdziwych wzorów), arkusze C (15) powstały. Narzut renderu 44 do 112% (bez ustalonego progu, do decyzji właściciela). Czas próbkowania „niepewny" (rozrzut przebiegów bazowych nad progiem 20%, na jednym, największym wzorze). Odbiór 2026-09-24 (Opus): poprawki w zadaniu 5.5 (klip krótszy od ujęcia wywraca montaż, wzór z jednym ujęciem, ciche nieudane próbkowanie). Siła domyślna 0,6 potwierdzona na arkuszach. Bez wdrożenia. Scalona w PR #12, wdrożona 2026-09-24. Zadanie 5.6 (niebo bez przebarwienia) scalone w PR #13 i wdrożone 2026-09-25, pełny pomiar po nim zaliczony |
 | 9 fabryka | zadanie 9.5 (nakładka z kryciem, pierścień w całości w kadrze) scalone w PR #14 i wdrożone 2026-09-25, odbiór OK. Reszta części 9 do zrobienia |
-| 6 tekst | kod gotowy na gałęzi `tekst`, 2026-09-25. Testy 251 z 251 (311 s). Pomiar: najwyżej 20 do 27 linii w haku prawdziwych wzorów, narzut procesora 24% (bez progu), arkusze dla 5 wzorów. Odbiór 2026-09-25 (Opus): OK z trzema drobnymi poprawkami, czcionka do akceptacji właściciela. Bez PR i bez wdrożenia |
+| 6 tekst | kod gotowy na gałęzi `tekst`, 2026-09-25. Testy 251 z 251 (311 s). Pomiar: najwyżej 20 do 27 linii w haku prawdziwych wzorów, narzut procesora 24% (bez progu), arkusze dla 5 wzorów. Odbiór 2026-09-25 (Opus): OK z trzema drobnymi poprawkami, czcionka do akceptacji właściciela. Bez PR i bez wdrożenia. Czcionka szeryfowa zaakceptowana, scalona w PR #15 i wdrożona 2026-09-25. Test lokalny w warunkach produkcji OK (2026-09-25) |
 
 Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`). Wdrożenie na serwer nadal przez `wdroz.ps1` (część 7).
 
@@ -61,6 +61,31 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 - Wyniki (`outputs/`), dane (`dane/`) i `.env` są poza gitem. Katalog `Pomiary/` od 2026-09-23 jest w repozytorium (decyzja właściciela), więc zmiany planów i dziennika trzeba commitować.
 
 ## Dziennik
+
+### 2026-09-25 (test lokalny części 6 zamiast ręcznego, Opus)
+- Właściciel poprosił o test bez Telegrama:
+  - kod z wdrożonego `17bf5a8` wyeksportowany przez `git archive` poza repo, render przez CLI tak jak w bocie (`--styl-tekstu szeryf --pozycja-tekstu dol`, siła 0,6);
+  - projekt `20260924_145749` odtworzony z `dane/` (21 zdjęć, 3 nagrania), wzór `0915`, pierścień, plansza i znak wodny z `dane/promocyjne/`;
+  - 3 linie w `projekt.json`, jedna z 🇵🇱🔥.
+- Wynik: kod 0, render 133 s, film 32,0 s. Podpis: „Napisy: 3. Usunięte znaki bez czcionki: 3 (np. emoji).” (flaga to dwa znaki).
+- Okna 0 do 76, 76 do 145 i 145 do 218 klatek, więc napisy kończą się na dropie (7,27 s), a od niego do planszy jest pierścień. Napisy stoją nad znakiem wodnym, polskie litery są w porządku, dwie dłuższe linie łamią się na 2 wiersze.
+- Czytelność w podglądzie 540x960: dobra na ciemnym tle. Na ruchliwym obrazie (scena batalistyczna, złote SPQR) napis jest czytelny dzięki cieniowi, ale słabiej. Napis stoi tuż nad znakiem wodnym, oba są białe i szeryfowe.
+- Poza testem: samo zbieranie linii w `/nowy` na Telegramie (sprawdzone tylko testami bota) i ffmpeg 7.1 z serwera (lokalnie jest 8.1).
+
+### 2026-09-25 (akceptacja czcionki, scalenie i wdrożenie części 6, Opus)
+- **Właściciel akceptuje czcionkę szeryfową (Libre Baskerville Bold z cieniem) jako domyślną.** `STYL_TEKSTU` zostaje `szeryf`, blokowa jako zapasowa przez `.env`.
+- Część 6 scalona w PR #15 (`main` na `17bf5a8`, z poprawkami po odbiorze).
+- `wdroz.ps1 -Serwer root@46.62.151.181`: obraz `bot` przebudowany (`fonttools` 4.66.0 zainstalowany), oba kontenery odtworzone, bot loguje `Start polling`.
+- Sprawdzone w kontenerze: cztery rodziny czcionek w `zasoby/czcionki/`, `tekst.wybierz_czcionke` daje `LibreBaskerville.ttf`, `materializuj_tekst` jest w `src/render.py`, ffmpeg 7.1.5 ma koder i dekoder `libvpx-vp9`. `.env` na serwerze bez zmian, bo wartości domyślne to `szeryf` i `dol`.
+- Mój commit z planem 9.6 do 9.8 nie zdążył do PR #15, więc idzie osobnym PR-em razem z tym wpisem (gałąź `plan-rytm`).
+
+### 2026-09-25 (sprawdzenie poprawek części 6 i plan 9.6 do 9.8, Opus)
+- Poprawki po odbiorze części 6 (`tekst: poprawki po odbiorze`) zgodne z listą: podpis wspomina o usuniętych znakach także przy samych emoji, funkcje pomocnicze w testach bez `_`, test napisu nad znakiem wodnym w obu presetach. `tests/test_tekst.py` i `tests/test_bot.py`: 81 z 81, cały zestaw według Sonneta 254 z 254. Część 6 gotowa do PR po akceptacji czcionki.
+- `PLAN_EDITY_9_FABRYKA.md` uzupełniony przed 9.6 do 9.8:
+  - własna gałąź `rytm` i osobny PR, z własnym promptem startowym, przed 9.1 do 9.4;
+  - kontrakt z części 6 (`tekst`, `przygotuj_teksty`, `materializuj_tekst`, `przebieg_koncowy(..., teksty=)`);
+  - warstwy słów i napisu pionowego tylko jako klipy z dokładną liczbą klatek, nigdy `-loop 1 -t` (znany problem 12);
+  - pomiar 9.8 z limitem 900 s na każde wywołanie `ffmpeg`, narzut B tylko jako raport zamiast progu 30%.
 
 ### 2026-09-25 (poprawki po odbiorze części 6, gałąź `tekst`, Sonnet)
 - `src/komunikaty.py` (`linia_tekstow`): gdy wszystkie linie były samymi emoji (`linie: 0`, `usuniete_znaki` > 0), podpis teraz i tak dodaje wzmiankę o usuniętych znakach, bez zdania „Napisy: 0.”. Test w `tests/test_bot.py`: podsumowanie `{"linie": 0, "usuniete_znaki": 3}` daje w podpisie „Usunięte znaki bez czcionki: 3”, bez „Napisy:”.
@@ -685,8 +710,8 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Następne kroki
 
-1. Część 6: poprawki po odbiorze (dziennik 2026-09-25, odbiór części 6), akceptacja czcionki przez właściciela, PR, scalenie, `wdroz.ps1`, potem test ręczny z 2–3 liniami (jedna z emoji).
-2. Po części 6: 9.6 do 9.8 (słowa w rytmie, napis pionowy, pomiar ze sloganem), potem 9.1 do 9.4 (restart, biblioteka wzorów, warianty).
+1. Część 6 wdrożona i sprawdzona lokalnie. Przy pierwszym prawdziwym editcie z napisami: czytelność na telefonie i zbieranie linii w `/nowy`.
+2. Po scaleniu PR z planem (gałąź `plan-rytm`): 9.6 do 9.8 (słowa w rytmie, napis pionowy, pomiar ze sloganem) na gałęzi `rytm` z promptem z nagłówka `PLAN_EDITY_9_FABRYKA.md`, potem 9.1 do 9.4 (restart, biblioteka wzorów, warianty) na gałęzi `fabryka`.
 3. Przy okazji wdrożenia: `docker stats` w trakcie montażu. Gdy szczyt zostaje poniżej 2 GB, limit pamięci wraca z 5g do 3g.
 4. Właściciel: własny znak wodny przez `/znak` (PNG z przezroczystością), jeśli ma być inny niż plik z `dane/promocyjne/`; pliki `scratch_*` z katalogu głównego repo do usunięcia.
 5. Pomysły na później, bez planu: długość nakładki brana ze wzoru (w `0923` flaga trwa około 2 s po dropie); krycie flagi niżej niż 50%, jeśli na telefonie wyjdzie za ciężko.
