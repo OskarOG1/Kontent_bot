@@ -51,7 +51,7 @@ def oczysc(tekst, znaki):
     return oczyszczony, usuniete
 
 
-def _wczytaj_czcionke(sciezka, rozmiar, waga):
+def wczytaj_czcionke(sciezka, rozmiar, waga):
     czcionka = ImageFont.truetype(str(sciezka), rozmiar)
     if waga is not None:
         try:
@@ -69,50 +69,50 @@ def _wczytaj_czcionke(sciezka, rozmiar, waga):
     return czcionka
 
 
-def _wybierz_czcionke(preset):
+def wybierz_czcionke(preset):
     znaki = znaki_czcionki(preset["czcionka"])
     if all(ord(znak) in znaki for znak in POLSKIE):
         return preset["czcionka"], preset["waga"]
     return preset["zapasowa"], preset["waga_zapasowa"]
 
 
-def _dopasuj_wysokosc(sciezka, waga, docelowa_wysokosc_px):
+def dopasuj_wysokosc(sciezka, waga, docelowa_wysokosc_px):
     rozmiar = max(int(docelowa_wysokosc_px * 1.4), 12)
-    czcionka = _wczytaj_czcionke(sciezka, rozmiar, waga)
+    czcionka = wczytaj_czcionke(sciezka, rozmiar, waga)
     bbox = czcionka.getbbox("AĄŻ")
     wysokosc = bbox[3] - bbox[1]
     if wysokosc > 0:
         rozmiar = max(int(rozmiar * docelowa_wysokosc_px / wysokosc), 12)
-        czcionka = _wczytaj_czcionke(sciezka, rozmiar, waga)
+        czcionka = wczytaj_czcionke(sciezka, rozmiar, waga)
     return czcionka
 
 
-def _szerokosc(rysownik, tekst, czcionka):
+def szerokosc_napisu(rysownik, tekst, czcionka):
     bbox = rysownik.textbbox((0, 0), tekst, font=czcionka)
     return bbox[2] - bbox[0]
 
 
-def _dopasuj_do_strefy(tekst, rysownik, sciezka, waga, docelowa_wysokosc_px, max_szerokosc):
-    czcionka = _dopasuj_wysokosc(sciezka, waga, docelowa_wysokosc_px)
+def dopasuj_do_strefy(tekst, rysownik, sciezka, waga, docelowa_wysokosc_px, max_szerokosc):
+    czcionka = dopasuj_wysokosc(sciezka, waga, docelowa_wysokosc_px)
     slowa = tekst.split(" ")
     for _ in range(50):
-        najszersze = max(_szerokosc(rysownik, slowo, czcionka) for slowo in slowa)
+        najszersze = max(szerokosc_napisu(rysownik, slowo, czcionka) for slowo in slowa)
         if najszersze <= max_szerokosc or czcionka.size <= 4:
             return czcionka
         nowy_rozmiar = max(int(czcionka.size * max_szerokosc / najszersze * 0.95), 4)
         if nowy_rozmiar >= czcionka.size:
             nowy_rozmiar = czcionka.size - 1
-        czcionka = _wczytaj_czcionke(sciezka, nowy_rozmiar, waga)
+        czcionka = wczytaj_czcionke(sciezka, nowy_rozmiar, waga)
     return czcionka
 
 
-def _lamanie(tekst, rysownik, czcionka, max_szerokosc):
+def lamanie(tekst, rysownik, czcionka, max_szerokosc):
     slowa = tekst.split(" ")
     wiersze = []
     biezacy = ""
     for slowo in slowa:
         kandydat = f"{biezacy} {slowo}".strip()
-        if not biezacy or _szerokosc(rysownik, kandydat, czcionka) <= max_szerokosc:
+        if not biezacy or szerokosc_napisu(rysownik, kandydat, czcionka) <= max_szerokosc:
             biezacy = kandydat
         else:
             wiersze.append(biezacy)
@@ -122,7 +122,7 @@ def _lamanie(tekst, rysownik, czcionka, max_szerokosc):
     return wiersze
 
 
-def obraz_tekstu(tekst, szerokosc, wysokosc, styl):
+def obraz_tekstu(tekst, szerokosc, wysokosc, styl, dolna_granica=None):
     preset = PRESETY[styl["preset"]]
     pozycja = POZYCJE[styl.get("pozycja", "dol")]
     wersaliki = styl.get("wersaliki")
@@ -139,18 +139,18 @@ def obraz_tekstu(tekst, szerokosc, wysokosc, styl):
     strefa_prawo = STREFA_BEZPIECZNA["prawo"] * szerokosc
     strefa_szerokosc = strefa_prawo - strefa_lewo
     strefa_gora = STREFA_BEZPIECZNA["gora"] * wysokosc
-    strefa_dol = STREFA_BEZPIECZNA["dol"] * wysokosc
+    strefa_dol = (dolna_granica if dolna_granica is not None else STREFA_BEZPIECZNA["dol"]) * wysokosc
 
     przesuniecie_cienia = max(1, round(0.006 * wysokosc))
     grubosc_obrysu = max(1, round(0.004 * wysokosc))
     margines = przesuniecie_cienia * 3 if preset["cien"] else (grubosc_obrysu if preset["obrys"] else 0)
     szerokosc_uzyteczna = max(strefa_szerokosc - 2 * margines, 1)
 
-    sciezka_czcionki, waga = _wybierz_czcionke(preset)
+    sciezka_czcionki, waga = wybierz_czcionke(preset)
     docelowa_wysokosc = preset["wysokosc_wersalika"] * wysokosc
-    czcionka = _dopasuj_do_strefy(tresc, rysownik, sciezka_czcionki, waga, docelowa_wysokosc, szerokosc_uzyteczna)
+    czcionka = dopasuj_do_strefy(tresc, rysownik, sciezka_czcionki, waga, docelowa_wysokosc, szerokosc_uzyteczna)
 
-    wiersze = _lamanie(tresc, rysownik, czcionka, szerokosc_uzyteczna)
+    wiersze = lamanie(tresc, rysownik, czcionka, szerokosc_uzyteczna)
 
     ascent, descent = czcionka.getmetrics()
     wysokosc_wiersza = (ascent + descent) * 1.25
@@ -166,7 +166,7 @@ def obraz_tekstu(tekst, szerokosc, wysokosc, styl):
 
     y = gora_bloku
     for wiersz in wiersze:
-        szer = _szerokosc(rysownik, wiersz, czcionka)
+        szer = szerokosc_napisu(rysownik, wiersz, czcionka)
         x = strefa_lewo + (strefa_szerokosc - szer) / 2
         if preset["cien"]:
             warstwa_cienia = Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
@@ -189,3 +189,38 @@ def obraz_tekstu(tekst, szerokosc, wysokosc, styl):
         y += wysokosc_wiersza
 
     return obraz
+
+
+def okna_tekstow(liczba_linii, plan, koniec_haka_klatka):
+    if liczba_linii <= 0:
+        return []
+
+    fps = plan["fps"]
+    liczba_klatek_calosci = plan["liczba_klatek"]
+    poczatki_ujec = sorted({ujecie["klatka_od"] for ujecie in plan["ujecia"]})
+
+    def przyciagnij(klatka):
+        if not poczatki_ujec:
+            return klatka
+        najblizszy = min(poczatki_ujec, key=lambda k: abs(k - klatka))
+        if abs(najblizszy - klatka) <= 8:
+            return najblizszy
+        return klatka
+
+    koniec_okna = koniec_haka_klatka
+    while True:
+        granice = [round(koniec_okna * i / liczba_linii) for i in range(liczba_linii + 1)]
+        poczatki = [granice[0]]
+        for i in range(1, liczba_linii):
+            poczatki.append(przyciagnij(granice[i]))
+        koncowe = poczatki[1:] + [koniec_okna]
+        dlugosci = [koniec - start for start, koniec in zip(poczatki, koncowe)]
+        if all(dlugosc >= fps for dlugosc in dlugosci):
+            return list(zip(poczatki, koncowe))
+        kandydaci = {k for k in poczatki_ujec if k > koniec_okna}
+        if liczba_klatek_calosci > koniec_okna:
+            kandydaci.add(liczba_klatek_calosci)
+        if not kandydaci:
+            maks_linii = max(int(liczba_klatek_calosci // fps), 0)
+            raise ValueError(f"Za dużo linii tekstu, najwyżej {maks_linii}")
+        koniec_okna = min(kandydaci)
