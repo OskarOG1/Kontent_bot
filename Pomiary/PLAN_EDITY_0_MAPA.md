@@ -30,7 +30,7 @@ Prawdziwe wzory (`0914`, `0915`, `0921`, `0922`, `0923`, wszystkie 4K, w `dane/w
 | 8 | PLAN_EDITY_8_NAKLADKA | drop we wzorze, Twoja nakładka od dropu, Twoja plansza na końcu | wykonana, PR #9 i #10, wdrożona, odbiór OK (2026-09-24) | własna nakładka (gwiazdy); plansza i znak wodny są w `dane/promocyjne/` | Sonnet |
 | 5 | PLAN_EDITY_5_KOLOR | kolorystyka wzoru na sekcję (hak, montaż), LUT na każdy segment | wykonana, PR #12, wdrożona (2026-09-24), siła domyślna 0,6; zadanie 5.6 (niebo bez przebarwienia) na gałęzi `niebo`, w PR | nic | Sonnet |
 | 6 | PLAN_EDITY_6_TEKST | Twoje napisy w haku, styl jak we wzorach, strefy bezpieczne TikToka | do zrobienia (przepisana 2026-09-23) | akceptacja czcionki | Sonnet |
-| 9 | PLAN_EDITY_9_FABRYKA | restart bez strat, biblioteka wzorów z wyborem, warianty, partie, `/ponow`; nakładka z kryciem (flaga, 9.5, zaraz po części 8); słowa w rytmie i napis pionowy jak w `0923` (9.6 do 9.8, po części 6) | do zrobienia (nowa 2026-09-23, dopisane 2026-09-24) | klip flagi jako nakładka, akceptacja czcionki pisanej | Sonnet |
+| 9 | PLAN_EDITY_9_FABRYKA | restart bez strat, biblioteka wzorów z wyborem, warianty, partie, `/ponow`; nakładka z kryciem (flaga, 9.5, zaraz po części 8); słowa w rytmie i napis pionowy jak w `0923` (9.6 do 9.8, po części 6) | 9.5 (nakładka z kryciem) wykonane, odbiór OK 2026-09-25, do commita i PR; reszta do zrobienia | klip flagi jako nakładka, akceptacja czcionki pisanej | Sonnet |
 
 ## Kolejność (poprawiona 2026-09-23)
 1. Zrobione: części 1, 2, 7, 3, 4, 8 i 5.
