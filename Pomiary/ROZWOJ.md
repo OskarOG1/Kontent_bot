@@ -88,6 +88,14 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
   - czas: narzut renderu 51 do 152%, a czas analizy „niepewny” (rozrzut bazowych 43%). Liczby zafałszowane równoległymi renderami testu lokalnego, a czas i tak nie jest progiem (decyzja właściciela).
 - **Plan 6 poprawiony przed startem:** próg „narzut poniżej 30%” zamieniony na sam raport, `fonttools` dopisywany do `requirements.txt` (nie było go w żadnym pliku wymagań), w „Stan wejściowy” dopisany stan `main` po częściach 5, 5.6 i 9.5.
 
+### 2026-09-25 (zadanie 6.3: konfiguracja i bot, gałąź `tekst`, Sonnet)
+- `src/konfiguracja.py`: `STYL_TEKSTU` (domyślnie `szeryf`) i `POZYCJA_TEKSTU` (domyślnie `dol`) w `Konfiguracja`, walidowane przeciwko `tekst.PRESETY`/`tekst.POZYCJE` (nieznana wartość: `ValueError`). Dopisane do `.env.example`.
+- `src/bot.py`: `renderuj_w_tle` przekazuje `--styl-tekstu`/`--pozycja-tekstu` z konfiguracji do CLI renderu. `obsluz_cmd_status` w stanie zbierania dolicza liczbę linii tekstu z `projekt.json`.
+- `src/komunikaty.py`: `POMOC` dostała zdanie, że zwykła wiadomość w trakcie zbierania to linia napisu (część 1 już to robiła, ale nie było o tym nic w pomocy). Nowa `linia_tekstow` dopisuje do `podsumowanie_renderu` linię „Napisy: N.” i, gdy `usuniete_znaki` > 0, „Usunięte znaki bez czcionki: M (np. emoji).”. `status_projektu` dostał trzeci argument `liczba_linii` („Projekt X, materiałów Y, linii tekstu Z.”); jedyne miejsce wywołania (`bot.py`) zaktualizowane. `/gotowe` już wcześniej (część 1) podawał liczbę linii przez `projekt_w_kolejce`, więc bez zmian.
+- Testy (+6): `test_konfiguracja.py` (`STYL_TEKSTU=kursywa` → `ValueError`, `POZYCJA_TEKSTU` niestandardowa), `test_bot.py` (POMOC wspomina o napisach, CLI dostaje `--styl-tekstu`/`--pozycja-tekstu` z konfiguracji, podpis wyniku z „Napisy: 2.” i wzmianką o usuniętych znakach, `/status` przy zbieraniu pokazuje „linii tekstu 2” po dwóch wiadomościach tekstowych).
+- `python -m pytest -q`: 251 z 251 w 252 s (245 wcześniej + 6 nowych).
+- Commit `bot: napisy w haku`.
+
 ### 2026-09-25 (zadanie 6.2: okna w haku i nakładanie w renderze, gałąź `tekst`, Sonnet)
 - Przed tym zadaniem poprawiona pomyłka z 6.1: funkcje pomocnicze w `src/tekst.py` miały `_` na początku nazwy, co łamie regułę 3 WSPÓLNE („nazwy funkcji bez `_` na początku”). Przemianowane (`wczytaj_czcionke`, `wybierz_czcionke`, `dopasuj_wysokosc`, `szerokosc_napisu`, `dopasuj_do_strefy`, `lamanie`), testy 6.1 dalej zielone.
 - `src/tekst.py`: `okna_tekstow(liczba_linii, plan, koniec_haka_klatka)`. Okno końcowe rozszerza się nie tylko do kolejnych początków ujęć planu, ale też do `liczba_klatek` całego edita jako ostatniego możliwego kandydata (inaczej rozszerzanie utyka na starcie ostatniego ujęcia i nie sięga jego końca, co nie zgadzało się z oczekiwanym podziałem 30/30 z testu 7 zadania 6.2). `obraz_tekstu` dostał opcjonalny `dolna_granica` (nadpisuje `STREFA_BEZPIECZNA["dol"]`) na potrzeby znaku wodnego.

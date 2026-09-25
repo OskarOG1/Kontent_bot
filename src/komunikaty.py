@@ -7,6 +7,7 @@ POMOC = (
     "/plansza, żeby ustawić planszę końcową (/plansza usun, żeby ją usunąć).\n"
     "/znak, żeby ustawić znak wodny marki (/znak usun, żeby go usunąć).\n"
     "/nowy, żeby zacząć zbierać materiały do nowego editu.\n"
+    "Zwykła wiadomość tekstowa w trakcie zbierania to linia napisu w haku editu.\n"
     "/gotowe, żeby zamknąć zbieranie i wysłać projekt do kolejki.\n"
     "/anuluj, żeby porzucić bieżący projekt.\n"
     "/status, żeby sprawdzić stan bota."
@@ -154,6 +155,16 @@ def linia_muzyki(dane_utworu: dict) -> str:
     return f"Muzyka: {nazwa}, od początku."
 
 
+def linia_tekstow(dane_tekstow: dict | None) -> str | None:
+    if not dane_tekstow or not dane_tekstow.get("linie"):
+        return None
+    wynik = f"Napisy: {dane_tekstow['linie']}."
+    usuniete = dane_tekstow.get("usuniete_znaki", 0)
+    if usuniete:
+        wynik += f" Usunięte znaki bez czcionki: {usuniete} (np. emoji)."
+    return wynik
+
+
 def podsumowanie_renderu(dane: dict) -> str:
     liczba_pominietych = len(dane.get("materialy_pominiete", []))
     pierwsza_linia = (
@@ -161,11 +172,15 @@ def podsumowanie_renderu(dane: dict) -> str:
         f"materiałów użytych {dane['materialy_uzyte']}, pominiętych {liczba_pominietych}, "
         f"czas renderu {formatuj_liczbe(dane['czas_renderu_s'], 1)} s."
     )
-    return f"{pierwsza_linia}\n{linia_muzyki(dane['utwor'])}"
+    linie = [pierwsza_linia, linia_muzyki(dane["utwor"])]
+    tekst_napisow = linia_tekstow(dane.get("teksty"))
+    if tekst_napisow:
+        linie.append(tekst_napisow)
+    return "\n".join(linie)
 
 
-def status_projektu(projekt_id: str, liczba_materialow: int) -> str:
-    return f"Projekt {projekt_id}, materiałów {liczba_materialow}."
+def status_projektu(projekt_id: str, liczba_materialow: int, liczba_linii: int) -> str:
+    return f"Projekt {projekt_id}, materiałów {liczba_materialow}, linii tekstu {liczba_linii}."
 
 
 def status_kolejki(dlugosc_kolejki: int, liczba_wzorow: int) -> str:
