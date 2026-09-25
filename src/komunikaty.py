@@ -156,13 +156,18 @@ def linia_muzyki(dane_utworu: dict) -> str:
 
 
 def linia_tekstow(dane_tekstow: dict | None) -> str | None:
-    if not dane_tekstow or not dane_tekstow.get("linie"):
+    if not dane_tekstow:
         return None
-    wynik = f"Napisy: {dane_tekstow['linie']}."
+    linie = dane_tekstow.get("linie", 0)
     usuniete = dane_tekstow.get("usuniete_znaki", 0)
+    if not linie and not usuniete:
+        return None
+    czesci = []
+    if linie:
+        czesci.append(f"Napisy: {linie}.")
     if usuniete:
-        wynik += f" Usunięte znaki bez czcionki: {usuniete} (np. emoji)."
-    return wynik
+        czesci.append(f"Usunięte znaki bez czcionki: {usuniete} (np. emoji).")
+    return " ".join(czesci)
 
 
 def podsumowanie_renderu(dane: dict) -> str:

@@ -623,6 +623,27 @@ async def test_render_sukces_podpis_z_linia_napisow(z_praca_w_tle, monkeypatch):
     assert "Usunięte znaki bez czcionki: 1 (np. emoji)." in wywolania_wysylki[0].caption
 
 
+async def test_render_sukces_podpis_same_emoji_wzmianka_bez_liczby_linii(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wyjscie = Path(argumenty[argumenty.index("--wyjscie") + 1])
+        wyjscie.write_bytes(b"wideo-testowe")
+        podsumowanie = podsumowanie_renderu_testowe()
+        podsumowanie["teksty"] = {"linie": 0, "usuniete_znaki": 3, "okna": []}
+        wyjscie.with_suffix(".json").write_text(json.dumps(podsumowanie), encoding="utf-8")
+        return kolejka.Wynik(kod=0, stdout="", stderr="", czas_s=0.1, przekroczono_czas=False)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    wywolania_wysylki = [m for m in sesja.wywolania if type(m).__name__ == "SendDocument"]
+    assert "Usunięte znaki bez czcionki: 3" in wywolania_wysylki[0].caption
+    assert "Napisy:" not in wywolania_wysylki[0].caption
+
+
 async def test_render_blad_daje_komunikat_i_stan_blad(z_praca_w_tle, monkeypatch):
     dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
     przygotuj_wzor_i_utwor(konf)

@@ -62,6 +62,13 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-25 (poprawki po odbiorze części 6, gałąź `tekst`, Sonnet)
+- `src/komunikaty.py` (`linia_tekstow`): gdy wszystkie linie były samymi emoji (`linie: 0`, `usuniete_znaki` > 0), podpis teraz i tak dodaje wzmiankę o usuniętych znakach, bez zdania „Napisy: 0.”. Test w `tests/test_bot.py`: podsumowanie `{"linie": 0, "usuniete_znaki": 3}` daje w podpisie „Usunięte znaki bez czcionki: 3”, bez „Napisy:”.
+- `tests/test_tekst.py`: `_ramka_niezerowej_alfy` i `_w_strefie` przemianowane na `ramka_niezerowej_alfy` i `w_strefie` (reguła 3 WSPÓLNE, bez `_` na początku), import zmieniony na `import tekst` jak w pozostałych plikach testów.
+- Nowy test `test_dolna_granica_przy_znaku_wodnym` (`tests/test_tekst.py`, oba presety): `obraz_tekstu(..., dolna_granica=0.75)` dla długiej linii daje ramkę alfy najwyżej na 75% wysokości.
+- `python -m pytest -q`: 254 z 254 w 260 s (251 wcześniej + 3 nowe).
+- Commit `tekst: poprawki po odbiorze`.
+
 ### 2026-09-25 (odbiór części 6: napisy w haku, gałąź `tekst`, Opus)
 - **Werdykt: OK z trzema drobnymi poprawkami** (lista niżej), czcionka czeka na akceptację właściciela.
 - `git log main..tekst`: 5 commitów zgodnych z planem (4 z listy plus `tekst: napisy przez zmaterializowane wideo zamiast petli`). `python -m pytest -q`: 251 z 251 w 311 s.

@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from src import tekst
+import tekst
 
 POLSKIE = "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ"
 
@@ -21,13 +21,13 @@ def test_obraz_tekstu_niepusty_ze_znakami_specjalnymi():
     assert alfa.max() > 0
 
 
-def _ramka_niezerowej_alfy(obraz):
+def ramka_niezerowej_alfy(obraz):
     alfa = np.array(obraz)[:, :, 3]
     wiersze, kolumny = np.nonzero(alfa)
     return kolumny.min(), wiersze.min(), kolumny.max(), wiersze.max()
 
 
-def _w_strefie(ramka, szerokosc, wysokosc):
+def w_strefie(ramka, szerokosc, wysokosc):
     x0, y0, x1, y1 = ramka
     lewo = tekst.STREFA_BEZPIECZNA["lewo"] * szerokosc
     prawo = tekst.STREFA_BEZPIECZNA["prawo"] * szerokosc
@@ -41,8 +41,8 @@ def test_dlugie_slowo_miesci_sie_w_strefie():
     obraz = tekst.obraz_tekstu(
         "Konstantynopolitańczykowianeczka", szerokosc, wysokosc, {"preset": "szeryf"}
     )
-    ramka = _ramka_niezerowej_alfy(obraz)
-    assert _w_strefie(ramka, szerokosc, wysokosc)
+    ramka = ramka_niezerowej_alfy(obraz)
+    assert w_strefie(ramka, szerokosc, wysokosc)
 
 
 @pytest.mark.parametrize("preset", ["szeryf", "blok"])
@@ -55,8 +55,22 @@ def test_pozycje_w_strefie_bezpiecznej(preset, pozycja):
         wysokosc,
         {"preset": preset, "pozycja": pozycja},
     )
-    ramka = _ramka_niezerowej_alfy(obraz)
-    assert _w_strefie(ramka, szerokosc, wysokosc)
+    ramka = ramka_niezerowej_alfy(obraz)
+    assert w_strefie(ramka, szerokosc, wysokosc)
+
+
+@pytest.mark.parametrize("preset", ["szeryf", "blok"])
+def test_dolna_granica_przy_znaku_wodnym(preset):
+    szerokosc, wysokosc = 1080, 1920
+    obraz = tekst.obraz_tekstu(
+        "To jest bardzo długa linia tekstu do złamania na wiele wierszy",
+        szerokosc,
+        wysokosc,
+        {"preset": preset, "pozycja": "dol"},
+        dolna_granica=0.75,
+    )
+    _, _, _, y1 = ramka_niezerowej_alfy(obraz)
+    assert y1 <= 0.75 * wysokosc
 
 
 def test_oczysc_usuwa_emoji():
