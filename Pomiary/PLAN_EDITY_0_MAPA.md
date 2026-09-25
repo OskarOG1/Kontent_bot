@@ -29,13 +29,13 @@ Prawdziwe wzory (`0914`, `0915`, `0921`, `0922`, `0923`, wszystkie 4K, w `dane/w
 | 4 | PLAN_EDITY_4_MUZYKA | biblioteka muzyki, dobór utworu po tempie z fragmentem z profilu energii, arkusz porównawczy; rozpoznanie dźwięku wzoru w kodzie, ale wyłączone (decyzja 14) | wykonana, PR #7, bez odbioru oceniającego; zadanie 4.5 (pamięć analizy utworu) scalone w PR #11 i wdrożone, na serwerze szczyt 1567 MB (2026-09-24) | utwory wzorów w `dane/muzyka/` (nazwy bez „ (1)”), próbki w `dane/probki/materialy/` | Sonnet |
 | 8 | PLAN_EDITY_8_NAKLADKA | drop we wzorze, Twoja nakładka od dropu, Twoja plansza na końcu | wykonana, PR #9 i #10, wdrożona, odbiór OK (2026-09-24) | własna nakładka (gwiazdy); plansza i znak wodny są w `dane/promocyjne/` | Sonnet |
 | 5 | PLAN_EDITY_5_KOLOR | kolorystyka wzoru na sekcję (hak, montaż), LUT na każdy segment | wykonana, PR #12 i #13 (5.6, niebo), wdrożona 2026-09-25, siła domyślna 0,6 | nic | Sonnet |
-| 6 | PLAN_EDITY_6_TEKST | Twoje napisy w haku, styl jak we wzorach, strefy bezpieczne TikToka | wykonana na gałęzi `tekst`, odbiór OK z drobnymi poprawkami (2026-09-25), bez PR | akceptacja czcionki | Sonnet |
+| 6 | PLAN_EDITY_6_TEKST | Twoje napisy w haku, styl jak we wzorach, strefy bezpieczne TikToka | wykonana, PR #15, wdrożona 2026-09-25, czcionka szeryfowa zaakceptowana; test ręczny do zrobienia | test ręczny | Sonnet |
 | 9 | PLAN_EDITY_9_FABRYKA | restart bez strat, biblioteka wzorów z wyborem, warianty, partie, `/ponow`; nakładka z kryciem (flaga, 9.5, zaraz po części 8); słowa w rytmie i napis pionowy jak w `0923` (9.6 do 9.8, po części 6) | 9.5 (nakładka z kryciem) scalone w PR #14 i wdrożone 2026-09-25; reszta do zrobienia | klip flagi jako nakładka, akceptacja czcionki pisanej | Sonnet |
 
 ## Kolejność (poprawiona 2026-09-23)
-1. Zrobione: części 1, 2, 7, 3, 4, 8 i 5.
+1. Zrobione: części 1, 2, 7, 3, 4, 8, 5 i 6.
    - Zadanie 4.5 (pamięć analizy utworu) scalone i wdrożone.
-   - Zadania 5.6 (niebo) i 9.5 (nakładka z kryciem) scalone i wdrożone 2026-09-25. Część 6 po odbiorze, przed PR. Potem 9.6 do 9.8 i 9.1 do 9.4.
+   - Zadania 5.6 (niebo) i 9.5 (nakładka z kryciem) scalone i wdrożone 2026-09-25. Część 6 scalona i wdrożona 2026-09-25. Następne 9.6 do 9.8 (gałąź `rytm`), potem 9.1 do 9.4.
 2. Część 4 idzie pierwsza, bo bez niej edit leci na intro utworu, a nie na fragmencie ze wzoru, i reszta stylu traci sens.
 3. Część 8 wprowadza sekcje wzoru, na których stoją części 5 i 6. Nakładka to najbardziej rozpoznawalny element wzorów.
 4. Części 5 i 6: obie zależą od 8, a między sobą nie, więc 6 może iść przed 5.
