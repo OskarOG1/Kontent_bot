@@ -27,6 +27,8 @@ def test_domyslne_wartosci():
     assert konf.limit_pobierania_mb == 20
     assert konf.limit_wysylki_mb == 50
     assert konf.sila_koloru == 0.6
+    assert konf.styl_tekstu == "szeryf"
+    assert konf.pozycja_tekstu == "dol"
 
 
 def test_katalog_danych_wzgledny_niezalezny_od_biezacego(monkeypatch, tmp_path):
@@ -76,3 +78,14 @@ def test_sila_koloru_kropka_i_przecinek():
 def test_sila_koloru_poza_zakresem():
     with pytest.raises(ValueError, match="SILA_KOLORU"):
         wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123", "SILA_KOLORU": "1.5"})
+
+
+def test_styl_tekstu_niepoprawny():
+    with pytest.raises(ValueError, match="STYL_TEKSTU"):
+        wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123", "STYL_TEKSTU": "kursywa"})
+
+
+def test_pozycja_tekstu_niestandardowa():
+    konf = wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123", "STYL_TEKSTU": "blok", "POZYCJA_TEKSTU": "gora"})
+    assert konf.styl_tekstu == "blok"
+    assert konf.pozycja_tekstu == "gora"

@@ -69,6 +69,7 @@ Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania 6.1 do 6.4 z Pomiary
 
 ## Stan wejściowy
 `main` zawiera commit `Pomiary: pomiar nakładki` (część 8 po odbiorze i scaleniu), a `python -m pytest -q` przechodzi. Utwórz gałąź `tekst` od `main`. Jeżeli jest już część 5, kolor siedzi w segmentach i napisów nie dotyczy. Jeśli `main` nie ma części 8, zatrzymaj się i zapytaj.
+Stan na 2026-09-25: `main` ma części 8 i 5 (z zadaniami 5.5 i 5.6) oraz zadanie 9.5. Nakładka w trybie `alfa` skaluje się tak, żeby zmieścić się w kadrze, a tryb `krycie` kładzie ją z kryciem 50%. Napisy idą w przebiegu końcowym po nakładce, a przed znakiem wodnym, więc żadna z tych zmian ich nie dotyczy.
 
 ## Kontrakt z wcześniejszych części
 Numery linii z `57ba8fe`, więc szukaj po nazwach.
@@ -106,7 +107,7 @@ Numery linii z `57ba8fe`, więc szukaj po nazwach.
 - Blok, który po złamaniu wychodzi poza strefę w pionie, przesuwa się do jej wnętrza.
 
 **`src/tekst.py`:**
-- `znaki_czcionki(sciezka) -> set[int]`: znaki z tablicy `cmap` przez fontTools. `fonttools` przechodzi z `requirements-test.txt` do `requirements.txt`, przypięty.
+- `znaki_czcionki(sciezka) -> set[int]`: znaki z tablicy `cmap` przez fontTools. `fonttools` dopisz do `requirements.txt`, przypięty do aktualnej wersji (dziś nie ma go w żadnym pliku wymagań).
 - `oczysc(tekst, znaki) -> tuple[str, int]`:
   - usuwa znaki spoza czcionki (emoji, selektory wariantu, łączniki ZWJ, symbole), poza spacją;
   - zwija wielokrotne spacje i obcina brzegi;
@@ -205,7 +206,7 @@ Katalog: C:\Dev\edity-bot. Wykonaj zadanie 6.3 z Pomiary/PLAN_EDITY_6_TEKST.md; 
   - raport: narzut czasu renderu w procentach i najwyższa liczba linii dla haków prawdziwych wzorów (z cache `outputs/wzor_<nazwa>.json`);
   - arkusz `outputs/tekst.png` z jedną klatką ze środka okna każdej linii, dla obu presetów obok siebie, najwyżej około 1600x1600 px;
   - arkusze porównawcze `outputs/porownanie_tekst_<wzor>.png` z 2 liniami.
-- **Constraints:** próg: narzut poniżej 30%. Wygląd ocenia oceniający i właściciel.
+- **Constraints:** bez progu czasu (decyzja właściciela 2026-09-24): narzut tylko raportuj. Wygląd ocenia oceniający i właściciel.
 - **Sonnet Prompt:**
 ```text
 Katalog: C:\Dev\edity-bot. Wykonaj zadanie 6.4 z Pomiary/PLAN_EDITY_6_TEKST.md; otwórz src/render.py, src/tekst.py, tests/generuj.py, Pomiary/arkusz.py, Pomiary/measure_muzyka.py jako wzór układu. Weryfikacja: python Pomiary/measure_tekst.py
@@ -226,7 +227,7 @@ Katalog: C:\Dev\edity-bot. Wykonaj zadanie 6.5 z Pomiary/PLAN_EDITY_6_TEKST.md; 
 
 ## Gotowe, gdy
 - `python -m pytest -q` przechodzi w całości.
-- Pomiar: narzut poniżej 30%, arkusze powstały, czcionka zaakceptowana przez właściciela.
+- Pomiar: arkusze powstały, narzut zaraportowany (bez progu), czcionka zaakceptowana przez właściciela.
 - Test ręczny (Ty):
   - `/nowy`, zdjęcia, 2 do 3 linie tekstu (jedna z emoji), `/gotowe`;
   - napisy są tylko w haku, czytelne na telefonie, nie wchodzą pod przyciski TikToka, polskie litery są w porządku, a emoji zniknęły z wzmianką w podpisie;
@@ -243,7 +244,7 @@ Katalog: C:\Dev\edity-bot. Wykonaj zadanie 6.5 z Pomiary/PLAN_EDITY_6_TEKST.md; 
 Katalog: C:\Dev\edity-bot. Oceniasz część 6 według Pomiary/PLAN_EDITY_6_TEKST.md, sekcje „Gotowe, gdy” i „Odbiór”. Nie poprawiaj kodu i nie otwieraj plików spoza kroków odbioru. Werdykt: OK albo lista poprawek (plik:linia, co jest źle, jaki test to złapie); jeśli było zadanie 6.5, także decyzja o wykrywaniu napisów we wzorze.
 ```
 1. `git log --oneline main..tekst`, `python -m pytest -q`, stan i znane problemy w `Pomiary/ROZWOJ.md`.
-2. `python Pomiary/measure_tekst.py`: próg narzutu.
+2. `python Pomiary/measure_tekst.py`: najwyższa liczba linii dla haków prawdziwych wzorów, narzut tylko jako raport.
 3. `outputs/tekst.png`: polskie litery, cień i obrys, nic nie wychodzi poza strefę bezpieczną, długi wiersz złamany albo zmniejszony.
 4. Arkusze `outputs/porownanie_tekst_*.png`: napisy w wyniku są w tej samej części editu co we wzorze (hak) i na podobnej wysokości.
 5. `src/render.py`:

@@ -16,6 +16,7 @@ import analyze
 import kolor
 import magazyn
 import music
+import tekst
 
 pillow_heif.register_heif_opener()
 
@@ -467,6 +468,7 @@ def przebieg_koncowy(
     nakladka_do_s: float | None = None,
     znak: Path | None = None,
     znak_do_s: float | None = None,
+    teksty: list[dict] | None = None,
 ) -> None:
     czas_trwania_s = liczba_klatek / fps
     wyciszenie_s = min(0.5, czas_trwania_s)
@@ -534,6 +536,24 @@ def przebieg_koncowy(
             f"[1:a]afade=t=out:st={poczatek_wyciszenia:.6f}:d={wyciszenie_s:.6f}[a]"
         )
         mapa_wideo = "[v]"
+
+    if teksty:
+        fade_s = 4 / fps
+        for indeks_tekstu, wpis in enumerate(teksty):
+            czas_trwania_napisu_s = round(wpis["do_s"] - wpis["od_s"], 6)
+            indeks_wejscia = wejscia.count("-i")
+            wejscia += ["-c:v", "libvpx-vp9", "-i", str(wpis["plik"])]
+            koniec_zanikania = max(0.0, czas_trwania_napisu_s - fade_s)
+            etykieta = f"tekst{indeks_tekstu}"
+            etykieta_wyjscia = f"[vt{indeks_tekstu}]"
+            filtr += (
+                f";[{indeks_wejscia}:v]fade=t=in:st=0:d={fade_s:.6f}:alpha=1,"
+                f"fade=t=out:st={koniec_zanikania:.6f}:d={fade_s:.6f}:alpha=1,"
+                f"setpts=PTS+{wpis['od_s']:.6f}/TB[{etykieta}];"
+                f"{mapa_wideo}[{etykieta}]overlay=eval=frame:enable="
+                f"'between(t,{wpis['od_s']:.6f},{wpis['do_s']:.6f})'{etykieta_wyjscia}"
+            )
+            mapa_wideo = etykieta_wyjscia
 
     if znak is not None:
         znak = Path(znak)
@@ -648,6 +668,73 @@ def okno_znaku(plan: dict, plansza_uzyta: bool) -> float:
     return round(klatka_koniec / fps, 6)
 
 
+def wczytaj_linie_tekstu(katalog_projektu: Path) -> list[str]:
+    sciezka = katalog_projektu / "projekt.json"
+    if not sciezka.exists():
+        return []
+    with open(sciezka, "r", encoding="utf-8") as plik:
+        dane = json.load(plik)
+    return [wpis["tekst"] for wpis in dane.get("teksty", [])]
+
+
+def materializuj_tekst(obraz_napisu, liczba_klatek: int, fps: float, wyjscie: Path) -> None:
+    tymczasowy_png = wyjscie.with_suffix(".png")
+    obraz_napisu.save(tymczasowy_png)
+    uruchom_ffmpeg([
+        "-loop", "1", "-i", str(tymczasowy_png),
+        "-frames:v", str(liczba_klatek), "-r", str(fps),
+        "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-auto-alt-ref", "0",
+        str(wyjscie),
+    ])
+
+
+def przygotuj_teksty(
+    linie_surowe: list[str], wzor: dict, plan: dict, katalog_pracy: Path,
+    szerokosc: int, wysokosc: int, styl_tekstu: str, pozycja_tekstu: str, ma_znak: bool,
+) -> tuple[list[dict], dict]:
+    preset = tekst.PRESETY[styl_tekstu]
+    sciezka_czcionki, _ = tekst.wybierz_czcionke(preset)
+    znaki = tekst.znaki_czcionki(sciezka_czcionki)
+
+    linie = []
+    usuniete_znaki = 0
+    for surowa in linie_surowe:
+        oczyszczona, usuniete = tekst.oczysc(surowa, znaki)
+        usuniete_znaki += usuniete
+        if oczyszczona:
+            linie.append(oczyszczona)
+
+    podsumowanie_tekstow = {"linie": len(linie), "usuniete_znaki": usuniete_znaki, "okna": []}
+    if not linie:
+        return [], podsumowanie_tekstow
+
+    fps = plan["fps"]
+    koniec_haka_klatka = koniec_haka(plan, wzor.get("sekcje"))
+    okna = tekst.okna_tekstow(len(linie), plan, koniec_haka_klatka)
+
+    tekst_wzoru = wzor.get("tekst") or {}
+    styl = {
+        "preset": styl_tekstu,
+        "pozycja": tekst_wzoru.get("pozycja", pozycja_tekstu),
+        "wersaliki": tekst_wzoru.get("wersaliki"),
+    }
+    dolna_granica = 0.75 if ma_znak else None
+
+    teksty_do_przebiegu = []
+    for indeks, (linia, (klatka_od, klatka_do)) in enumerate(zip(linie, okna)):
+        obraz_napisu = tekst.obraz_tekstu(linia, szerokosc, wysokosc, styl, dolna_granica=dolna_granica)
+        sciezka_wideo = katalog_pracy / f"tekst_{indeks:02d}.webm"
+        materializuj_tekst(obraz_napisu, klatka_do - klatka_od, fps, sciezka_wideo)
+        teksty_do_przebiegu.append({
+            "plik": sciezka_wideo,
+            "od_s": round(klatka_od / fps, 6),
+            "do_s": round(klatka_do / fps, 6),
+        })
+        podsumowanie_tekstow["okna"].append([klatka_od, klatka_do])
+
+    return teksty_do_przebiegu, podsumowanie_tekstow
+
+
 def renderuj(
     wzor_json: Path,
     katalog_projektu: Path,
@@ -662,6 +749,8 @@ def renderuj(
     plansza: Path | None = None,
     znak: Path | None = None,
     sila_koloru: float = 0.6,
+    styl_tekstu: str = "szeryf",
+    pozycja_tekstu: str = "dol",
 ) -> dict:
     czas_startu = time.time()
     wzor_json = Path(wzor_json).resolve()
@@ -713,6 +802,11 @@ def renderuj(
     plan = plan_ujec(
         wzor, uderzenia_utworu, kawalki, fps,
         start_uderzenie=start_uderzenie, przesuniecie_s=przesuniecie_s,
+    )
+
+    linie_surowe = wczytaj_linie_tekstu(katalog_projektu)
+    teksty_do_przebiegu, podsumowanie_tekstow = przygotuj_teksty(
+        linie_surowe, wzor, plan, katalog_pracy, szerokosc, wysokosc, styl_tekstu, pozycja_tekstu, znak is not None,
     )
 
     sciezki_robocze = {str(material["plik"]): material["plik_roboczy"] for material in dobre if material["typ"] == "zdjecie"}
@@ -779,6 +873,7 @@ def renderuj(
         nakladka=nakladka, tryb_nakladki_wartosc=tryb_nak,
         nakladka_od_s=nakladka_od_s, nakladka_do_s=nakladka_do_s,
         znak=znak, znak_do_s=znak_do_s,
+        teksty=teksty_do_przebiegu,
     )
     zweryfikuj_wynik(wyjscie, szerokosc, wysokosc, fps, plan["liczba_klatek"], limit_mb)
 
@@ -808,6 +903,7 @@ def renderuj(
         "znak": znak is not None,
         "drop_s": pozycja_dropu_w_planie(wzor, plan["ujecia"], fps),
         "kolor": {"sila": sila_koloru, "sekcje": bool(wzor.get("sekcje"))} if uzyc_kolor else None,
+        "teksty": podsumowanie_tekstow,
     }
 
     sciezka_podsumowania = wyjscie.with_suffix(".json")
@@ -833,6 +929,8 @@ def glowna(argumenty: list[str] | None = None) -> int:
     parser.add_argument("--plansza")
     parser.add_argument("--znak")
     parser.add_argument("--sila-koloru", type=float, default=0.6)
+    parser.add_argument("--styl-tekstu", choices=sorted(tekst.PRESETY), default="szeryf")
+    parser.add_argument("--pozycja-tekstu", choices=sorted(tekst.POZYCJE), default="dol")
     ustalone = parser.parse_args(argumenty)
     try:
         renderuj(
@@ -844,6 +942,8 @@ def glowna(argumenty: list[str] | None = None) -> int:
             plansza=Path(ustalone.plansza) if ustalone.plansza else None,
             znak=Path(ustalone.znak) if ustalone.znak else None,
             sila_koloru=ustalone.sila_koloru,
+            styl_tekstu=ustalone.styl_tekstu,
+            pozycja_tekstu=ustalone.pozycja_tekstu,
         )
     except Exception as blad:
         print(str(blad), file=sys.stderr)

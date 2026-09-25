@@ -179,6 +179,7 @@ async def renderuj_w_tle(
         "--wzor", str(wzor_json), "--projekt", str(katalog_projektu),
         "--muzyka", str(katalog_muzyki), "--wyjscie", str(wynik_mp4),
         "--limit-mb", str(limit_mb), "--sila-koloru", str(konf.sila_koloru),
+        "--styl-tekstu", konf.styl_tekstu, "--pozycja-tekstu", konf.pozycja_tekstu,
     ]
     if nakladka is not None:
         argumenty += ["--nakladka", str(nakladka)]
@@ -310,7 +311,9 @@ async def obsluz_cmd_status(
     if projekt_id:
         katalog_projektu = konf.katalog_danych / "projekty" / projekt_id
         materialy = magazyn.lista_materialow(katalog_projektu)
-        linie.append(komunikaty.status_projektu(projekt_id, len(materialy)))
+        dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
+        liczba_linii = len(dane_projektu.get("teksty", []))
+        linie.append(komunikaty.status_projektu(projekt_id, len(materialy), liczba_linii))
     else:
         linie.append(komunikaty.STATUS_BRAK_PROJEKTU)
     katalog_wzorow = konf.katalog_danych / "wzory"

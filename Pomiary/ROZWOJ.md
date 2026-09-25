@@ -12,8 +12,9 @@ Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym
 | 3 render | scalona w PR #4, testy 116 z 116, pomiar A i B w progach (100% granic, mediana 8 ms; B 36,5 MB). Pomiar C tylko ręcznie zweryfikowany kodem, bez arkuszy PNG. Odbiór 2026-09-23 (Opus): OK. Test ręczny 2026-09-23: montaż odrzucony przez weryfikację długości (dźwięk ucięty przez `atrim`+`-shortest`), naprawa w zadaniu 3.7 (przycinanie opcjami wejścia, wymuszona długość wyjścia), wdrożona na serwer, powtórzona na projekcie `20260923_163553`: 32,0 s obraz i dźwięk zgodnie. Właściciel potwierdził wynik. Część 3 zamknięta, naprawa scalona w PR #5 |
 | 4 muzyka | kod gotowy na gałęzi `muzyka`, 2026-09-23. Testy 144 z 144, pomiar A/B/C w progach, arkusze D powstały. Tryb `dzwiek_wzoru` wyłączony decyzją właściciela (dziennik zadania 4.2 i 4.4): `wybierz_utwor` zawsze idzie po tempie. Scalona w PR #7 (`dc46f0b`) bez odbioru oceniającego. Zadanie 4.5 (pamięć analizy utworu) wykonane 2026-09-24 na gałęzi `pamiec`: testy 189 z 189, pomiar A i B w progach (szczyt analizy najdłuższego utworu 727,9 MB, szczyt renderu 737,5 MB). Wdrożona 2026-09-24. Test na serwerze: montaż z pustym indeksem (6 utworów do przeliczenia) kończy się kodem 0 w 190 s, szczyt renderu 981 MB, szczyt kontenera 1567 MB przy limicie 5 GB (wcześniej kod -9 przy 2,96 GB) |
 | 8 nakładka | scalona w PR #9 i #10 (2026-09-24), wdrożona. Testy 187 z 187 (190 s). Odbiór ponowny 2026-09-24 (Opus): OK. Pomiar A 5 z 5 wzorów w granicy 0,5 s (maks 0,1 s), arkusze C poprawne (hak czysty, nakładka od dropu, plansza bez nakładki i bez znaku, znak wodny jak w `0914`). Pomiar B niewiarygodny (narzut ujemny), zasada czasu procesora dopisana do bloku WSPÓLNE. Test ręczny: kod -9 przez brak pamięci w analizie utworów z części 4, nie przez nakładkę (znany problem 9) |
-| 5 kolor | kod gotowy na gałęzi `kolor`, 2026-09-24. Testy 214 z 214 (225 s). Pomiar A i B w progach (ΔE przy sile 0,6 mniejsze niż przy 0 w każdej sekcji wszystkich 5 prawdziwych wzorów), arkusze C (15) powstały. Narzut renderu 44 do 112% (bez ustalonego progu, do decyzji właściciela). Czas próbkowania „niepewny" (rozrzut przebiegów bazowych nad progiem 20%, na jednym, największym wzorze). Odbiór 2026-09-24 (Opus): poprawki w zadaniu 5.5 (klip krótszy od ujęcia wywraca montaż, wzór z jednym ujęciem, ciche nieudane próbkowanie). Siła domyślna 0,6 potwierdzona na arkuszach. Bez wdrożenia |
-| 6, 9 | plany przepisane 2026-09-23 po przeglądzie wzorów (9 nowy), kod nie ruszony. Kolejność po części 5: 6, 9 |
+| 5 kolor | kod gotowy na gałęzi `kolor`, 2026-09-24. Testy 214 z 214 (225 s). Pomiar A i B w progach (ΔE przy sile 0,6 mniejsze niż przy 0 w każdej sekcji wszystkich 5 prawdziwych wzorów), arkusze C (15) powstały. Narzut renderu 44 do 112% (bez ustalonego progu, do decyzji właściciela). Czas próbkowania „niepewny" (rozrzut przebiegów bazowych nad progiem 20%, na jednym, największym wzorze). Odbiór 2026-09-24 (Opus): poprawki w zadaniu 5.5 (klip krótszy od ujęcia wywraca montaż, wzór z jednym ujęciem, ciche nieudane próbkowanie). Siła domyślna 0,6 potwierdzona na arkuszach. Bez wdrożenia. Scalona w PR #12, wdrożona 2026-09-24. Zadanie 5.6 (niebo bez przebarwienia) scalone w PR #13 i wdrożone 2026-09-25, pełny pomiar po nim zaliczony |
+| 9 fabryka | zadanie 9.5 (nakładka z kryciem, pierścień w całości w kadrze) scalone w PR #14 i wdrożone 2026-09-25, odbiór OK. Reszta części 9 do zrobienia |
+| 6 tekst | kod gotowy na gałęzi `tekst`, 2026-09-25. Testy 251 z 251 (311 s). Pomiar: najwyżej 20 do 27 linii w haku prawdziwych wzorów, narzut procesora 24% (bez progu), arkusze dla 5 wzorów. Odbiór 2026-09-25 (Opus): OK z trzema drobnymi poprawkami, czcionka do akceptacji właściciela. Bez PR i bez wdrożenia |
 
 Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`). Wdrożenie na serwer nadal przez `wdroz.ps1` (część 7).
 
@@ -48,6 +49,7 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 10. **`/znak` przyjmuje PNG bez przezroczystości** i wtedy w edycie wychodzi półprzezroczysty prostokąt. Drobne; do ostrzeżenia w bocie przy okazji części 9.
 11. **Niebo w montażu robi się różowo-fioletowe przy `SILA_KOLORU` 0,6 (test ręczny części 5, 2026-09-24).** Transfer Reinharda w `kolor.lut_transferu` przesuwa cały obraz w stronę celu sekcji niezależnie od tego, czy piksel jest niebem czy nie: na prawdziwym zdjęciu z jasnym, prawie białym niebem (materiał tłumu z flagami) chłodny cel montażu daje wyraźne przebarwienie. Sprawdzone na tym samym materiale przy siłach 0, 0,3, 0,6 i 1,0: przebarwienie widać już od 0,3 i rośnie z siłą; hak (portret) wygląda naturalnie na całym zakresie, nawet przy 1,0. **Decyzja właściciela (2026-09-24): zostaje jak jest, `SILA_KOLORU` bez zmian (domyślne 0,6), problem zgłoszony, nie blokuje.** Możliwe kierunki naprawy na przyszłość: osobna siła dla montażu niż dla haka, albo ograniczenie transferu do pikseli bliższych statystykom celu (odcięcie skrajnie jasnych/desaturowanych obszarów typu niebo).
     **Przyczyna i poprawka (Opus, 2026-09-25):** cel montażu wzoru `0915` (na serwerze `20260923_143107`) ma a +11,8 i b −17,6, czyli fiolet, a transfer przesuwa barwę każdego piksela o tyle samo. Prototyp z osłabieniem zmiany a i b w jasnych partiach (pełna do L 55, zerowa od L 90) usuwa róż z nieba i białej ściany i nie zmienia haka. Zadanie 5.6 w `PLAN_EDITY_5_KOLOR.md`, gałąź `niebo`.
+12. **Wejście obrazu z `-loop 1 -t` zawiesza przebieg końcowy, gdy kończy się dużo wcześniej niż wynik (odkryte 2026-09-25 przy pomiarze 6.4, zamknięte tego samego dnia).** Na `polaczone.mp4` wzoru `0914` z prawdziwymi materiałami (ffmpeg 8.1) `ffmpeg` wisi bez wzrostu czasu procesora, gdy okno obrazu kończy się 15,7 s przed końcem wyniku albo wcześniej. Przy 8,7 s i mniej przechodzi. Nie zależy od pliku PNG, filtra `fps`, `fade` ani `eval=frame`. Napisy kończyły się na dropie, więc wisiały, a naprawia je zadanie 6.4 (`render.materializuj_tekst`, plik `webm` z dokładną liczbą klatek). Nakładka i znak wodny kończą się na planszy (1 do 2 s przed końcem): render produkcyjny `0914` z pierścieniem przechodzi w 148 s. Pierwsze zgłoszenie („nakładka `alfa` zawiesza się tak samo”) się nie potwierdziło. Zostaje ostrzeżenie na przyszłość: każde nowe wejście `-loop 1` z oknem krótszym niż wynik (np. słowa w rytmie z 9.6) materializuj tak jak napisy.
 
 ## Decyzje techniczne podjęte przy realizacji
 
@@ -59,6 +61,99 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 - Wyniki (`outputs/`), dane (`dane/`) i `.env` są poza gitem. Katalog `Pomiary/` od 2026-09-23 jest w repozytorium (decyzja właściciela), więc zmiany planów i dziennika trzeba commitować.
 
 ## Dziennik
+
+### 2026-09-25 (poprawki po odbiorze części 6, gałąź `tekst`, Sonnet)
+- `src/komunikaty.py` (`linia_tekstow`): gdy wszystkie linie były samymi emoji (`linie: 0`, `usuniete_znaki` > 0), podpis teraz i tak dodaje wzmiankę o usuniętych znakach, bez zdania „Napisy: 0.”. Test w `tests/test_bot.py`: podsumowanie `{"linie": 0, "usuniete_znaki": 3}` daje w podpisie „Usunięte znaki bez czcionki: 3”, bez „Napisy:”.
+- `tests/test_tekst.py`: `_ramka_niezerowej_alfy` i `_w_strefie` przemianowane na `ramka_niezerowej_alfy` i `w_strefie` (reguła 3 WSPÓLNE, bez `_` na początku), import zmieniony na `import tekst` jak w pozostałych plikach testów.
+- Nowy test `test_dolna_granica_przy_znaku_wodnym` (`tests/test_tekst.py`, oba presety): `obraz_tekstu(..., dolna_granica=0.75)` dla długiej linii daje ramkę alfy najwyżej na 75% wysokości.
+- `python -m pytest -q`: 254 z 254 w 260 s (251 wcześniej + 3 nowe).
+- Commit `tekst: poprawki po odbiorze`.
+
+### 2026-09-25 (odbiór części 6: napisy w haku, gałąź `tekst`, Opus)
+- **Werdykt: OK z trzema drobnymi poprawkami** (lista niżej), czcionka czeka na akceptację właściciela.
+- `git log main..tekst`: 5 commitów zgodnych z planem (4 z listy plus `tekst: napisy przez zmaterializowane wideo zamiast petli`). `python -m pytest -q`: 251 z 251 w 311 s.
+- Pomiar: najwyższa liczba linii w haku prawdziwych wzorów od 20 (`0923`) do 27 (`0922`). Narzut czasu procesora 24% dla obu presetów (tylko raport). Arkusze powstały dla 5 wzorów.
+- Arkusze: napisy są tylko w haku i znikają na dropie, środek bloku na 70% wysokości (we wzorach 50 do 77%). Polskie litery w obu presetach, cień `szeryf` i obrys `blok` w porządku, długa linia łamie się na 4 wiersze. Emoji znika. `outputs/tekst.png` ma tylko 480 px szerokości i czcionki na nim nie widać. Do akceptacji wycięte pełne klatki 1080x1920.
+- `src/render.py`: napisy idą po nakładce, a przed znakiem wodnym. Przy znaku dolna krawędź bloku leży najwyżej na 1424 px, czyli poniżej granicy 1440 px (75%), sprawdzone na długiej linii w obu presetach. Wejścia napisów to pliki `webm` z dokładną liczbą klatek. Bez linii przebieg końcowy się nie zmienia (test).
+- **Zawieszenie `ffmpeg` sprawdzone na nowo** (ffmpeg 8.1, `polaczone.mp4` wzoru `0914` z prawdziwymi materiałami, limit 150 s na przebieg):
+  - render produkcyjny z pierścieniem (`alfa`, PNG z `-loop 1`), znakiem wodnym i planszą przechodzi: przebieg końcowy 33 s, cały render 148 s. Zawieszenie nakładki ze zgłoszenia Sonneta się nie powtarza;
+  - stare napisy (PNG z `-loop 1 -t`) wiszą przy jednej i przy dwóch liniach, także z filtrem `fps`, bez `eval=frame` i z gałęzią filtrów skopiowaną z pierścienia;
+  - o zawieszeniu decyduje okno, a nie plik. Napis w oknie pierścienia (9,9 do 28,4 s) przechodzi, a pierścień w oknie napisu (0 do 4,8 s albo 4,8 do 9,9 s) wisi. Pierścień od 9,9 s kończący się na 26 s albo 22 s przechodzi, a kończący się na 15 s wisi;
+  - wniosek: wejście `-loop 1 -t` zawiesza przebieg, gdy kończy się dużo wcześniej niż wynik (tu między 8,7 a 15,7 s przed końcem). Nakładka i znak wodny kończą się na planszy, 1 do 2 s przed końcem, więc tego warunku nie spełniają. Napisy kończą się na dropie, więc go spełniały. Poprawka z 6.4 (plik `webm` z dokładną liczbą klatek) usuwa problem. Znany problem 12 poprawiony;
+  - bot i tak zabija render po `LIMIT_RENDERU_S` (900 s) razem z procesami potomnymi, więc zawieszenie kończy się błędem, a nie zablokowaną kolejką.
+- **Poprawki (małe, do jednego commita `tekst: poprawki po odbiorze`):**
+  1. `src/komunikaty.py` (`linia_tekstow`): gdy wszystkie linie składały się z samych emoji (`linie` 0, `usuniete_znaki` większe od 0), podpis milczy, a plan wymaga wzmianki o usuniętych znakach. Test: podsumowanie `{"linie": 0, "usuniete_znaki": 3}` daje w podpisie „Usunięte znaki bez czcionki: 3”;
+  2. `tests/test_tekst.py:24` i `:30`: `_ramka_niezerowej_alfy` i `_w_strefie` z `_` na początku (reguła 3 WSPÓLNE), a `from src import tekst` zamiast `import tekst` jak w pozostałych testach;
+  3. brak testu napisu przy znaku wodnym: `obraz_tekstu(..., dolna_granica=0.75)` dla długiej linii w obu presetach daje ramkę alfy najwyżej na 75% wysokości.
+- Raport Sonneta o „równoległej sesji” w mapie: to były moje niezacommitowane zmiany. Wchodzą do repo razem z tym wpisem.
+
+### 2026-09-25 (zadanie 6.4: pomiar napisów, gałąź `tekst`, Sonnet)
+- `Pomiary/measure_tekst.py` (nowy), wynik `outputs/pomiar_tekst.json`, uruchomiony po poprawce zawieszenia (wpis niżej).
+- Sekcja „linie” (5 prawdziwych wzorów, cache `outputs/wzor_<nazwa>.json`, plan liczony po `ciecia_s` bez uderzeń): najwyższa liczba linii mieszcząca się w haku od 20 (`0923`) do 27 (`0922`), przy końcu haka od 162 do 337 klatek. Wszystkie dużo powyżej realnych 2 do 3 linii, jakich używa właściciel.
+- Sekcja „narzut” (syntetyczny projekt, hak 3 s / 90 klatek, render 1080x1920, 3 linie: polskie znaki, bardzo długa, emoji): narzut czasu procesora ffmpeg (suma `utime`+`stime` z `-benchmark`, podmieniony `render.uruchom_ffmpeg`) 24,1% dla `szeryf` i 24,2% dla `blok` względem przebiegu bez napisów (56,4 s CPU). Bez progu (decyzja właściciela 2026-09-24), tylko raport; narzut wyższy niż we wcześniejszym pomyślnym przebiegu sprzed poprawki (8,9/14,2%), bo kodowanie VP9 z alfą kosztuje więcej niż sama pętla PNG, ale to cena za brak zawieszenia na prawdziwym materiale. Arkusz `outputs/tekst.png`: klatka ze środka okna każdej z 3 linii, oba presety obok siebie, polskie znaki i długi wiersz łamią się poprawnie, emoji zniknęło.
+- Sekcja „porownanie” (5 prawdziwych wzorów, materiały z `dane/zdjęcia`/`dane/nagrania`/`dane/zdjęcia_bez_tła` po regule z WSPÓLNE, muzyka z biblioteki, plansza `dane/promocyjne/06164aa4…`, 2 linie): wszystkie 5 arkuszy `outputs/porownanie_tekst_<wzor>.png` powstały. Na `0914` napisy widoczne tylko w pierwszych rzędach (hak), znikają razem z montażem/dropem, znak wodny „1993 Supply” obecny równolegle bez kolizji.
+- Czcionka: do akceptacji właściciela na arkuszu `outputs/tekst.png` (poza zakresem tej sesji).
+- Commit `Pomiary: pomiar napisów`.
+
+### 2026-09-25 (zadanie 6.4: zawieszenie ffmpeg na prawdziwym materiale, poprawka w renderze, gałąź `tekst`, Sonnet)
+- **Odkrycie podczas pomiaru 6.4:** pierwszy pełny przebieg `Pomiary/measure_tekst.py` (sekcja porównanie, prawdziwy wzór `0914`, prawdziwe materiały, napisy) zawiesił się w przebiegu końcowym na ponad 80 minut, `ffmpeg` bez wzrostu czasu procesora (56,8 s CPU przy 84 min zegara). Test na syntetycznym materiale (zadania 6.1 do 6.3) tego nie łapał.
+- **Przyczyna (zawężona ręcznie, poza testami):** `ffmpeg` zawiesza filtr `overlay=eval=frame` na wejściu `-loop 1 -i obraz.png` (nieskończone, bez własnej liczby klatek), gdy drugim wejściem jest wideo złożone z konkatenacji (`concat -c copy`) prawdziwych segmentów. Zmaterializowanie tego samego PNG do zwykłego, ograniczonego pliku wideo (bez `-loop`) i podanie go jako normalnego wejścia usuwa zawieszenie (sprawdzone ręcznie: z `-loop 1` zawiesza się identycznie nawet bez `fade` i bez `enable`, z wcześniej zmaterializowanym plikem wideo o tej samej treści działa w 2 do 3 s). Nie jest to problem z `fade`, `enable`, `fps` wejścia czy nietypowym `time_base` (`1/15360` jest identyczny na materiale syntetycznym, który nie zawiesza się).
+- **Ten sam wzorzec (`-loop 1` plus `overlay=eval=frame`) jest już w kodzie nakładki z części 8/9 (tryb `alfa`, PNG)** — ręczny test z tym samym prawdziwym plikem wideo pokazał identyczne zawieszenie. To nie jest błąd wprowadzony w tej sesji, tylko odkryty przy pierwszym prawdziwym użyciu napisów z prawdziwym materiałem. **Zapisane jako znany problem 12 (część 8/9, nakładka `alfa` w formacie PNG może zawiesić render na prawdziwym materiale; do decyzji właściciela, poza zakresem części 6).**
+- **Poprawka w `src/render.py` (część 6, w zakresie):** `materializuj_tekst` koduje obraz napisu jako `libvpx-vp9` z `-pix_fmt yuva420p` i `-auto-alt-ref 0` (ta sama para kodek/piksel co już istniejący kontrakt `wymaga_dekodera_vp9_alfa` dla nakładki), z dokładną liczbą klatek okna (`klatka_do - klatka_od`), bez `-loop`. `przygotuj_teksty` zapisuje `tekst_NN.webm` w `praca/` zamiast `tekst_NN.png`. `przebieg_koncowy` dostaje to wejście przez zwykłe `-i` z podpowiedzią dekodera `-c:v libvpx-vp9`, bez `-loop`/`-t`. Sprawdzone: ten sam przebieg, który wisiał ponad 80 minut, kończy się w 163 s.
+- Testy części 6 (7 z 7) i cały zestaw (251 z 251, 292 s, wolniej niż 252 s wcześniej, bo kodowanie VP9 z alfą jest droższe niż samo `-loop`) bez zmian w treści testów, tylko w implementacji.
+- Commit `tekst: napisy przez zmaterializowane wideo zamiast petli`.
+
+### 2026-09-25 (wdrożenie 5.6 i 9.5, test lokalny, pełny pomiar koloru, Opus)
+- **Scalenie i wdrożenie:**
+  - PR #13 (5.6, niebo) i PR #14 (9.5, nakładka z kryciem) scalone przez właściciela na GitHubie; `main` na `6792b6d`;
+  - `wdroz.ps1 -Serwer root@46.62.151.181`: obraz `bot` przebudowany, oba kontenery odtworzone, bot loguje `Start polling` jako `@cwel54_bot`;
+  - w kontenerze jest `ochrona_jasnych` w `src/kolor.py` i `KRYCIE_NAKLADKI` w `src/render.py`. Bez `analyze.py --wszystkie`, bo `wzor.json` się nie zmienia;
+  - pierwsze uruchomienie `wdroz.ps1` z `2>&1` padło na `NativeCommandError` (PowerShell 5.1 traktuje stderr `git fetch` jako błąd). Bez przekierowania przeszło.
+- **Test lokalny zamiast ręcznego na Telegramie** (właściciel poprosił, żebym sprawdził sam):
+  - projekt odtworzony lokalnie 1:1 z `20260924_145749` z serwera: 21 zdjęć i 3 nagrania dopasowane po rozmiarach plików, wzór `outputs/wzor_0915.json` (szablon serwera to `0915`), pierścień `dane/zdjęcia/European_stars.png` (ten sam plik co nakładka wzoru na serwerze), plansza i znak z `dane/promocyjne/`, siła 0,6;
+  - pierścień (tryb `alfa`): cały, na środku kadru, od dropu 7,27 s do planszy 31,1 s. Plansza bez nakładki i bez znaku, wynik 32,0 s;
+  - niebo na prawdziwym zdjęciu tłumu z flagami (`bfeb2392…`, to ono było w zgłoszeniu): zmiana barwy jasnych partii (L > 70) wobec oryginału spadła z 18,2 do 5,0. Niebo zostaje ciepłe jak w oryginale (a/b 5,6; 13,7 → 5,5; 8,6), bez różu. Ściana „We are Europe” biała;
+  - flaga (tryb `krycie`, jak po `/nakladka usun`): działa, ale przy wzorze `0915` montaż robi się mocno niebieski. Symulacja na tych samych klatkach przy kryciu 40% i 30% zmienia niewiele, bo niebieski daje głównie cel koloru montażu `0915` (fioletowy granat). Właściciel: „klatki się szybko zmieniają, tego nie będzie widać”, zostaje 50%.
+- **Pełny pomiar koloru po 5.6** (`outputs/pomiar_kolor.json`, WYNIK: ZALICZONE, wznowiony z pliku częściowego po przerwaniu w nocy):
+  - ΔE (hak / montaż) na 5 wzorach:
+
+    | Wzór | Siła 0 | 0,6 | 1,0 |
+    |---|---|---|---|
+    | `0914` | 34,7 / 34,8 | 20,6 / 14,3 | 15,6 / 2,4 |
+    | `0915` | 39,7 / 33,9 | 23,8 / 14,6 | 18,1 / 6,6 |
+    | `0921` | 48,7 / 18,4 | 30,1 / 8,3 | 22,4 / 1,7 |
+    | `0922` | 37,0 / 36,1 | 22,2 / 15,4 | 16,0 / 3,9 |
+    | `0923` | 45,5 / 26,8 | 26,1 / 11,2 | 19,3 / 3,6 |
+
+  - próg „0,6 lepsze niż 0 w każdej sekcji” spełniony. Hak przy 0,6 ma ΔE wyższe niż przed 5.6 (było 13,6 do 19,4), bo jasne partie (skóra, niebo) nie dostają już pełnego odcienia ciepłego celu. Montaż prawie bez zmian (było 7,6 do 14,4). To zamierzony koszt poprawki;
+  - sekcja D bez zmian wobec osobnego uruchomienia (chroma jasnych: tłum 14,45 → 2,03, ściana 9,43 → 0,76, mgła 13,09 → 6,96);
+  - czas: narzut renderu 51 do 152%, a czas analizy „niepewny” (rozrzut bazowych 43%). Liczby zafałszowane równoległymi renderami testu lokalnego, a czas i tak nie jest progiem (decyzja właściciela).
+- **Plan 6 poprawiony przed startem:** próg „narzut poniżej 30%” zamieniony na sam raport, `fonttools` dopisywany do `requirements.txt` (nie było go w żadnym pliku wymagań), w „Stan wejściowy” dopisany stan `main` po częściach 5, 5.6 i 9.5.
+
+### 2026-09-25 (zadanie 6.3: konfiguracja i bot, gałąź `tekst`, Sonnet)
+- `src/konfiguracja.py`: `STYL_TEKSTU` (domyślnie `szeryf`) i `POZYCJA_TEKSTU` (domyślnie `dol`) w `Konfiguracja`, walidowane przeciwko `tekst.PRESETY`/`tekst.POZYCJE` (nieznana wartość: `ValueError`). Dopisane do `.env.example`.
+- `src/bot.py`: `renderuj_w_tle` przekazuje `--styl-tekstu`/`--pozycja-tekstu` z konfiguracji do CLI renderu. `obsluz_cmd_status` w stanie zbierania dolicza liczbę linii tekstu z `projekt.json`.
+- `src/komunikaty.py`: `POMOC` dostała zdanie, że zwykła wiadomość w trakcie zbierania to linia napisu (część 1 już to robiła, ale nie było o tym nic w pomocy). Nowa `linia_tekstow` dopisuje do `podsumowanie_renderu` linię „Napisy: N.” i, gdy `usuniete_znaki` > 0, „Usunięte znaki bez czcionki: M (np. emoji).”. `status_projektu` dostał trzeci argument `liczba_linii` („Projekt X, materiałów Y, linii tekstu Z.”); jedyne miejsce wywołania (`bot.py`) zaktualizowane. `/gotowe` już wcześniej (część 1) podawał liczbę linii przez `projekt_w_kolejce`, więc bez zmian.
+- Testy (+6): `test_konfiguracja.py` (`STYL_TEKSTU=kursywa` → `ValueError`, `POZYCJA_TEKSTU` niestandardowa), `test_bot.py` (POMOC wspomina o napisach, CLI dostaje `--styl-tekstu`/`--pozycja-tekstu` z konfiguracji, podpis wyniku z „Napisy: 2.” i wzmianką o usuniętych znakach, `/status` przy zbieraniu pokazuje „linii tekstu 2” po dwóch wiadomościach tekstowych).
+- `python -m pytest -q`: 251 z 251 w 252 s (245 wcześniej + 6 nowych).
+- Commit `bot: napisy w haku`.
+
+### 2026-09-25 (zadanie 6.2: okna w haku i nakładanie w renderze, gałąź `tekst`, Sonnet)
+- Przed tym zadaniem poprawiona pomyłka z 6.1: funkcje pomocnicze w `src/tekst.py` miały `_` na początku nazwy, co łamie regułę 3 WSPÓLNE („nazwy funkcji bez `_` na początku”). Przemianowane (`wczytaj_czcionke`, `wybierz_czcionke`, `dopasuj_wysokosc`, `szerokosc_napisu`, `dopasuj_do_strefy`, `lamanie`), testy 6.1 dalej zielone.
+- `src/tekst.py`: `okna_tekstow(liczba_linii, plan, koniec_haka_klatka)`. Okno końcowe rozszerza się nie tylko do kolejnych początków ujęć planu, ale też do `liczba_klatek` całego edita jako ostatniego możliwego kandydata (inaczej rozszerzanie utyka na starcie ostatniego ujęcia i nie sięga jego końca, co nie zgadzało się z oczekiwanym podziałem 30/30 z testu 7 zadania 6.2). `obraz_tekstu` dostał opcjonalny `dolna_granica` (nadpisuje `STREFA_BEZPIECZNA["dol"]`) na potrzeby znaku wodnego.
+- `src/render.py`: nowe `wczytaj_linie_tekstu` (czyta `projekt.json` z katalogu projektu, `teksty` może nie istnieć) i `przygotuj_teksty` (czyści linie przez `tekst.oczysc` znakami wybranej czcionki, liczy okna z `render.koniec_haka`, zapisuje PNG w `praca/`, zwraca listę do `przebieg_koncowy` i podsumowanie). `przebieg_koncowy` dostał `teksty` (wejścia `-loop 1 -t <okno>`, więc zapętlone i ograniczone) nakładane w łańcuchu filtrów po nakładce z części 8 i przed znakiem wodnym z 8.6, z 4-klatkowym przenikaniem (`fade=alpha`). Brak linii (`teksty` puste albo brak) nic nie dodaje do polecenia, sprawdzone testem porównującym dwa przebiegi. `renderuj` i `glowna` dostały `--styl-tekstu`/`--pozycja-tekstu`, pole `tekst` we wzorze (`pozycja`, `wersaliki`) ma pierwszeństwo przed CLI. Podsumowanie renderu ma nowy klucz `teksty: {linie, usuniete_znaki, okna}`.
+- Testy (+11, `tests/test_render.py`, `import tekst` dopisany): 4 jednostkowe dla `okna_tekstow` (przyciąganie do ujęć, pojedyncze ujęcie w haku, rozszerzanie okna aż linie się zmieszczą, `ValueError` z maksymalną liczbą linii przy 50 liniach na 5 s), jeden dla `koniec_haka` bez sekcji użyty w `okna_tekstow`, pełny render 270x480 z 3 liniami (polskie znaki, długa linia, emoji: `usuniete_znaki` 1, białe piksele w oknie każdej linii i brak ich poza oknem), napis nad nakładką (`alfa`, dwie linie u góry, druga na nakładce, klatka 45 ma piksel >=240 w każdym kanale) i identyczne polecenie ffmpeg przebiegu końcowego z pustym `projekt.json` (same emoji) i bez niego.
+- `python -m pytest -q`: 245 z 245 w 250 s (234 wcześniej + 11 nowych).
+- Commit `tekst: napisy w haku w renderze`.
+
+### 2026-09-25 (zadanie 6.1: czcionki i obraz napisu, gałąź `tekst`, Sonnet)
+- Gałąź `tekst` utworzona od `main` (część 8 i 5 scalone, zadanie 9.5 też).
+- `src/tekst.py`: `PRESETY` (`szeryf`: Libre Baskerville Bold z cieniem, `blok`: Anton z obrysem, wersaliki), `znaki_czcionki`, `oczysc`, `obraz_tekstu`. Wagę na czcionkach zmiennych (Libre Baskerville, Noto Serif, Oswald) ustawia `set_variation_by_axes` po osi `Weight` (Pillow zwraca oś jako `{"name": b"Weight", ...}`, nie `"axis"`). Anton jest statyczny, bez wagi.
+- Czcionki pobrane z `google/fonts` (gałąź `main`, katalog `ofl/`) do `zasoby/czcionki/<rodzina>/` razem z `OFL.txt`: `librebaskerville`, `notoserif`, `anton`, `oswald`. Wszystkie cztery mają komplet polskich znaków (`ąćęłńóśźżĄĆĘŁŃÓŚŹŻ`), więc zapasowe czcionki (Noto Serif, Oswald) w praktyce się nie uruchamiają, tylko kod je przewiduje.
+- `fonttools` dopisany do `requirements.txt` (nie testowego), przypięty na `4.66.0`, bo `znaki_czcionki` jest częścią `src/`, a nie tylko testów czy pomiarów.
+- Dopasowanie długiego słowa do strefy bezpiecznej liczy margines na cień (przesunięcie razy 3, bo rozmycie Gaussa rozlewa się też w bok) i obrys, odejmuje go od szerokości strefy przed łamaniem i doborem rozmiaru czcionki: bez tego rozmyty cień wychodził poza strefę nawet gdy sam tekst się mieścił.
+- Testy `tests/test_tekst.py` (+11, nowy plik): komplet polskich znaków w obu presetach, obraz niepusty przy znakach specjalnych, długie słowo w strefie, wszystkie pozycje i presety w strefie, `oczysc` usuwa emoji, `szeryf` zachowuje wielkość liter a `blok` wymusza wersaliki (porównanie pikseli obrazu małych i wielkich liter). `python -m pytest -q tests/test_tekst.py`: 11 z 11 w 1,5 s.
+- Commit `tekst: czcionki i obraz napisu`.
 
 ### 2026-09-25 (odbiór zadania 9.5: nakładka z kryciem, gałąź `krycie`, Opus)
 - **Werdykt: OK.** Kod Sonneta zgodny z kontraktem „Nakładka z kryciem” i „Skalowanie nakładki” z planu 9:
@@ -590,8 +685,8 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Następne kroki
 
-1. Zadanie 9.5: commit `render: nakładka z kryciem` na gałęzi `krycie`, PR, scalenie, `wdroz.ps1`. Na serwerze przy wzorze `20260923_143107` dalej wygrywa pierścień (teraz cały, na środku kadru), a flagę da dopiero `/nakladka usun`.
-2. Wynik wznowionego pełnego pomiaru koloru (zadanie 5.6) do dziennika. Wdrożenie 5.6 razem z 9.5, potem test ręczny nieba przy sile 0,6.
-3. Część 6 (napisy w haku), potem 9.1 do 9.4 oraz 9.6 do 9.8. Od właściciela: teksty haków i akceptacja czcionki na arkuszu.
-4. Przy okazji wdrożenia: `docker stats` w trakcie montażu. Gdy szczyt zostaje poniżej 2 GB, limit pamięci wraca z 5g do 3g.
-5. Właściciel: własny znak wodny przez `/znak` (PNG z przezroczystością), jeśli ma być inny niż plik z `dane/promocyjne/`.
+1. Część 6: poprawki po odbiorze (dziennik 2026-09-25, odbiór części 6), akceptacja czcionki przez właściciela, PR, scalenie, `wdroz.ps1`, potem test ręczny z 2–3 liniami (jedna z emoji).
+2. Po części 6: 9.6 do 9.8 (słowa w rytmie, napis pionowy, pomiar ze sloganem), potem 9.1 do 9.4 (restart, biblioteka wzorów, warianty).
+3. Przy okazji wdrożenia: `docker stats` w trakcie montażu. Gdy szczyt zostaje poniżej 2 GB, limit pamięci wraca z 5g do 3g.
+4. Właściciel: własny znak wodny przez `/znak` (PNG z przezroczystością), jeśli ma być inny niż plik z `dane/promocyjne/`; pliki `scratch_*` z katalogu głównego repo do usunięcia.
+5. Pomysły na później, bez planu: długość nakładki brana ze wzoru (w `0923` flaga trwa około 2 s po dropie); krycie flagi niżej niż 50%, jeśli na telefonie wyjdzie za ciężko.

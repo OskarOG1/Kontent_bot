@@ -11,6 +11,7 @@ import analyze
 import generuj
 import kolor
 import render
+import tekst
 
 
 def uruchom_ffprobe(sciezka):
@@ -859,3 +860,186 @@ def test_renderuj_zdjecie_z_alfa_pomija_lut_szare_dostaje(tmp_path, monkeypatch)
     assert b_szara < -10
 
     assert "lut3d" not in " ".join(polecenia[0])
+
+
+def test_okna_tekstow_przyciagniecie_do_ujec_w_granicy_8_klatek():
+    plan = {"fps": 30, "liczba_klatek": 480, "ujecia": [{"klatka_od": i * 15} for i in range(32)]}
+    okna = tekst.okna_tekstow(3, plan, 120)
+    assert okna == [(0, 45), (45, 75), (75, 120)]
+
+
+def test_okna_tekstow_hak_jednego_ujecia_dzieli_po_rowno():
+    plan = {"fps": 30, "liczba_klatek": 120, "ujecia": [{"klatka_od": 0}]}
+    okna = tekst.okna_tekstow(3, plan, 120)
+    assert okna == [(0, 40), (40, 80), (80, 120)]
+
+
+def test_okna_tekstow_rozszerza_okno_az_linie_sie_zmiescia():
+    plan = {"fps": 30, "liczba_klatek": 150, "ujecia": [{"klatka_od": i * 15} for i in range(10)]}
+    okna = tekst.okna_tekstow(5, plan, 90)
+    assert len(okna) == 5
+    assert okna[0][0] == 0
+    assert okna[-1][1] == 150
+    for start, koniec in okna:
+        assert koniec - start >= 30
+
+
+def test_okna_tekstow_za_duzo_linii_rzuca_blad_z_maksimum():
+    plan = {"fps": 30, "liczba_klatek": 150, "ujecia": [{"klatka_od": i * 15} for i in range(10)]}
+    with pytest.raises(ValueError) as blad:
+        tekst.okna_tekstow(50, plan, 60)
+    assert "5" in str(blad.value)
+
+
+def test_okna_tekstow_bez_sekcji_konczy_sie_na_koniec_haka():
+    plan = {"fps": 30, "liczba_klatek": 120, "ujecia": [{"klatka_od": i * 30} for i in range(4)]}
+    koniec = render.koniec_haka(plan, None)
+    assert koniec == 60
+    okna = tekst.okna_tekstow(2, plan, koniec)
+    assert okna[-1][1] == koniec
+
+
+def wzor_do_tekstu_bez_sekcji():
+    return {
+        "ciecia_s": [0.0, 1.0, 2.0, 3.0],
+        "zrodlo": {"czas_s": 4.0},
+    }
+
+
+def zapisz_projekt_json(projekt, linie):
+    dane = {"teksty": [{"message_id": i + 1, "tekst": linia} for i, linia in enumerate(linie)]}
+    (projekt / "projekt.json").write_text(json.dumps(dane, ensure_ascii=False), encoding="utf-8")
+
+
+def policz_biale_piksele_w_strefie(klatka):
+    wysokosc, szerokosc = klatka.shape[:2]
+    lewo = int(tekst.STREFA_BEZPIECZNA["lewo"] * szerokosc)
+    prawo = int(tekst.STREFA_BEZPIECZNA["prawo"] * szerokosc)
+    gora = int(tekst.STREFA_BEZPIECZNA["gora"] * wysokosc)
+    dol = int(tekst.STREFA_BEZPIECZNA["dol"] * wysokosc)
+    wycinek = klatka[gora:dol, lewo:prawo].astype(np.int32)
+    return int(np.count_nonzero(np.all(wycinek >= 200, axis=-1)))
+
+
+def test_renderuj_pelny_przebieg_z_liniami_tekstu(tmp_path):
+    def dodaj(katalog):
+        generuj.zdjecie_testowe(katalog / "0000000001_a.jpg", rozmiar=(800, 600))
+        generuj.zdjecie_testowe(katalog / "0000000002_b.jpg", rozmiar=(600, 800))
+        generuj.zdjecie_testowe(katalog / "0000000003_c.jpg", rozmiar=(600, 800))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    zapisz_projekt_json(projekt, [
+        "Zażółć gęślą jaźń",
+        "To jest bardzo dluga linia ktora na pewno sie zlamie na wiele wierszy w kadrze",
+        "Siema 🔥 ziomek",
+    ])
+    wzor = wzor_do_tekstu_bez_sekcji()
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=128, czas_s=6.0, pierwsze_uderzenie_s=0.3)
+    fps = 30
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50)
+
+    assert podsumowanie["teksty"]["linie"] == 3
+    assert podsumowanie["teksty"]["usuniete_znaki"] == 1
+
+    wynik_formatu = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(wyjscie)],
+        stdin=subprocess.DEVNULL, capture_output=True,
+    )
+    rzeczywisty_czas_s = float(wynik_formatu.stdout.decode().strip())
+    assert abs(rzeczywisty_czas_s - podsumowanie["czas_s"]) <= 1.0 / fps + 0.02
+
+    klatki = dekoduj_klatki(wyjscie, tmp_path, "tekst.raw")
+    for start, koniec in podsumowanie["teksty"]["okna"]:
+        srodek = (start + koniec) // 2
+        assert policz_biale_piksele_w_strefie(klatki[srodek]) > 0
+
+    ostatnie_okno = podsumowanie["teksty"]["okna"][-1]
+    if ostatnie_okno[1] < len(klatki):
+        assert policz_biale_piksele_w_strefie(klatki[ostatnie_okno[1]]) == 0
+
+
+def test_renderuj_napis_nad_nakladka(tmp_path):
+    def dodaj(katalog):
+        for i in range(4):
+            generuj.zdjecie_testowe(katalog / f"000000000{i}_m.jpg", rozmiar=(800, 600), kolor=generuj.kolor_ujecia(i))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    zapisz_projekt_json(projekt, ["Gora", "Druga linia"])
+    wzor = {
+        "ciecia_s": [0.0, 0.5, 1.0, 1.5],
+        "zrodlo": {"czas_s": 2.0},
+        "sekcje": {"drop_s": 0.5, "drop_ujecie": 1, "koniec_haka_uderzenia": None},
+    }
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=120, czas_s=3.0, pierwsze_uderzenie_s=0.3)
+    fps = 30
+
+    nakladka = tmp_path / "nakladka.png"
+    generuj.nakladka_testowa(nakladka, czas_s=1.0, tryb="png", rozmiar=(270, 480))
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(
+        wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50,
+        nakladka=nakladka, pozycja_tekstu="gora",
+    )
+
+    assert podsumowanie["teksty"]["okna"] == [[0, 30], [30, 60]]
+    assert podsumowanie["nakladka"]["od_s"] == 1.0
+    assert podsumowanie["nakladka"]["do_s"] == 2.0
+
+    klatki = dekoduj_klatki(wyjscie, tmp_path, "nad_nakladka.raw")
+    klatka_45 = klatki[45].astype(np.int32)
+    lewo = int(tekst.STREFA_BEZPIECZNA["lewo"] * 270)
+    prawo = int(tekst.STREFA_BEZPIECZNA["prawo"] * 270)
+    gora = int(tekst.STREFA_BEZPIECZNA["gora"] * 480)
+    dol = int(tekst.STREFA_BEZPIECZNA["dol"] * 480)
+    wycinek = klatka_45[gora:dol, lewo:prawo]
+    najjasniejszy = wycinek[wycinek.sum(axis=-1).argmax() // wycinek.shape[1], wycinek.sum(axis=-1).argmax() % wycinek.shape[1]]
+    assert (najjasniejszy >= 240).all()
+
+
+def test_renderuj_bez_linii_tekstu_nie_zmienia_przebiegu_koncowego(tmp_path, monkeypatch):
+    def dodaj(katalog):
+        generuj.zdjecie_testowe(katalog / "0000000001_a.jpg", rozmiar=(800, 600))
+        generuj.zdjecie_testowe(katalog / "0000000002_b.jpg", rozmiar=(800, 600))
+
+    wzor = wzor_syntetyczny_4_ciecia()
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=128, czas_s=6.0, pierwsze_uderzenie_s=0.3)
+    fps = 30
+
+    oryginalny = render.uruchom_ffmpeg
+
+    def przechwyc(lista):
+        def podmieniony(argumenty, katalog=None):
+            lista.append(argumenty)
+            return oryginalny(argumenty, katalog=katalog)
+        return podmieniony
+
+    projekt_bez = zbuduj_projekt(tmp_path / "bez", dodaj)
+    polecenia_bez = []
+    monkeypatch.setattr(render, "uruchom_ffmpeg", przechwyc(polecenia_bez))
+    render.renderuj(wzor_json, projekt_bez, utwor, tmp_path / "bez.mp4", szerokosc=270, wysokosc=480, fps=fps, limit_mb=50)
+
+    projekt_pusty = zbuduj_projekt(tmp_path / "pusty", dodaj)
+    zapisz_projekt_json(projekt_pusty, ["🔥🔥✨"])
+    polecenia_pusty = []
+    monkeypatch.setattr(render, "uruchom_ffmpeg", przechwyc(polecenia_pusty))
+    render.renderuj(wzor_json, projekt_pusty, utwor, tmp_path / "pusty.mp4", szerokosc=270, wysokosc=480, fps=fps, limit_mb=50)
+
+    def znormalizuj(polecenie, projekt, wyjscie):
+        wynik = [arg.replace(str(projekt), "PROJEKT") for arg in polecenie]
+        return [arg.replace(str(wyjscie), "WYJSCIE") for arg in wynik]
+
+    ostatnie_bez = znormalizuj(polecenia_bez[-1], projekt_bez, tmp_path / "bez.mp4")
+    ostatnie_pusty = znormalizuj(polecenia_pusty[-1], projekt_pusty, tmp_path / "pusty.mp4")
+    assert ostatnie_bez == ostatnie_pusty

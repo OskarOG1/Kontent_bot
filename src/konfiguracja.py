@@ -5,6 +5,8 @@ from typing import Mapping
 
 from dotenv import load_dotenv
 
+import tekst
+
 
 @dataclass
 class Konfiguracja:
@@ -15,6 +17,8 @@ class Konfiguracja:
     limit_wysylki_mb: int = 50
     telegram_api_url: str | None = None
     sila_koloru: float = 0.6
+    styl_tekstu: str = "szeryf"
+    pozycja_tekstu: str = "dol"
 
 
 def wczytaj(srodowisko: Mapping[str, str] | None = None) -> Konfiguracja:
@@ -50,6 +54,14 @@ def wczytaj(srodowisko: Mapping[str, str] | None = None) -> Konfiguracja:
     if not 0.0 <= sila_koloru <= 1.0:
         raise ValueError("SILA_KOLORU")
 
+    styl_tekstu = srodowisko.get("STYL_TEKSTU", "szeryf")
+    if styl_tekstu not in tekst.PRESETY:
+        raise ValueError("STYL_TEKSTU")
+
+    pozycja_tekstu = srodowisko.get("POZYCJA_TEKSTU", "dol")
+    if pozycja_tekstu not in tekst.POZYCJE:
+        raise ValueError("POZYCJA_TEKSTU")
+
     return Konfiguracja(
         token=token,
         wlasciciel_id=wlasciciel_id,
@@ -58,6 +70,8 @@ def wczytaj(srodowisko: Mapping[str, str] | None = None) -> Konfiguracja:
         limit_wysylki_mb=limit_wysylki_mb,
         telegram_api_url=telegram_api_url,
         sila_koloru=sila_koloru,
+        styl_tekstu=styl_tekstu,
+        pozycja_tekstu=pozycja_tekstu,
     )
 
 

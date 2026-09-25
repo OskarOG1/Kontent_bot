@@ -64,6 +64,13 @@ async def test_wlasciciel_start_jedno_sendmessage(srodowisko):
     assert nazwy_wywolan(sesja) == ["SendMessage"]
 
 
+async def test_pomoc_wspomina_o_napisach(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    wiadomosc = zbuduj_wiadomosc(text="/start")
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+    assert "napis" in teksty_odpowiedzi(sesja)[-1]
+
+
 async def test_zdjecie_bez_nowy_komunikat_bez_plikow(srodowisko):
     dyspozytor, bot_obiekt, sesja, konf = srodowisko
     wiadomosc = zbuduj_wiadomosc(photo=zdjecie("f1", "u1", file_size=1000))
@@ -595,6 +602,48 @@ async def test_render_sukces_jedno_send_document(z_praca_w_tle, monkeypatch):
     assert dane_projektu["wynik"] == "wynik.mp4"
 
 
+async def test_render_sukces_podpis_z_linia_napisow(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wyjscie = Path(argumenty[argumenty.index("--wyjscie") + 1])
+        wyjscie.write_bytes(b"wideo-testowe")
+        podsumowanie = podsumowanie_renderu_testowe()
+        podsumowanie["teksty"] = {"linie": 2, "usuniete_znaki": 1, "okna": [[0, 30], [30, 60]]}
+        wyjscie.with_suffix(".json").write_text(json.dumps(podsumowanie), encoding="utf-8")
+        return kolejka.Wynik(kod=0, stdout="", stderr="", czas_s=0.1, przekroczono_czas=False)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    wywolania_wysylki = [m for m in sesja.wywolania if type(m).__name__ == "SendDocument"]
+    assert "Napisy: 2." in wywolania_wysylki[0].caption
+    assert "Usunięte znaki bez czcionki: 1 (np. emoji)." in wywolania_wysylki[0].caption
+
+
+async def test_render_sukces_podpis_same_emoji_wzmianka_bez_liczby_linii(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wyjscie = Path(argumenty[argumenty.index("--wyjscie") + 1])
+        wyjscie.write_bytes(b"wideo-testowe")
+        podsumowanie = podsumowanie_renderu_testowe()
+        podsumowanie["teksty"] = {"linie": 0, "usuniete_znaki": 3, "okna": []}
+        wyjscie.with_suffix(".json").write_text(json.dumps(podsumowanie), encoding="utf-8")
+        return kolejka.Wynik(kod=0, stdout="", stderr="", czas_s=0.1, przekroczono_czas=False)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    wywolania_wysylki = [m for m in sesja.wywolania if type(m).__name__ == "SendDocument"]
+    assert "Usunięte znaki bez czcionki: 3" in wywolania_wysylki[0].caption
+    assert "Napisy:" not in wywolania_wysylki[0].caption
+
+
 async def test_render_blad_daje_komunikat_i_stan_blad(z_praca_w_tle, monkeypatch):
     dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
     przygotuj_wzor_i_utwor(konf)
@@ -660,6 +709,15 @@ async def test_status_pokazuje_liczbe_utworow(srodowisko):
     assert "Muzyka: 1 utworów." in teksty_odpowiedzi(sesja)[-1]
 
 
+async def test_status_przy_zbieraniu_pokazuje_liczbe_linii(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="Pierwsza linia")))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="Druga linia")))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/status")))
+    assert "linii tekstu 2" in teksty_odpowiedzi(sesja)[-1]
+
+
 async def test_limit_mb_renderu_bez_lokalnego_serwera(z_praca_w_tle, monkeypatch):
     dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
     konf.limit_wysylki_mb = 200
@@ -713,6 +771,26 @@ async def test_sila_koloru_renderu_z_konfiguracji(z_praca_w_tle, monkeypatch):
 
     argumenty = wywolania[0]
     assert argumenty[argumenty.index("--sila-koloru") + 1] == "0.25"
+
+
+async def test_styl_i_pozycja_tekstu_renderu_z_konfiguracji(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    konf.styl_tekstu = "blok"
+    konf.pozycja_tekstu = "gora"
+    przygotuj_wzor_i_utwor(konf)
+    wywolania = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    argumenty = wywolania[0]
+    assert argumenty[argumenty.index("--styl-tekstu") + 1] == "blok"
+    assert argumenty[argumenty.index("--pozycja-tekstu") + 1] == "gora"
 
 
 async def test_dokument_za_duzy_przy_wysylce_daje_komunikat(z_praca_w_tle, monkeypatch):
