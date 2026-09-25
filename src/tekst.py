@@ -1,3 +1,4 @@
+import statistics
 from pathlib import Path
 
 from fontTools.ttLib import TTFont
@@ -18,7 +19,7 @@ PRESETY = {
         "zapasowa": KATALOG_CZCIONEK / "notoserif" / "NotoSerif.ttf",
         "waga_zapasowa": 700,
         "wersaliki": False,
-        "wysokosc_wersalika": 0.032,
+        "wysokosc_wersalika": 0.020,
         "cien": True,
         "obrys": False,
     },
@@ -28,11 +29,25 @@ PRESETY = {
         "zapasowa": KATALOG_CZCIONEK / "oswald" / "Oswald.ttf",
         "waga_zapasowa": 700,
         "wersaliki": True,
-        "wysokosc_wersalika": 0.04,
+        "wysokosc_wersalika": 0.026,
         "cien": False,
         "obrys": True,
     },
+    "rytm": {
+        "czcionka": KATALOG_CZCIONEK / "pacifico" / "Pacifico-Regular.ttf",
+        "waga": None,
+        "zapasowa": KATALOG_CZCIONEK / "kaushanscript" / "KaushanScript-Regular.ttf",
+        "waga_zapasowa": None,
+        "wersaliki": False,
+        "wysokosc_wersalika": 0.075,
+        "cien": True,
+        "obrys": True,
+    },
 }
+
+KOLOR_ZLOTY = (233, 196, 106, 255)
+KOLOR_GRANATOWY = (24, 33, 74, 255)
+PROG_KROKU_KLATEK = 9
 
 
 def znaki_czcionki(sciezka):
@@ -76,10 +91,10 @@ def wybierz_czcionke(preset):
     return preset["zapasowa"], preset["waga_zapasowa"]
 
 
-def dopasuj_wysokosc(sciezka, waga, docelowa_wysokosc_px):
+def dopasuj_wysokosc(sciezka, waga, docelowa_wysokosc_px, znak_pomiaru="H"):
     rozmiar = max(int(docelowa_wysokosc_px * 1.4), 12)
     czcionka = wczytaj_czcionke(sciezka, rozmiar, waga)
-    bbox = czcionka.getbbox("AĄŻ")
+    bbox = czcionka.getbbox(znak_pomiaru)
     wysokosc = bbox[3] - bbox[1]
     if wysokosc > 0:
         rozmiar = max(int(rozmiar * docelowa_wysokosc_px / wysokosc), 12)
@@ -224,3 +239,161 @@ def okna_tekstow(liczba_linii, plan, koniec_haka_klatka):
             maks_linii = max(int(liczba_klatek_calosci // fps), 0)
             raise ValueError(f"Za dużo linii tekstu, najwyżej {maks_linii}")
         koniec_okna = min(kandydaci)
+
+
+def skala_wjazdu_akcentu(klatka_lokalna: int) -> float:
+    if klatka_lokalna >= 6:
+        return 1.0
+    return 1 + 5 * (1 - klatka_lokalna / 6) ** 2
+
+
+def obraz_slowa(tresc: str, szerokosc: int, wysokosc: int, skala: float = 1.0):
+    obraz = Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
+    rysownik = ImageDraw.Draw(obraz)
+    if not tresc.strip():
+        return obraz
+
+    strefa_lewo = STREFA_BEZPIECZNA["lewo"] * szerokosc
+    strefa_prawo = STREFA_BEZPIECZNA["prawo"] * szerokosc
+    strefa_szerokosc = strefa_prawo - strefa_lewo
+
+    preset = PRESETY["rytm"]
+    przesuniecie_cienia = max(1, round(0.004 * wysokosc))
+    grubosc_obrysu = max(1, round(0.005 * wysokosc))
+    margines = przesuniecie_cienia * 3 + grubosc_obrysu
+    szerokosc_uzyteczna = max(strefa_szerokosc - 2 * margines, 1)
+
+    sciezka_czcionki, waga = wybierz_czcionke(preset)
+    docelowa_wysokosc = preset["wysokosc_wersalika"] * wysokosc * skala
+    czcionka = dopasuj_wysokosc(sciezka_czcionki, waga, docelowa_wysokosc, znak_pomiaru="x")
+    szer = szerokosc_napisu(rysownik, tresc, czcionka)
+    while szer > szerokosc_uzyteczna and czcionka.size > 4:
+        czcionka = wczytaj_czcionke(sciezka_czcionki, czcionka.size - 1, waga)
+        szer = szerokosc_napisu(rysownik, tresc, czcionka)
+
+    ascent, descent = czcionka.getmetrics()
+    wysokosc_tekstu = ascent + descent
+    x = strefa_lewo + (strefa_szerokosc - szer) / 2
+    y = wysokosc * 0.5 - wysokosc_tekstu / 2
+
+    warstwa_cienia = Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
+    rysownik_cienia = ImageDraw.Draw(warstwa_cienia)
+    rysownik_cienia.text((x, y + przesuniecie_cienia), tresc, font=czcionka, fill=(0, 0, 0, 102))
+    warstwa_cienia = warstwa_cienia.filter(ImageFilter.GaussianBlur(przesuniecie_cienia))
+    obraz.alpha_composite(warstwa_cienia)
+    rysownik = ImageDraw.Draw(obraz)
+    rysownik.text(
+        (x, y), tresc, font=czcionka, fill=KOLOR_ZLOTY,
+        stroke_width=grubosc_obrysu, stroke_fill=KOLOR_GRANATOWY,
+    )
+    return obraz
+
+
+def indeks_pierwszego_uderzenia_od(uderzenia: list[int], klatka: float) -> int:
+    for indeks, wartosc in enumerate(uderzenia):
+        if wartosc >= klatka:
+            return indeks
+    return len(uderzenia) - 1
+
+
+def okna_slow(
+    liczba_slow: int, uderzenia: list[int], koniec_haka: int,
+    fps: float = 30, liczba_klatek_calosci: int | None = None,
+) -> list[tuple[int, int]]:
+    if liczba_slow <= 0:
+        return []
+
+    a = indeks_pierwszego_uderzenia_od(uderzenia, koniec_haka - 2)
+    odstepy = [uderzenia[i + 1] - uderzenia[i] for i in range(len(uderzenia) - 1)]
+    krok = 1 if odstepy and statistics.median(odstepy) >= PROG_KROKU_KLATEK else 2
+
+    if a - krok * (liczba_slow - 1) < 0:
+        maks_slow = a // krok + 1
+        raise ValueError(f"Za dużo słów w rytmie, najwyżej {maks_slow}")
+
+    okna = []
+    for indeks in range(liczba_slow - 1):
+        indeks_start = a - krok * (liczba_slow - 1 - indeks)
+        indeks_koniec = a - krok * (liczba_slow - 2 - indeks)
+        okna.append((uderzenia[indeks_start], uderzenia[indeks_koniec]))
+
+    start_akcentu = uderzenia[a]
+    indeks_koniec_akcentu = a + 2 * krok
+    if indeks_koniec_akcentu < len(uderzenia):
+        koniec_akcentu = uderzenia[indeks_koniec_akcentu]
+    else:
+        koniec_akcentu = start_akcentu + round(fps)
+    if liczba_klatek_calosci is not None:
+        koniec_akcentu = min(koniec_akcentu, liczba_klatek_calosci)
+    okna.append((start_akcentu, koniec_akcentu))
+
+    return okna
+
+
+OS_PIONOWA_SZEROKOSC = 0.05
+DOLNA_KRAWEDZ_PIONOWA_WYSOKOSC = 0.85
+WYSOKOSC_WERSALIKA_PIONOWA = 0.026
+LIMIT_DLUGOSCI_PIONOWEJ = 0.8
+KROK_ZNAKOW_KLATKI = 2
+
+
+def obraz_pionowy(tresc: str, k: int, szerokosc: int, wysokosc: int):
+    obraz = Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
+    widoczny = tresc[: max(0, min(k, len(tresc)))]
+    if not widoczny.strip():
+        return obraz
+
+    preset = PRESETY["szeryf"]
+    sciezka_czcionki, waga = wybierz_czcionke(preset)
+    docelowa_wysokosc = WYSOKOSC_WERSALIKA_PIONOWA * wysokosc
+    czcionka = dopasuj_wysokosc(sciezka_czcionki, waga, docelowa_wysokosc)
+
+    rysownik_tmp = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    grubosc_obrysu = max(1, round(0.005 * wysokosc))
+    dlugosc_pelna = szerokosc_napisu(rysownik_tmp, tresc, czcionka)
+    limit_dlugosci = LIMIT_DLUGOSCI_PIONOWEJ * wysokosc
+    while dlugosc_pelna > limit_dlugosci and czcionka.size > 4:
+        czcionka = wczytaj_czcionke(sciezka_czcionki, czcionka.size - 1, waga)
+        dlugosc_pelna = szerokosc_napisu(rysownik_tmp, tresc, czcionka)
+
+    bbox = rysownik_tmp.textbbox((0, 0), widoczny, font=czcionka, stroke_width=grubosc_obrysu)
+    szer_bbox = max(1, bbox[2] - bbox[0])
+    wys_bbox = max(1, bbox[3] - bbox[1])
+    pasek = Image.new("RGBA", (szer_bbox, wys_bbox), (0, 0, 0, 0))
+    rys_pasek = ImageDraw.Draw(pasek)
+    rys_pasek.text(
+        (-bbox[0], -bbox[1]), widoczny, font=czcionka, fill=KOLOR_ZLOTY,
+        stroke_width=grubosc_obrysu, stroke_fill=KOLOR_GRANATOWY,
+    )
+    obrocony = pasek.rotate(90, expand=True)
+
+    os_x = OS_PIONOWA_SZEROKOSC * szerokosc
+    dolna_krawedz_y = DOLNA_KRAWEDZ_PIONOWA_WYSOKOSC * wysokosc
+    x = round(os_x - obrocony.width / 2)
+    y = round(dolna_krawedz_y - obrocony.height)
+    obraz.alpha_composite(obrocony, (x, y))
+    return obraz
+
+
+def okno_pionowe(plan: dict, liczba_znakow: int, fps: float, koniec: int) -> tuple[int, int, int]:
+    plan_ujecia = plan["ujecia"]
+    poczatki_ujec = sorted({ujecie["klatka_od"] for ujecie in plan_ujecia})
+
+    poczatek_preferowany = poczatki_ujec[1] if len(poczatki_ujec) > 1 else 0
+    if poczatek_preferowany + KROK_ZNAKOW_KLATKI * liczba_znakow + fps <= koniec:
+        poczatek = poczatek_preferowany
+    else:
+        poczatek = 0
+
+    koniec_pisania = poczatek + KROK_ZNAKOW_KLATKI * liczba_znakow
+    minimalny_koniec = koniec_pisania + fps
+
+    if minimalny_koniec > koniec:
+        maks_znakow = max(int((koniec - poczatek - fps) // KROK_ZNAKOW_KLATKI), 0)
+        raise ValueError(f"Za dużo znaków w napisie pionowym, najwyżej {maks_znakow}")
+
+    kandydaci = [k for k in poczatki_ujec if k > minimalny_koniec]
+    kandydaci.append(plan["liczba_klatek"])
+    koniec_napisu = min(min(kandydaci), koniec)
+
+    return poczatek, koniec_pisania, koniec_napisu

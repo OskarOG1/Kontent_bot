@@ -6,6 +6,32 @@ import tekst
 POLSKIE = "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ"
 
 
+def wysokosc_znaku(czcionka, znak):
+    bbox = czcionka.getbbox(znak)
+    return bbox[3] - bbox[1]
+
+
+@pytest.mark.parametrize("preset,zakres", [("szeryf", (38, 40)), ("blok", (48, 50))])
+def test_wysokosc_wersalika_h_w_pikselach(preset, zakres):
+    wysokosc = 1920
+    dane_presetu = tekst.PRESETY[preset]
+    sciezka, waga = tekst.wybierz_czcionke(dane_presetu)
+    docelowa = dane_presetu["wysokosc_wersalika"] * wysokosc
+    czcionka = tekst.dopasuj_wysokosc(sciezka, waga, docelowa)
+    wys = wysokosc_znaku(czcionka, "H")
+    assert zakres[0] <= wys <= zakres[1]
+
+
+def test_wysokosc_litery_x_presetu_rytm_w_pikselach():
+    wysokosc = 1920
+    dane_presetu = tekst.PRESETY["rytm"]
+    sciezka, waga = tekst.wybierz_czcionke(dane_presetu)
+    docelowa = dane_presetu["wysokosc_wersalika"] * wysokosc
+    czcionka = tekst.dopasuj_wysokosc(sciezka, waga, docelowa, znak_pomiaru="x")
+    wys = wysokosc_znaku(czcionka, "x")
+    assert 137 <= wys <= 151
+
+
 def test_czcionki_maja_polskie_znaki():
     for preset in tekst.PRESETY.values():
         znaki = tekst.znaki_czcionki(preset["czcionka"])

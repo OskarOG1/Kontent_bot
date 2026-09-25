@@ -353,6 +353,82 @@ async def test_dwadziescia_tekstow_naraz(srodowisko):
     assert identyfikatory == sorted(identyfikatory)
 
 
+async def test_slowa_zapisuje_i_odpowiada_liczba(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+
+    dane_stanu = await dyspozytor.storage.get_data(key=klucz_stanu(bot_obiekt))
+    projekt_id = dane_stanu["projekt_id"]
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/slowa our time is now")))
+
+    dane_projektu = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / projekt_id)
+    assert dane_projektu["slowa"] == "our time is now"
+    assert "Słowa w rytmie: 4" in teksty_odpowiedzi(sesja)[-1]
+
+
+async def test_slowa_limit_nie_zapisuje(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+
+    dane_stanu = await dyspozytor.storage.get_data(key=klucz_stanu(bot_obiekt))
+    projekt_id = dane_stanu["projekt_id"]
+
+    trzynascie_slow = " ".join(f"slowo{i}" for i in range(13))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text=f"/slowa {trzynascie_slow}")))
+
+    dane_projektu = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / projekt_id)
+    assert dane_projektu.get("slowa") is None
+    assert "13" in teksty_odpowiedzi(sesja)[-1]
+
+
+async def test_slowa_bez_tekstu_czysci(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+
+    dane_stanu = await dyspozytor.storage.get_data(key=klucz_stanu(bot_obiekt))
+    projekt_id = dane_stanu["projekt_id"]
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/slowa raz dwa")))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/slowa")))
+
+    dane_projektu = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / projekt_id)
+    assert dane_projektu.get("slowa") is None
+    assert teksty_odpowiedzi(sesja)[-1] == "Słowa w rytmie wyczyszczone."
+
+
+async def test_pionowo_zapisuje_i_czysci(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+
+    dane_stanu = await dyspozytor.storage.get_data(key=klucz_stanu(bot_obiekt))
+    projekt_id = dane_stanu["projekt_id"]
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/pionowo 1993 supply")))
+    dane_projektu = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / projekt_id)
+    assert dane_projektu["pionowo"] == "1993 supply"
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/pionowo")))
+    dane_projektu = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / projekt_id)
+    assert dane_projektu.get("pionowo") is None
+    assert teksty_odpowiedzi(sesja)[-1] == "Napis pionowy wyczyszczony."
+
+
+async def test_pionowo_za_dlugi_nie_zapisuje(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+
+    dane_stanu = await dyspozytor.storage.get_data(key=klucz_stanu(bot_obiekt))
+    projekt_id = dane_stanu["projekt_id"]
+
+    tekst_41_znakow = "a" * 41
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text=f"/pionowo {tekst_41_znakow}")))
+
+    dane_projektu = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / projekt_id)
+    assert dane_projektu.get("pionowo") is None
+    assert "41" in teksty_odpowiedzi(sesja)[-1]
+
+
 async def test_edited_message_obcego_zero_wywolan(srodowisko):
     dyspozytor, bot_obiekt, sesja, konf = srodowisko
     wiadomosc = zbuduj_wiadomosc(od_id=OBCY_ID, text="edycja")

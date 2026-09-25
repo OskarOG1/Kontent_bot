@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 POMOC = (
@@ -8,6 +9,8 @@ POMOC = (
     "/znak, żeby ustawić znak wodny marki (/znak usun, żeby go usunąć).\n"
     "/nowy, żeby zacząć zbierać materiały do nowego editu.\n"
     "Zwykła wiadomość tekstowa w trakcie zbierania to linia napisu w haku editu.\n"
+    "/slowa, żeby ustawić słowa w rytmie na dropie (/slowa bez tekstu, żeby je wyczyścić).\n"
+    "/pionowo, żeby ustawić pionowy napis pisany literami (/pionowo bez tekstu, żeby go wyczyścić).\n"
     "/gotowe, żeby zamknąć zbieranie i wysłać projekt do kolejki.\n"
     "/anuluj, żeby porzucić bieżący projekt.\n"
     "/status, żeby sprawdzić stan bota."
@@ -20,6 +23,8 @@ KOMENDY = (
     ("plansza", "Ustaw planszę końcową wzoru"),
     ("znak", "Ustaw znak wodny marki"),
     ("nowy", "Zacznij nowy projekt"),
+    ("slowa", "Ustaw słowa w rytmie na dropie"),
+    ("pionowo", "Ustaw pionowy napis pisany literami"),
     ("gotowe", "Zamknij zbieranie i wyślij do kolejki"),
     ("anuluj", "Porzuć bieżący projekt"),
     ("status", "Sprawdź stan bota"),
@@ -63,6 +68,27 @@ ZNAK_PROSBA = "Wyślij znak wodny jako plik PNG."
 ZNAK_NIEPOPRAWNY_TYP = "To nie jest PNG. Wyślij znak wodny jako plik PNG."
 ZNAK_USUNIETY = "Znak wodny usunięty."
 ZNAK_ZAPISANY = "Znak wodny zapisany."
+
+SLOWA_WYCZYSZCZONE = "Słowa w rytmie wyczyszczone."
+
+
+def slowa_zapisane(liczba: int) -> str:
+    return f"Słowa w rytmie: {liczba}, ostatnie wchodzi na dropie."
+
+
+def slowa_za_duzo(liczba: int, limit: int) -> str:
+    return f"Za dużo słów ({liczba}), limit to {limit}. Nic nie zapisano."
+
+
+PIONOWO_WYCZYSZCZONY = "Napis pionowy wyczyszczony."
+
+
+def pionowo_zapisany(tresc: str) -> str:
+    return f"Napis pionowy zapisany: {tresc}"
+
+
+def pionowo_za_dlugi(liczba: int, limit: int) -> str:
+    return f"Za długi napis pionowy ({liczba} znaków), limit to {limit}. Nic nie zapisano."
 
 
 def nakladka_prosba(wzor_id: str) -> str:
@@ -170,6 +196,25 @@ def linia_tekstow(dane_tekstow: dict | None) -> str | None:
     return " ".join(czesci)
 
 
+def wyciagnij_liczbe(komunikat: str) -> str:
+    dopasowanie = re.search(r"(\d+)\s*$", komunikat)
+    return dopasowanie.group(1) if dopasowanie else "0"
+
+
+def linia_slow_pominietych(dane_slow: dict | None) -> str | None:
+    if not dane_slow or "pominiete" not in dane_slow:
+        return None
+    liczba = wyciagnij_liczbe(dane_slow["pominiete"])
+    return f"Słowa w rytmie pominięte: w haku tego wzoru mieści się najwyżej {liczba} słów."
+
+
+def linia_pionowego_pominietego(dane_pionowo: dict | None) -> str | None:
+    if not dane_pionowo or "pominiety" not in dane_pionowo:
+        return None
+    liczba = wyciagnij_liczbe(dane_pionowo["pominiety"])
+    return f"Napis pionowy pominięty: w haku tego wzoru mieści się najwyżej {liczba} znaków."
+
+
 def podsumowanie_renderu(dane: dict) -> str:
     liczba_pominietych = len(dane.get("materialy_pominiete", []))
     pierwsza_linia = (
@@ -181,6 +226,12 @@ def podsumowanie_renderu(dane: dict) -> str:
     tekst_napisow = linia_tekstow(dane.get("teksty"))
     if tekst_napisow:
         linie.append(tekst_napisow)
+    linia_slow = linia_slow_pominietych(dane.get("slowa"))
+    if linia_slow:
+        linie.append(linia_slow)
+    linia_pionowo = linia_pionowego_pominietego(dane.get("pionowo"))
+    if linia_pionowo:
+        linie.append(linia_pionowo)
     return "\n".join(linie)
 
 

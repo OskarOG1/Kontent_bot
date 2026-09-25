@@ -376,6 +376,39 @@ Katalog: C:\Dev\edity-bot, gałąź rytm. Wykonaj zadanie 9.8 z Pomiary/PLAN_EDI
 ```
 - **Commit:** `Pomiary: pomiar napisów w rytmie`
 
+### [Task 9.9: Poprawki po odbiorze 9.6 do 9.8]
+- **Objective:** wielkość napisów zgodna z planem i ze wzorem `0923`, napis pionowy mieszczący się na wszystkich 5 wzorach i montaż, który nie pada przez warstwę ozdobną.
+- **Context/Inputs** (odbiór 2026-09-25 w `ROZWOJ.md`); `src/tekst.py`, `src/render.py` (`renderuj`, `przygotuj_slowa`, `przygotuj_pionowy`), `src/komunikaty.py`, `tests/test_tekst.py`, `tests/test_rytm.py`, `tests/test_bot.py`:
+  1. `tekst.dopasuj_wysokosc` mierzy wysokość na „AĄŻ” razem z ogonkiem i kropką, więc prawdziwy wersalik wychodzi na 64% celu w każdym presecie. Przy 1920 px „H” ma 39 px zamiast 61 w `szeryf`, 49 zamiast 77 w `blok` i 62 zamiast 96 w `rytm`.
+     - Mierz na samym „H”.
+     - Właściciel zaakceptował wygląd części 6 w obecnym rozmiarze. Dlatego `szeryf` dostaje `wysokosc_wersalika` 0,020, a `blok` 0,026, co po poprawce daje te same piksele co dziś.
+  2. Słowa w rytmie są około 4 razy mniejsze niż w `0923`. Tam wypełnienie słowa „our” ma 155 px wysokości przy 1920, a u nas litera „x” ma 33 px.
+     - Preset `rytm` ustala wielkość po wysokości litery „x” (mierzonej na „x”): 7,5% wysokości kadru.
+     - Akcent jest 1,6 raza większy i jak dotąd zmniejsza się do szerokości strefy.
+     - Napis pionowy zostaje przy wersaliku 2,6%. Po poprawce 1 będzie większy niż dziś, tak jak chciał plan.
+  3. `tekst.okno_pionowe`:
+     - początek na `klatka_od` drugiego ujęcia. Gdy stamtąd pisanie i 1 s postoju nie mieszczą się przed `koniec`, początek na klatce 0 (we wzorze `0921` cały hak to jedno ujęcie);
+     - koniec na najbliższym początku ujęcia po `koniec pisania + fps`, ale najpóźniej na `koniec`. Dziś przyciąganie do cięcia wypycha napis za `koniec` na `0922`, choć pisanie mieści się z zapasem;
+     - `ValueError` tylko wtedy, gdy `koniec pisania + fps > koniec` także przy starcie od klatki 0. Komunikat podaje liczbę znaków, która naprawdę się mieści.
+  4. Warstwa ozdobna nie przerywa montażu (rekomendacja z odbioru 2026-09-25, potwierdza właściciel przed startem):
+     - gdy `okna_slow` albo `okno_pionowe` rzuca `ValueError`, `renderuj` montuje bez tej warstwy;
+     - podsumowanie dostaje `"slowa": {"pominiete": "<komunikat>"}` albo `"pionowo": {"pominiety": "<komunikat>"}`;
+     - podpis wyniku dostaje zdanie „Słowa w rytmie pominięte: w haku tego wzoru mieści się najwyżej N słów.” albo „Napis pionowy pominięty: w haku tego wzoru mieści się najwyżej N znaków.”.
+- **Constraints:** testy:
+  1. przy wysokości 1920 „H” presetu `szeryf` ma od 38 do 40 px, a `blok` od 48 do 50 px, więc wygląd części 6 się nie zmienia; litera „x” presetu `rytm` ma od 137 do 151 px;
+  2. `okno_pionowe`:
+     - na planie z jednym ujęciem w haku zaczyna od klatki 0;
+     - na planie, gdzie następne cięcie po pisaniu leży za `koniec`, kończy się na `koniec`;
+     - liczba z komunikatu `ValueError` przechodzi bez błędu, a o 1 większa rzuca;
+  3. render z napisem pionowym, który się nie mieści: kod 0, `pominiety` w podsumowaniu i zdanie w podpisie. Tak samo dla słów, których jest więcej, niż mieści hak;
+  4. pozostałe testy bez zmian w treści poza liczbami rozmiaru.
+- **Pomiar:** `python Pomiary/measure_rytm.py` jeszcze raz. A i C bez błędu na wszystkich 5 wzorach, a w `outputs/rytm_klatki.png` słowa mają wielkość zbliżoną do `0923`.
+- **Sonnet Prompt:**
+```text
+Katalog: C:\Dev\edity-bot, gałąź rytm. Wykonaj zadanie 9.9 z Pomiary/PLAN_EDITY_9_FABRYKA.md; otwórz src/tekst.py, src/render.py, src/komunikaty.py, tests/test_tekst.py, tests/test_rytm.py, tests/test_bot.py. Weryfikacja: python -m pytest -q, potem python Pomiary/measure_rytm.py. Dopisz wpis do Pomiary/ROZWOJ.md i zrób commit `tekst: rozmiar napisów i napis pionowy po odbiorze`.
+```
+- **Commit:** `tekst: rozmiar napisów i napis pionowy po odbiorze`
+
 ## Gotowe, gdy
 - `python -m pytest -q` przechodzi w całości.
 - Pomiar: A w progach, B zaraportowane, arkusze C powstały.
@@ -396,6 +429,7 @@ Katalog: C:\Dev\edity-bot, gałąź rytm. Wykonaj zadanie 9.8 z Pomiary/PLAN_EDI
 6. `render i bot: słowa w rytmie` (9.6, gałąź `rytm`)
 7. `render i bot: napis pionowy` (9.7, gałąź `rytm`)
 8. `Pomiary: pomiar napisów w rytmie` (9.8, gałąź `rytm`)
+9. `tekst: rozmiar napisów i napis pionowy po odbiorze` (9.9, gałąź `rytm`)
 
 ## Odbiór (oceniający)
 ```text
