@@ -542,7 +542,7 @@ def przebieg_koncowy(
         for indeks_tekstu, wpis in enumerate(teksty):
             czas_trwania_napisu_s = round(wpis["do_s"] - wpis["od_s"], 6)
             indeks_wejscia = wejscia.count("-i")
-            wejscia += ["-loop", "1", "-t", f"{czas_trwania_napisu_s:.6f}", "-i", str(wpis["plik"])]
+            wejscia += ["-c:v", "libvpx-vp9", "-i", str(wpis["plik"])]
             koniec_zanikania = max(0.0, czas_trwania_napisu_s - fade_s)
             etykieta = f"tekst{indeks_tekstu}"
             etykieta_wyjscia = f"[vt{indeks_tekstu}]"
@@ -677,6 +677,17 @@ def wczytaj_linie_tekstu(katalog_projektu: Path) -> list[str]:
     return [wpis["tekst"] for wpis in dane.get("teksty", [])]
 
 
+def materializuj_tekst(obraz_napisu, liczba_klatek: int, fps: float, wyjscie: Path) -> None:
+    tymczasowy_png = wyjscie.with_suffix(".png")
+    obraz_napisu.save(tymczasowy_png)
+    uruchom_ffmpeg([
+        "-loop", "1", "-i", str(tymczasowy_png),
+        "-frames:v", str(liczba_klatek), "-r", str(fps),
+        "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-auto-alt-ref", "0",
+        str(wyjscie),
+    ])
+
+
 def przygotuj_teksty(
     linie_surowe: list[str], wzor: dict, plan: dict, katalog_pracy: Path,
     szerokosc: int, wysokosc: int, styl_tekstu: str, pozycja_tekstu: str, ma_znak: bool,
@@ -712,10 +723,10 @@ def przygotuj_teksty(
     teksty_do_przebiegu = []
     for indeks, (linia, (klatka_od, klatka_do)) in enumerate(zip(linie, okna)):
         obraz_napisu = tekst.obraz_tekstu(linia, szerokosc, wysokosc, styl, dolna_granica=dolna_granica)
-        sciezka_png = katalog_pracy / f"tekst_{indeks:02d}.png"
-        obraz_napisu.save(sciezka_png)
+        sciezka_wideo = katalog_pracy / f"tekst_{indeks:02d}.webm"
+        materializuj_tekst(obraz_napisu, klatka_do - klatka_od, fps, sciezka_wideo)
         teksty_do_przebiegu.append({
-            "plik": sciezka_png,
+            "plik": sciezka_wideo,
             "od_s": round(klatka_od / fps, 6),
             "do_s": round(klatka_do / fps, 6),
         })
