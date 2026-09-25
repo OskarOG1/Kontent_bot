@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import soundfile
-from PIL import Image
+from PIL import Image, ImageDraw
 
 ODWROTNA_TRANSPOZYCJA_EXIF = {
     2: Image.Transpose.FLIP_LEFT_RIGHT,
@@ -228,6 +228,13 @@ def nakladka_testowa(
         dane_klatki = klatka.tobytes()
         argumenty_wejscia = ["-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{szerokosc}x{wysokosc}", "-framerate", ulamek_fps(fps), "-i", "pipe:0"]
         argumenty_kodowania = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p"]
+    elif tryb == "krycie":
+        klatka = np.zeros((wysokosc, szerokosc, 3), dtype=np.uint8)
+        klatka[:] = (0, 51, 153)
+        klatka[:polowa] = (255, 220, 0)
+        dane_klatki = klatka.tobytes()
+        argumenty_wejscia = ["-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{szerokosc}x{wysokosc}", "-framerate", ulamek_fps(fps), "-i", "pipe:0"]
+        argumenty_kodowania = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p"]
     else:
         raise ValueError(f"Nieznany tryb nakladki: {tryb}")
 
@@ -254,6 +261,24 @@ def nakladka_testowa(
 
 def znak_testowy(sciezka: Path, rozmiar: tuple[int, int] = (200, 50)) -> None:
     obraz = Image.new("RGBA", rozmiar, (255, 255, 255, 255))
+    obraz.save(sciezka)
+
+
+def pierscien_testowy(sciezka: Path, rozmiar: tuple[int, int] = (600, 600)) -> None:
+    szerokosc, wysokosc = rozmiar
+    obraz = Image.new("RGBA", rozmiar, (0, 0, 0, 0))
+    rysownik = ImageDraw.Draw(obraz)
+    srodek_x, srodek_y = szerokosc / 2, wysokosc / 2
+    promien_zewnetrzny = min(szerokosc, wysokosc) * 0.42
+    promien_wewnetrzny = promien_zewnetrzny * 0.65
+    rysownik.ellipse(
+        [srodek_x - promien_zewnetrzny, srodek_y - promien_zewnetrzny, srodek_x + promien_zewnetrzny, srodek_y + promien_zewnetrzny],
+        fill=(255, 220, 0, 255),
+    )
+    rysownik.ellipse(
+        [srodek_x - promien_wewnetrzny, srodek_y - promien_wewnetrzny, srodek_x + promien_wewnetrzny, srodek_y + promien_wewnetrzny],
+        fill=(0, 0, 0, 0),
+    )
     obraz.save(sciezka)
 
 

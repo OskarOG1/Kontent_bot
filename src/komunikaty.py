@@ -66,13 +66,14 @@ ZNAK_ZAPISANY = "Znak wodny zapisany."
 
 def nakladka_prosba(wzor_id: str) -> str:
     return (
-        "Wyślij nakładkę jako plik: webm albo mov z przezroczystością, png, albo mp4 na zielonym lub czarnym tle. "
+        "Wyślij nakładkę jako plik: webm albo mov z przezroczystością, png, albo mp4 na zielonym lub czarnym tle, "
+        "albo dowolny inny mp4, który dostanie krycie 50%. "
         f"Będzie użyta dla wzoru {wzor_id}."
     )
 
 
 def nakladka_zapisana(tryb: str) -> str:
-    opisy = {"alfa": "przezroczystość", "zielen": "zielone tło", "ekran": "czarne tło"}
+    opisy = {"alfa": "przezroczystość", "zielen": "zielone tło", "ekran": "czarne tło", "krycie": "krycie 50%"}
     return f"Nakładka zapisana: {opisy.get(tryb, tryb)}."
 
 

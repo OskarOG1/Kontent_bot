@@ -83,7 +83,7 @@ def jest_bialy(kolor):
     return kolor[0] > 220 and kolor[1] > 220 and kolor[2] > 220
 
 
-def test_tryb_nakladki_rozpoznaje_cztery_pliki(tmp_path):
+def test_tryb_nakladki_rozpoznaje_piec_plikow(tmp_path):
     alfa = tmp_path / "alfa.mov"
     generuj.nakladka_testowa(alfa, 0.5, "alfa")
     zielen = tmp_path / "zielen.mp4"
@@ -92,11 +92,14 @@ def test_tryb_nakladki_rozpoznaje_cztery_pliki(tmp_path):
     generuj.nakladka_testowa(ekran, 0.5, "ekran")
     png = tmp_path / "obraz.png"
     generuj.nakladka_testowa(png, 0.5, "png")
+    krycie = tmp_path / "krycie.mp4"
+    generuj.nakladka_testowa(krycie, 0.5, "krycie")
 
     assert render.tryb_nakladki(alfa) == "alfa"
     assert render.tryb_nakladki(zielen) == "zielen"
     assert render.tryb_nakladki(ekran) == "ekran"
     assert render.tryb_nakladki(png) == "alfa"
+    assert render.tryb_nakladki(krycie) == "krycie"
 
 
 def test_nakladka_alfa_wchodzi_od_dropu_i_dol_zostaje_niebieski(tmp_path):
@@ -126,6 +129,78 @@ def test_nakladka_alfa_wchodzi_od_dropu_i_dol_zostaje_niebieski(tmp_path):
             assert jest_niebieski(gora)
         else:
             assert jest_czerwony(gora)
+
+
+def test_nakladka_krycie_okno_daje_srednia_a_poza_oknem_bez_zmian(tmp_path):
+    projekt = zbuduj_projekt_niebieski(tmp_path)
+    wzor = wzor_4_ciecia_z_dropem(2)
+    nakladka = tmp_path / "nakladka.mp4"
+    generuj.nakladka_testowa(nakladka, 1.0, "krycie")
+
+    wyjscie, podsumowanie = zrenderuj(tmp_path, projekt, wzor, nakladka=nakladka)
+    assert podsumowanie["nakladka"]["tryb"] == "krycie"
+
+    fps = 30
+    material_zastepczy = [{"plik": "x", "typ": "zdjecie", "message_id": 0}]
+    _, uderzenia = analyze.analizuj_rytm(tmp_path / "klik.wav")
+    plan = render.plan_ujec(wzor, uderzenia, material_zastepczy, fps)
+
+    klatki = dekoduj_klatki(wyjscie, tmp_path, "dek.raw")
+    material = np.array([0, 0, 255])
+    zolty = np.array([255, 220, 0])
+    granat = np.array([0, 51, 153])
+
+    for indeks, ujecie in enumerate(plan["ujecia"]):
+        srodek = ujecie["klatka_od"] + ujecie["liczba_klatek"] // 2
+        srodek = min(srodek, klatki.shape[0] - 1)
+        klatka = klatki[srodek]
+        gora = pas_gorny(klatka)
+        dol = pas_dolny(klatka)
+        if indeks < 2:
+            assert jest_niebieski(gora)
+            assert jest_niebieski(dol)
+        else:
+            assert np.all(np.abs(gora - (material + zolty) / 2) <= 8)
+            assert np.all(np.abs(dol - (material + granat) / 2) <= 8)
+
+
+def test_nakladka_alfa_pierscien_miesci_sie_caly_w_kadrze(tmp_path):
+    projekt = zbuduj_projekt_niebieski(tmp_path)
+    wzor = wzor_4_ciecia_z_dropem(0)
+    nakladka = tmp_path / "pierscien.png"
+    generuj.pierscien_testowy(nakladka, rozmiar=(600, 600))
+
+    wyjscie, podsumowanie = zrenderuj(tmp_path, projekt, wzor, nakladka=nakladka)
+    assert podsumowanie["nakladka"]["tryb"] == "alfa"
+
+    fps = 30
+    od_s = podsumowanie["nakladka"]["od_s"]
+    do_s = podsumowanie["nakladka"]["do_s"]
+    klatki = dekoduj_klatki(wyjscie, tmp_path, "dek.raw")
+    srodek = min(round((od_s + do_s) / 2 * fps), klatki.shape[0] - 1)
+    klatka = klatki[srodek]
+    wysokosc, szerokosc = klatka.shape[:2]
+
+    def maska_zolta(pasek):
+        pasek = pasek.astype(np.int32)
+        return (pasek[:, 0] > 150) & (pasek[:, 1] > 120) & (pasek[:, 2] < 100)
+
+    srodkowy_wiersz = klatka[wysokosc // 2]
+    zolte_poziomo = np.where(maska_zolta(srodkowy_wiersz))[0]
+    assert zolte_poziomo.size > 0
+    assert 0.05 <= zolte_poziomo[0] / szerokosc <= 0.95
+    assert 0.05 <= zolte_poziomo[-1] / szerokosc <= 0.95
+
+    srodkowa_kolumna = klatka[:, szerokosc // 2]
+    zolte_pionowo = np.where(maska_zolta(srodkowa_kolumna))[0]
+    assert zolte_pionowo.size > 0
+    srodek_pierscienia = (zolte_pionowo[0] + zolte_pionowo[-1]) / 2
+    assert abs(srodek_pierscienia - wysokosc / 2) <= 2
+
+    gora = klatka[:5].reshape(-1, 3).astype(np.int32).mean(axis=0)
+    dol = klatka[-5:].reshape(-1, 3).astype(np.int32).mean(axis=0)
+    assert jest_niebieski(gora)
+    assert jest_niebieski(dol)
 
 
 def test_nakladka_zielen_dol_zostaje_niebieski_nie_zielony(tmp_path):

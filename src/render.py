@@ -34,9 +34,12 @@ PIX_FMT_Z_ALFA = {
     "rgba64le", "rgba64be", "bgra64le", "bgra64be",
 }
 PROG_ZIELENI = 0.3
+PROG_CZERNI = 40
+UDZIAL_CZERNI_EKRANU = 0.4
 UDZIAL_SZEROKOSCI_ZNAKU = 0.51
 POZYCJA_ZNAKU_PION = 0.8
 KRYCIE_ZNAKU = 0.65
+KRYCIE_NAKLADKI = 0.5
 
 
 def uruchom_ffmpeg(argumenty: list[str], katalog: Path | None = None) -> None:
@@ -246,7 +249,7 @@ def wymaga_dekodera_vp9_alfa(strumien: dict) -> bool:
     return strumien.get("codec_name") == "vp9" and str(strumien.get("tags", {}).get("alpha_mode")) == "1"
 
 
-def pierwsza_klatka_zielona(sciezka: Path) -> bool:
+def piksele_pierwszej_klatki(sciezka: Path) -> numpy.ndarray | None:
     with tempfile.TemporaryDirectory() as katalog_tymczasowy:
         klatka = Path(katalog_tymczasowy) / "klatka.png"
         wynik = subprocess.run(
@@ -254,13 +257,26 @@ def pierwsza_klatka_zielona(sciezka: Path) -> bool:
             stdin=subprocess.DEVNULL, capture_output=True,
         )
         if wynik.returncode != 0 or not klatka.exists():
-            return False
+            return None
         with Image.open(klatka) as obraz:
             tablica = numpy.array(obraz.convert("RGB")).reshape(-1, 3)
-    if tablica.size == 0:
+    return tablica if tablica.size > 0 else None
+
+
+def pierwsza_klatka_zielona(sciezka: Path) -> bool:
+    tablica = piksele_pierwszej_klatki(sciezka)
+    if tablica is None:
         return False
     zielone = numpy.count_nonzero((tablica[:, 1] > 150) & (tablica[:, 0] < 100) & (tablica[:, 2] < 100))
     return zielone / len(tablica) >= PROG_ZIELENI
+
+
+def pierwsza_klatka_prawie_czarna(sciezka: Path) -> bool:
+    tablica = piksele_pierwszej_klatki(sciezka)
+    if tablica is None:
+        return False
+    prawie_czarne = numpy.count_nonzero(tablica.max(axis=1) < PROG_CZERNI)
+    return prawie_czarne / len(tablica) >= UDZIAL_CZERNI_EKRANU
 
 
 def tryb_nakladki(sciezka) -> str:
@@ -275,7 +291,9 @@ def tryb_nakladki(sciezka) -> str:
             return "alfa"
     if pierwsza_klatka_zielona(sciezka):
         return "zielen"
-    return "ekran"
+    if pierwsza_klatka_prawie_czarna(sciezka):
+        return "ekran"
+    return "krycie"
 
 
 def wymiary_i_pozycja_znaku(sciezka: Path, szerokosc: int, wysokosc: int) -> tuple[int, int, int, int]:
@@ -478,19 +496,34 @@ def przebieg_koncowy(
                 wejscia += ["-c:v", "libvpx-vp9"]
             wejscia += ["-stream_loop", "-1", "-t", f"{okno_s:.6f}", "-i", str(nakladka)]
 
-        przygotowanie_nakladki = (
-            f"[2:v]scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,"
-            f"crop={szerokosc}:{wysokosc},fps={fps}"
-        )
         warunek = f"between(t,{nakladka_od_s:.6f},{nakladka_do_s:.6f})"
         if tryb_nakladki_wartosc == "alfa":
-            przygotowanie_nakladki += f",format=rgba,setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
+            przygotowanie_nakladki = (
+                f"[2:v]scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=decrease,"
+                f"format=rgba,pad={szerokosc}:{wysokosc}:(ow-iw)/2:(oh-ih)/2:color=0x00000000,"
+                f"fps={fps},setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
+            )
             kompozycja = f"[0:v][nak]overlay=eval=frame:enable='{warunek}',setsar=1[v]"
         elif tryb_nakladki_wartosc == "zielen":
-            przygotowanie_nakladki += f",format=rgba,colorkey=0x00FF00:0.3:0.1,setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
+            przygotowanie_nakladki = (
+                f"[2:v]scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,"
+                f"crop={szerokosc}:{wysokosc},fps={fps},"
+                f"format=rgba,colorkey=0x00FF00:0.3:0.1,setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
+            )
+            kompozycja = f"[0:v][nak]overlay=eval=frame:enable='{warunek}',setsar=1[v]"
+        elif tryb_nakladki_wartosc == "krycie":
+            przygotowanie_nakladki = (
+                f"[2:v]scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,"
+                f"crop={szerokosc}:{wysokosc},fps={fps},"
+                f"format=rgba,colorchannelmixer=aa={KRYCIE_NAKLADKI},setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
+            )
             kompozycja = f"[0:v][nak]overlay=eval=frame:enable='{warunek}',setsar=1[v]"
         else:
-            przygotowanie_nakladki += f",format=gbrp,setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
+            przygotowanie_nakladki = (
+                f"[2:v]scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,"
+                f"crop={szerokosc}:{wysokosc},fps={fps},"
+                f"format=gbrp,setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
+            )
             kompozycja = (
                 f"[0:v]format=gbrp[glowne];[glowne][nak]blend=all_mode=screen:enable='{warunek}',"
                 f"scale=out_range=tv,format=yuv420p,setsar=1[v]"
