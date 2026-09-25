@@ -469,6 +469,8 @@ def przebieg_koncowy(
     znak: Path | None = None,
     znak_do_s: float | None = None,
     teksty: list[dict] | None = None,
+    slowa: dict | None = None,
+    pionowo: dict | None = None,
 ) -> None:
     czas_trwania_s = liczba_klatek / fps
     wyciszenie_s = min(0.5, czas_trwania_s)
@@ -554,6 +556,20 @@ def przebieg_koncowy(
                 f"'between(t,{wpis['od_s']:.6f},{wpis['do_s']:.6f})'{etykieta_wyjscia}"
             )
             mapa_wideo = etykieta_wyjscia
+
+    for warstwa in (slowa, pionowo):
+        if warstwa is None:
+            continue
+        indeks_wejscia = wejscia.count("-i")
+        wejscia += ["-i", str(warstwa["plik"])]
+        etykieta = f"warstwa{indeks_wejscia}"
+        etykieta_wyjscia = f"[w{indeks_wejscia}]"
+        filtr += (
+            f";[{indeks_wejscia}:v]setpts=PTS+{warstwa['od_s']:.6f}/TB[{etykieta}];"
+            f"{mapa_wideo}[{etykieta}]overlay=eval=frame:enable="
+            f"'between(t,{warstwa['od_s']:.6f},{warstwa['do_s']:.6f})'{etykieta_wyjscia}"
+        )
+        mapa_wideo = etykieta_wyjscia
 
     if znak is not None:
         znak = Path(znak)
@@ -677,6 +693,16 @@ def wczytaj_linie_tekstu(katalog_projektu: Path) -> list[str]:
     return [wpis["tekst"] for wpis in dane.get("teksty", [])]
 
 
+def wczytaj_slowa_projektu(katalog_projektu: Path) -> list[str]:
+    sciezka = katalog_projektu / "projekt.json"
+    if not sciezka.exists():
+        return []
+    with open(sciezka, "r", encoding="utf-8") as plik:
+        dane = json.load(plik)
+    slowa = dane.get("slowa")
+    return slowa.split(" ") if slowa else []
+
+
 def materializuj_tekst(obraz_napisu, liczba_klatek: int, fps: float, wyjscie: Path) -> None:
     tymczasowy_png = wyjscie.with_suffix(".png")
     obraz_napisu.save(tymczasowy_png)
@@ -688,9 +714,96 @@ def materializuj_tekst(obraz_napisu, liczba_klatek: int, fps: float, wyjscie: Pa
     ])
 
 
+def materializuj_warstwe(generator_klatek, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int, wyjscie: Path) -> None:
+    proces = subprocess.Popen(
+        [
+            "ffmpeg", "-y", "-nostdin", "-loglevel", "error",
+            "-f", "rawvideo", "-pix_fmt", "rgba", "-s", f"{szerokosc}x{wysokosc}",
+            "-framerate", str(fps), "-i", "pipe:0",
+            "-frames:v", str(liczba_klatek),
+            "-c:v", "png", "-pix_fmt", "rgba",
+            str(wyjscie),
+        ],
+        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+    )
+    try:
+        for indeks in range(liczba_klatek):
+            obraz = generator_klatek(indeks).convert("RGBA")
+            proces.stdin.write(numpy.asarray(obraz, dtype=numpy.uint8).tobytes())
+    except BrokenPipeError:
+        pass
+    finally:
+        try:
+            proces.stdin.close()
+        except BrokenPipeError:
+            pass
+    kod = proces.wait()
+    if kod != 0:
+        blad = proces.stderr.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"ffmpeg zakonczyl sie kodem {kod}: {blad}")
+
+
+def uderzenia_wyniku(uderzenia_utworu: list[float], start_audio_s: float, liczba_klatek: int, fps: float) -> list[int]:
+    if uderzenia_utworu:
+        wynik = []
+        widziane = set()
+        for uderzenie in uderzenia_utworu:
+            klatka = round((uderzenie - start_audio_s) * fps)
+            if 0 <= klatka < liczba_klatek and klatka not in widziane:
+                widziane.add(klatka)
+                wynik.append(klatka)
+        return wynik
+    krok = round(fps / 2)
+    return list(range(0, liczba_klatek, krok)) if krok > 0 else []
+
+
+def przygotuj_slowa(
+    slowa_surowe: list[str], wzor: dict, plan: dict, katalog_pracy: Path,
+    szerokosc: int, wysokosc: int, uderzenia_utworu: list[float], start_audio_s: float,
+) -> tuple[dict | None, dict | None]:
+    if not slowa_surowe:
+        return None, None
+
+    fps = plan["fps"]
+    liczba_klatek_calosci = plan["liczba_klatek"]
+    koniec_haka_klatka = koniec_haka(plan, wzor.get("sekcje"))
+    uderzenia = uderzenia_wyniku(uderzenia_utworu, start_audio_s, liczba_klatek_calosci, fps)
+
+    okna = tekst.okna_slow(len(slowa_surowe), uderzenia, koniec_haka_klatka, fps=fps, liczba_klatek_calosci=liczba_klatek_calosci)
+
+    poczatek_warstwy = okna[0][0]
+    koniec_warstwy = okna[-1][1]
+    liczba_klatek_warstwy = koniec_warstwy - poczatek_warstwy
+
+    odstepy = [uderzenia[i + 1] - uderzenia[i] for i in range(len(uderzenia) - 1)]
+    krok = 1 if odstepy and statistics.median(odstepy) >= tekst.PROG_KROKU_KLATEK else 2
+
+    def klatka_dla(indeks_globalny: int):
+        klatka_absolutna = poczatek_warstwy + indeks_globalny
+        for indeks_slowa, (od, do) in enumerate(okna):
+            if od <= klatka_absolutna < do:
+                if indeks_slowa == len(slowa_surowe) - 1:
+                    skala = 1.6 * tekst.skala_wjazdu_akcentu(klatka_absolutna - od)
+                    return tekst.obraz_slowa(slowa_surowe[indeks_slowa], szerokosc, wysokosc, skala=skala)
+                return tekst.obraz_slowa(slowa_surowe[indeks_slowa], szerokosc, wysokosc)
+        return Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
+
+    sciezka_warstwy = katalog_pracy / "slowa.mov"
+    materializuj_warstwe(klatka_dla, liczba_klatek_warstwy, fps, szerokosc, wysokosc, sciezka_warstwy)
+
+    warstwa = {
+        "plik": sciezka_warstwy,
+        "od_s": round(poczatek_warstwy / fps, 6),
+        "do_s": round(koniec_warstwy / fps, 6),
+    }
+    podsumowanie = {"liczba": len(slowa_surowe), "krok": krok, "okna": [list(okno) for okno in okna]}
+    return warstwa, podsumowanie
+
+
 def przygotuj_teksty(
     linie_surowe: list[str], wzor: dict, plan: dict, katalog_pracy: Path,
     szerokosc: int, wysokosc: int, styl_tekstu: str, pozycja_tekstu: str, ma_znak: bool,
+    koniec_nadpisany: int | None = None,
 ) -> tuple[list[dict], dict]:
     preset = tekst.PRESETY[styl_tekstu]
     sciezka_czcionki, _ = tekst.wybierz_czcionke(preset)
@@ -709,7 +822,7 @@ def przygotuj_teksty(
         return [], podsumowanie_tekstow
 
     fps = plan["fps"]
-    koniec_haka_klatka = koniec_haka(plan, wzor.get("sekcje"))
+    koniec_haka_klatka = koniec_nadpisany if koniec_nadpisany is not None else koniec_haka(plan, wzor.get("sekcje"))
     okna = tekst.okna_tekstow(len(linie), plan, koniec_haka_klatka)
 
     tekst_wzoru = wzor.get("tekst") or {}
@@ -804,9 +917,16 @@ def renderuj(
         start_uderzenie=start_uderzenie, przesuniecie_s=przesuniecie_s,
     )
 
+    slowa_surowe = wczytaj_slowa_projektu(katalog_projektu)
+    warstwa_slow, podsumowanie_slow = przygotuj_slowa(
+        slowa_surowe, wzor, plan, katalog_pracy, szerokosc, wysokosc, uderzenia_utworu, plan["start_audio_s"],
+    )
+    koniec_nadpisany = round(warstwa_slow["od_s"] * fps) if warstwa_slow else None
+
     linie_surowe = wczytaj_linie_tekstu(katalog_projektu)
     teksty_do_przebiegu, podsumowanie_tekstow = przygotuj_teksty(
         linie_surowe, wzor, plan, katalog_pracy, szerokosc, wysokosc, styl_tekstu, pozycja_tekstu, znak is not None,
+        koniec_nadpisany=koniec_nadpisany,
     )
 
     sciezki_robocze = {str(material["plik"]): material["plik_roboczy"] for material in dobre if material["typ"] == "zdjecie"}
@@ -874,6 +994,7 @@ def renderuj(
         nakladka_od_s=nakladka_od_s, nakladka_do_s=nakladka_do_s,
         znak=znak, znak_do_s=znak_do_s,
         teksty=teksty_do_przebiegu,
+        slowa=warstwa_slow,
     )
     zweryfikuj_wynik(wyjscie, szerokosc, wysokosc, fps, plan["liczba_klatek"], limit_mb)
 
@@ -904,6 +1025,7 @@ def renderuj(
         "drop_s": pozycja_dropu_w_planie(wzor, plan["ujecia"], fps),
         "kolor": {"sila": sila_koloru, "sekcje": bool(wzor.get("sekcje"))} if uzyc_kolor else None,
         "teksty": podsumowanie_tekstow,
+        "slowa": podsumowanie_slow,
     }
 
     sciezka_podsumowania = wyjscie.with_suffix(".json")

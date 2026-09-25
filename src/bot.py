@@ -24,6 +24,7 @@ import kolejka as kolejka_modul
 import magazyn
 import music
 import render
+import tekst
 from konfiguracja import Konfiguracja
 
 log = logging.getLogger("bot")
@@ -35,6 +36,7 @@ LIMIT_WYSYLKI_TELEGRAM_LOKALNY_MB = 2000
 LIMIT_ANALIZY_S = 300
 LIMIT_RENDERU_S = 900
 LIMIT_GETFILE_LOKALNY_S = 1800
+LIMIT_SLOW_RYTM = 12
 ROZMIAR_KAWALKA_KOPII_B = 64 * 1024
 SKRYPT_ANALIZY = Path(__file__).resolve().parent / "analyze.py"
 SKRYPT_RENDERU = Path(__file__).resolve().parent / "render.py"
@@ -631,6 +633,44 @@ async def obsluz_tekst(message: Message, state: FSMContext, konf: Konfiguracja, 
         magazyn.zapisz_projekt(katalog_projektu, dane_projektu)
 
 
+async def obsluz_cmd_slowa(
+    message: Message, state: FSMContext, konf: Konfiguracja, command: CommandObject, blokada_projektu: asyncio.Lock,
+) -> None:
+    dane_stanu = await state.get_data()
+    projekt_id = dane_stanu.get("projekt_id")
+    if not projekt_id:
+        await message.answer(komunikaty.BRAK_STANU)
+        return
+
+    katalog_projektu = konf.katalog_danych / "projekty" / projekt_id
+    surowy_tekst = (command.args or "").strip()
+
+    async with blokada_projektu:
+        dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
+        if not surowy_tekst:
+            dane_projektu["slowa"] = None
+            magazyn.zapisz_projekt(katalog_projektu, dane_projektu)
+            await message.answer(komunikaty.SLOWA_WYCZYSZCZONE)
+            return
+
+        sciezka_czcionki, _ = tekst.wybierz_czcionke(tekst.PRESETY["rytm"])
+        znaki = tekst.znaki_czcionki(sciezka_czcionki)
+        oczyszczony, _ = tekst.oczysc(surowy_tekst, znaki)
+        slowa = oczyszczony.split(" ") if oczyszczony else []
+
+        if len(slowa) > LIMIT_SLOW_RYTM:
+            await message.answer(komunikaty.slowa_za_duzo(len(slowa), LIMIT_SLOW_RYTM))
+            return
+
+        dane_projektu["slowa"] = " ".join(slowa) if slowa else None
+        magazyn.zapisz_projekt(katalog_projektu, dane_projektu)
+
+    if slowa:
+        await message.answer(komunikaty.slowa_zapisane(len(slowa)))
+    else:
+        await message.answer(komunikaty.SLOWA_WYCZYSZCZONE)
+
+
 async def obsluz_plik_bez_stanu(message: Message) -> None:
     await message.answer(komunikaty.BRAK_STANU)
 
@@ -653,6 +693,7 @@ def zbuduj_router() -> Router:
     router.message.register(obsluz_cmd_gotowe, Command("gotowe"))
     router.message.register(obsluz_cmd_anuluj, Command("anuluj"))
     router.message.register(obsluz_cmd_status, Command("status"))
+    router.message.register(obsluz_cmd_slowa, Command("slowa"))
     router.message.register(obsluz_wzor_plik, StateFilter(Stany.czekam_na_wzor), to_wideo)
     router.message.register(obsluz_wzor_niepoprawny, StateFilter(Stany.czekam_na_wzor))
     router.message.register(obsluz_nakladka_dokument, StateFilter(Stany.czekam_na_nakladke), F.document)

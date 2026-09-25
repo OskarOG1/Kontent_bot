@@ -62,6 +62,15 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-25 (zadanie 9.6: słowa w rytmie, gałąź `rytm`, Sonnet)
+- Gałąź `rytm` utworzona od `main` (17bf5a8, część 6 z poprawkami po odbiorze), potem scalona z `plan-rytm` (fast-forward, bez konfliktu) żeby dociągnąć aktualną wersję planu 9 i ten dziennik.
+- Czcionki `Pacifico-Regular.ttf` i `KaushanScript-Regular.ttf` pobrane z `google/fonts` (`ofl/pacifico`, `ofl/kaushanscript`) razem z `OFL.txt` do `zasoby/czcionki/pacifico/` i `zasoby/czcionki/kaushanscript/`. Obie mają komplet polskich znaków, więc zapasowa (Kaushan Script) w praktyce się nie uruchamia, tak jak przy pozostałych presetach.
+- `src/tekst.py`: preset `rytm` (Pacifico, wysokość wersalika 5%), `KOLOR_ZLOTY`/`KOLOR_GRANATOWY`, `obraz_slowa(tresc, szerokosc, wysokosc, skala=1.0)` (wypełnienie złote, obrys granatowy, cień czarny 40%, słowo dopasowane do strefy bezpiecznej, środek na 50% wysokości), `skala_wjazdu_akcentu`, `okna_slow(liczba_slow, uderzenia, koniec_haka, fps=30, liczba_klatek_calosci=None)`.
+- `src/render.py`: `uderzenia_wyniku` (uderzenia utworu na klatki wyniku, siatka co `fps/2` bez rytmu), `materializuj_warstwe` (klatki RGBA z generatora PIL pisane przez stdin do jednego pliku `.mov` kodekiem `png`, bez `-loop 1 -t`, zgodnie z ostrzeżeniem o znanym problemie 12), `przygotuj_slowa` (liczy okna, generuje `praca/slowa.mov` jako jeden klip na cały zakres od pierwszego do ostatniego słowa, poza oknami klatka przezroczysta). `przebieg_koncowy` dostał `slowa` i `pionowo` (na razie tylko `slowa` używane), nakładane po napisach linii, a przed znakiem wodnym, kolejność zgodna z planem. `przygotuj_teksty` dostał `koniec_nadpisany`: gdy są słowa, ostatnia linia kończy się na starcie pierwszego słowa zamiast na `koniec_haka`.
+- `src/bot.py`: `/slowa <tekst>` czyści przez `tekst.oczysc` znakami czcionki presetu `rytm`, limit 12 słów (komunikat z limitem i nic się nie zapisuje przy przekroczeniu), `/slowa` bez tekstu czyści pole. `src/komunikaty.py`: wpis w `POMOC`/`KOMENDY`, `SLOWA_WYCZYSZCZONE`, `slowa_zapisane`, `slowa_za_duzo`.
+- Testy: nowy `tests/test_rytm.py` (9 testów: `uderzenia_wyniku` z rytmem i bez, `okna_slow` z planu (krok 1), krok 2 przy gęstszych uderzeniach, `ValueError` z maksimum, kolory i znaki `obraz_slowa`, pełny render z 3 słowami na syntetycznym materiale (złote piksele w oknie i poza nim, akcent szerszy w pierwszej klatce niż w siódmej), identyczne polecenie przebiegu końcowego bez słów, słowa i linia razem). `tests/test_bot.py`: 3 testy `/slowa` (zapis i odpowiedź z liczbą, limit 13 słów nic nie zapisuje, czyszczenie). Pełny `python -m pytest -q` w trakcie (poprzedni stan 254 z 254, plus 12 nowych).
+- Commit `render i bot: słowa w rytmie`.
+
 ### 2026-09-25 (test lokalny części 6 zamiast ręcznego, Opus)
 - Właściciel poprosił o test bez Telegrama:
   - kod z wdrożonego `17bf5a8` wyeksportowany przez `git archive` poza repo, render przez CLI tak jak w bocie (`--styl-tekstu szeryf --pozycja-tekstu dol`, siła 0,6);

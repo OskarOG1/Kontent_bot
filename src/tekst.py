@@ -1,3 +1,4 @@
+import statistics
 from pathlib import Path
 
 from fontTools.ttLib import TTFont
@@ -32,7 +33,21 @@ PRESETY = {
         "cien": False,
         "obrys": True,
     },
+    "rytm": {
+        "czcionka": KATALOG_CZCIONEK / "pacifico" / "Pacifico-Regular.ttf",
+        "waga": None,
+        "zapasowa": KATALOG_CZCIONEK / "kaushanscript" / "KaushanScript-Regular.ttf",
+        "waga_zapasowa": None,
+        "wersaliki": False,
+        "wysokosc_wersalika": 0.05,
+        "cien": True,
+        "obrys": True,
+    },
 }
+
+KOLOR_ZLOTY = (233, 196, 106, 255)
+KOLOR_GRANATOWY = (24, 33, 74, 255)
+PROG_KROKU_KLATEK = 9
 
 
 def znaki_czcionki(sciezka):
@@ -224,3 +239,92 @@ def okna_tekstow(liczba_linii, plan, koniec_haka_klatka):
             maks_linii = max(int(liczba_klatek_calosci // fps), 0)
             raise ValueError(f"Za dużo linii tekstu, najwyżej {maks_linii}")
         koniec_okna = min(kandydaci)
+
+
+def skala_wjazdu_akcentu(klatka_lokalna: int) -> float:
+    if klatka_lokalna >= 6:
+        return 1.0
+    return 1 + 5 * (1 - klatka_lokalna / 6) ** 2
+
+
+def obraz_slowa(tresc: str, szerokosc: int, wysokosc: int, skala: float = 1.0):
+    obraz = Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
+    rysownik = ImageDraw.Draw(obraz)
+    if not tresc.strip():
+        return obraz
+
+    strefa_lewo = STREFA_BEZPIECZNA["lewo"] * szerokosc
+    strefa_prawo = STREFA_BEZPIECZNA["prawo"] * szerokosc
+    strefa_szerokosc = strefa_prawo - strefa_lewo
+
+    preset = PRESETY["rytm"]
+    przesuniecie_cienia = max(1, round(0.004 * wysokosc))
+    grubosc_obrysu = max(1, round(0.005 * wysokosc))
+    margines = przesuniecie_cienia * 3 + grubosc_obrysu
+    szerokosc_uzyteczna = max(strefa_szerokosc - 2 * margines, 1)
+
+    sciezka_czcionki, waga = wybierz_czcionke(preset)
+    docelowa_wysokosc = preset["wysokosc_wersalika"] * wysokosc * skala
+    czcionka = dopasuj_wysokosc(sciezka_czcionki, waga, docelowa_wysokosc)
+    szer = szerokosc_napisu(rysownik, tresc, czcionka)
+    while szer > szerokosc_uzyteczna and czcionka.size > 4:
+        czcionka = wczytaj_czcionke(sciezka_czcionki, czcionka.size - 1, waga)
+        szer = szerokosc_napisu(rysownik, tresc, czcionka)
+
+    ascent, descent = czcionka.getmetrics()
+    wysokosc_tekstu = ascent + descent
+    x = strefa_lewo + (strefa_szerokosc - szer) / 2
+    y = wysokosc * 0.5 - wysokosc_tekstu / 2
+
+    warstwa_cienia = Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
+    rysownik_cienia = ImageDraw.Draw(warstwa_cienia)
+    rysownik_cienia.text((x, y + przesuniecie_cienia), tresc, font=czcionka, fill=(0, 0, 0, 102))
+    warstwa_cienia = warstwa_cienia.filter(ImageFilter.GaussianBlur(przesuniecie_cienia))
+    obraz.alpha_composite(warstwa_cienia)
+    rysownik = ImageDraw.Draw(obraz)
+    rysownik.text(
+        (x, y), tresc, font=czcionka, fill=KOLOR_ZLOTY,
+        stroke_width=grubosc_obrysu, stroke_fill=KOLOR_GRANATOWY,
+    )
+    return obraz
+
+
+def indeks_pierwszego_uderzenia_od(uderzenia: list[int], klatka: float) -> int:
+    for indeks, wartosc in enumerate(uderzenia):
+        if wartosc >= klatka:
+            return indeks
+    return len(uderzenia) - 1
+
+
+def okna_slow(
+    liczba_slow: int, uderzenia: list[int], koniec_haka: int,
+    fps: float = 30, liczba_klatek_calosci: int | None = None,
+) -> list[tuple[int, int]]:
+    if liczba_slow <= 0:
+        return []
+
+    a = indeks_pierwszego_uderzenia_od(uderzenia, koniec_haka - 2)
+    odstepy = [uderzenia[i + 1] - uderzenia[i] for i in range(len(uderzenia) - 1)]
+    krok = 1 if odstepy and statistics.median(odstepy) >= PROG_KROKU_KLATEK else 2
+
+    if a - krok * (liczba_slow - 1) < 0:
+        maks_slow = a // krok + 1
+        raise ValueError(f"Za dużo słów w rytmie, najwyżej {maks_slow}")
+
+    okna = []
+    for indeks in range(liczba_slow - 1):
+        indeks_start = a - krok * (liczba_slow - 1 - indeks)
+        indeks_koniec = a - krok * (liczba_slow - 2 - indeks)
+        okna.append((uderzenia[indeks_start], uderzenia[indeks_koniec]))
+
+    start_akcentu = uderzenia[a]
+    indeks_koniec_akcentu = a + 2 * krok
+    if indeks_koniec_akcentu < len(uderzenia):
+        koniec_akcentu = uderzenia[indeks_koniec_akcentu]
+    else:
+        koniec_akcentu = start_akcentu + round(fps)
+    if liczba_klatek_calosci is not None:
+        koniec_akcentu = min(koniec_akcentu, liczba_klatek_calosci)
+    okna.append((start_akcentu, koniec_akcentu))
+
+    return okna

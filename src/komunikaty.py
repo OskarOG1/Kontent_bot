@@ -8,6 +8,7 @@ POMOC = (
     "/znak, żeby ustawić znak wodny marki (/znak usun, żeby go usunąć).\n"
     "/nowy, żeby zacząć zbierać materiały do nowego editu.\n"
     "Zwykła wiadomość tekstowa w trakcie zbierania to linia napisu w haku editu.\n"
+    "/slowa, żeby ustawić słowa w rytmie na dropie (/slowa bez tekstu, żeby je wyczyścić).\n"
     "/gotowe, żeby zamknąć zbieranie i wysłać projekt do kolejki.\n"
     "/anuluj, żeby porzucić bieżący projekt.\n"
     "/status, żeby sprawdzić stan bota."
@@ -20,6 +21,7 @@ KOMENDY = (
     ("plansza", "Ustaw planszę końcową wzoru"),
     ("znak", "Ustaw znak wodny marki"),
     ("nowy", "Zacznij nowy projekt"),
+    ("slowa", "Ustaw słowa w rytmie na dropie"),
     ("gotowe", "Zamknij zbieranie i wyślij do kolejki"),
     ("anuluj", "Porzuć bieżący projekt"),
     ("status", "Sprawdź stan bota"),
@@ -63,6 +65,16 @@ ZNAK_PROSBA = "Wyślij znak wodny jako plik PNG."
 ZNAK_NIEPOPRAWNY_TYP = "To nie jest PNG. Wyślij znak wodny jako plik PNG."
 ZNAK_USUNIETY = "Znak wodny usunięty."
 ZNAK_ZAPISANY = "Znak wodny zapisany."
+
+SLOWA_WYCZYSZCZONE = "Słowa w rytmie wyczyszczone."
+
+
+def slowa_zapisane(liczba: int) -> str:
+    return f"Słowa w rytmie: {liczba}, ostatnie wchodzi na dropie."
+
+
+def slowa_za_duzo(liczba: int, limit: int) -> str:
+    return f"Za dużo słów ({liczba}), limit to {limit}. Nic nie zapisano."
 
 
 def nakladka_prosba(wzor_id: str) -> str:
