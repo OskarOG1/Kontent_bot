@@ -397,6 +397,38 @@ async def test_slowa_bez_tekstu_czysci(srodowisko):
     assert teksty_odpowiedzi(sesja)[-1] == "Słowa w rytmie wyczyszczone."
 
 
+async def test_pionowo_zapisuje_i_czysci(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+
+    dane_stanu = await dyspozytor.storage.get_data(key=klucz_stanu(bot_obiekt))
+    projekt_id = dane_stanu["projekt_id"]
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/pionowo 1993 supply")))
+    dane_projektu = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / projekt_id)
+    assert dane_projektu["pionowo"] == "1993 supply"
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/pionowo")))
+    dane_projektu = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / projekt_id)
+    assert dane_projektu.get("pionowo") is None
+    assert teksty_odpowiedzi(sesja)[-1] == "Napis pionowy wyczyszczony."
+
+
+async def test_pionowo_za_dlugi_nie_zapisuje(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+
+    dane_stanu = await dyspozytor.storage.get_data(key=klucz_stanu(bot_obiekt))
+    projekt_id = dane_stanu["projekt_id"]
+
+    tekst_41_znakow = "a" * 41
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text=f"/pionowo {tekst_41_znakow}")))
+
+    dane_projektu = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / projekt_id)
+    assert dane_projektu.get("pionowo") is None
+    assert "41" in teksty_odpowiedzi(sesja)[-1]
+
+
 async def test_edited_message_obcego_zero_wywolan(srodowisko):
     dyspozytor, bot_obiekt, sesja, konf = srodowisko
     wiadomosc = zbuduj_wiadomosc(od_id=OBCY_ID, text="edycja")

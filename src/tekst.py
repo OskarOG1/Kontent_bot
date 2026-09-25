@@ -328,3 +328,71 @@ def okna_slow(
     okna.append((start_akcentu, koniec_akcentu))
 
     return okna
+
+
+OS_PIONOWA_SZEROKOSC = 0.05
+DOLNA_KRAWEDZ_PIONOWA_WYSOKOSC = 0.85
+WYSOKOSC_WERSALIKA_PIONOWA = 0.026
+LIMIT_DLUGOSCI_PIONOWEJ = 0.8
+KROK_ZNAKOW_KLATKI = 2
+
+
+def obraz_pionowy(tresc: str, k: int, szerokosc: int, wysokosc: int):
+    obraz = Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
+    widoczny = tresc[: max(0, min(k, len(tresc)))]
+    if not widoczny.strip():
+        return obraz
+
+    preset = PRESETY["szeryf"]
+    sciezka_czcionki, waga = wybierz_czcionke(preset)
+    docelowa_wysokosc = WYSOKOSC_WERSALIKA_PIONOWA * wysokosc
+    czcionka = dopasuj_wysokosc(sciezka_czcionki, waga, docelowa_wysokosc)
+
+    rysownik_tmp = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    grubosc_obrysu = max(1, round(0.005 * wysokosc))
+    dlugosc_pelna = szerokosc_napisu(rysownik_tmp, tresc, czcionka)
+    limit_dlugosci = LIMIT_DLUGOSCI_PIONOWEJ * wysokosc
+    while dlugosc_pelna > limit_dlugosci and czcionka.size > 4:
+        czcionka = wczytaj_czcionke(sciezka_czcionki, czcionka.size - 1, waga)
+        dlugosc_pelna = szerokosc_napisu(rysownik_tmp, tresc, czcionka)
+
+    bbox = rysownik_tmp.textbbox((0, 0), widoczny, font=czcionka, stroke_width=grubosc_obrysu)
+    szer_bbox = max(1, bbox[2] - bbox[0])
+    wys_bbox = max(1, bbox[3] - bbox[1])
+    pasek = Image.new("RGBA", (szer_bbox, wys_bbox), (0, 0, 0, 0))
+    rys_pasek = ImageDraw.Draw(pasek)
+    rys_pasek.text(
+        (-bbox[0], -bbox[1]), widoczny, font=czcionka, fill=KOLOR_ZLOTY,
+        stroke_width=grubosc_obrysu, stroke_fill=KOLOR_GRANATOWY,
+    )
+    obrocony = pasek.rotate(90, expand=True)
+
+    os_x = OS_PIONOWA_SZEROKOSC * szerokosc
+    dolna_krawedz_y = DOLNA_KRAWEDZ_PIONOWA_WYSOKOSC * wysokosc
+    x = round(os_x - obrocony.width / 2)
+    y = round(dolna_krawedz_y - obrocony.height)
+    obraz.alpha_composite(obrocony, (x, y))
+    return obraz
+
+
+def okno_pionowe(plan: dict, liczba_znakow: int, fps: float, koniec: int) -> tuple[int, int, int]:
+    plan_ujecia = plan["ujecia"]
+    poczatki_ujec = sorted({ujecie["klatka_od"] for ujecie in plan_ujecia})
+
+    if len(poczatki_ujec) < 2:
+        raise ValueError("Za dużo znaków w napisie pionowym, najwyżej 0")
+
+    poczatek = poczatki_ujec[1]
+    koniec_pisania = poczatek + KROK_ZNAKOW_KLATKI * liczba_znakow
+    minimalny_koniec = koniec_pisania + fps
+
+    kandydaci = [k for k in poczatki_ujec if k > minimalny_koniec]
+    if plan["liczba_klatek"] > minimalny_koniec:
+        kandydaci.append(plan["liczba_klatek"])
+    koniec_napisu = min(kandydaci) if kandydaci else minimalny_koniec
+
+    if koniec_napisu > koniec:
+        maks_znakow = max(int((koniec - poczatek - fps) // KROK_ZNAKOW_KLATKI), 0)
+        raise ValueError(f"Za dużo znaków w napisie pionowym, najwyżej {maks_znakow}")
+
+    return poczatek, koniec_pisania, koniec_napisu

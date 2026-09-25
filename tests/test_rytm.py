@@ -156,6 +156,81 @@ def test_renderuj_bez_slow_nie_zmienia_przebiegu_koncowego(tmp_path, monkeypatch
     assert ostatnie_bez == ostatnie_pusty
 
 
+def plan_syntetyczny(fps=30, liczba_klatek=300, poczatki=(0, 30, 90, 150)):
+    return {"fps": fps, "liczba_klatek": liczba_klatek, "ujecia": [{"klatka_od": k} for k in poczatki]}
+
+
+def test_obraz_pionowy_geometria():
+    wysokosci = []
+    for k in (3, 10, 20):
+        obraz = tekst.obraz_pionowy("Testowy napis pionowy", k, 270, 480)
+        tablica = np.array(obraz)
+        ys, xs = np.nonzero(tablica[..., 3])
+        assert xs.min() >= 0
+        assert xs.max() <= 0.12 * 270
+        assert abs(int(ys.max()) - round(0.85 * 480)) <= 1
+        wysokosci.append(int(ys.max()) - int(ys.min()))
+    assert wysokosci[0] < wysokosci[1] < wysokosci[2]
+
+
+def test_okno_pionowe_geometria():
+    plan = plan_syntetyczny()
+    poczatek, koniec_pisania, koniec = tekst.okno_pionowe(plan, 10, 30, 200)
+    assert poczatek == 30
+    assert koniec_pisania == 30 + 2 * 10
+    assert koniec == 90
+
+
+def test_okno_pionowe_za_duzo_znakow_rzuca_blad_z_maksimum():
+    plan = plan_syntetyczny()
+    with pytest.raises(ValueError, match="0"):
+        tekst.okno_pionowe(plan, 40, 30, 60)
+
+
+def wzor_dlugi_do_pionowego():
+    return {
+        "ciecia_s": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+        "zrodlo": {"czas_s": 8.0},
+        "sekcje": {"drop_s": 5.0, "drop_ujecie": 5, "koniec_haka_uderzenia": None},
+    }
+
+
+def test_renderuj_pionowy_pelny_przebieg(tmp_path):
+    def dodaj(katalog):
+        for i in range(6):
+            generuj.zdjecie_testowe(katalog / f"00000000{i:02d}_m.jpg", rozmiar=(800, 600), kolor=(20, 20, 20))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    dane = {"teksty": [], "pionowo": "ABC"}
+    (projekt / "projekt.json").write_text(json.dumps(dane), encoding="utf-8")
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_dlugi_do_pionowego()), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=120, czas_s=10.0, pierwsze_uderzenie_s=0.0)
+    fps = 30
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50)
+
+    assert podsumowanie["pionowo"]["znaki"] == 3
+    poczatek = podsumowanie["pionowo"]["od"]
+    koniec = podsumowanie["pionowo"]["do"]
+    koniec_pisania = poczatek + 2 * 3
+
+    klatki = dekoduj_klatki(wyjscie, tmp_path, "pionowo.raw")
+
+    def rozmiar_zlota(klatka):
+        return int(zlota_maska_klatki(klatka).sum())
+
+    mala = rozmiar_zlota(klatki[poczatek + 2])
+    indeks_pelnej = min(koniec_pisania, len(klatki) - 1)
+    pelna = rozmiar_zlota(klatki[indeks_pelnej])
+    assert mala < pelna
+
+    if koniec + 2 < len(klatki):
+        assert rozmiar_zlota(klatki[koniec + 2]) == 0
+
+
 def test_renderuj_slowa_i_linie_razem_linia_konczy_sie_na_pierwszym_slowie(tmp_path):
     def dodaj(katalog):
         for i in range(4):

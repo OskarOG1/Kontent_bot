@@ -703,6 +703,15 @@ def wczytaj_slowa_projektu(katalog_projektu: Path) -> list[str]:
     return slowa.split(" ") if slowa else []
 
 
+def wczytaj_pionowy_projektu(katalog_projektu: Path) -> str:
+    sciezka = katalog_projektu / "projekt.json"
+    if not sciezka.exists():
+        return ""
+    with open(sciezka, "r", encoding="utf-8") as plik:
+        dane = json.load(plik)
+    return dane.get("pionowo") or ""
+
+
 def materializuj_tekst(obraz_napisu, liczba_klatek: int, fps: float, wyjscie: Path) -> None:
     tymczasowy_png = wyjscie.with_suffix(".png")
     obraz_napisu.save(tymczasowy_png)
@@ -797,6 +806,36 @@ def przygotuj_slowa(
         "do_s": round(koniec_warstwy / fps, 6),
     }
     podsumowanie = {"liczba": len(slowa_surowe), "krok": krok, "okna": [list(okno) for okno in okna]}
+    return warstwa, podsumowanie
+
+
+def przygotuj_pionowy(
+    tresc_surowa: str, plan: dict, katalog_pracy: Path, szerokosc: int, wysokosc: int, koniec: int,
+) -> tuple[dict | None, dict | None]:
+    if not tresc_surowa:
+        return None, None
+
+    fps = plan["fps"]
+    poczatek, koniec_pisania, koniec_napisu = tekst.okno_pionowe(plan, len(tresc_surowa), fps, koniec)
+    liczba_klatek_warstwy = koniec_napisu - poczatek
+
+    def klatka_dla(indeks_lokalny: int):
+        klatka_absolutna = poczatek + indeks_lokalny
+        if klatka_absolutna < koniec_pisania:
+            k = (klatka_absolutna - poczatek) // tekst.KROK_ZNAKOW_KLATKI
+        else:
+            k = len(tresc_surowa)
+        return tekst.obraz_pionowy(tresc_surowa, k, szerokosc, wysokosc)
+
+    sciezka_warstwy = katalog_pracy / "pionowo.mov"
+    materializuj_warstwe(klatka_dla, liczba_klatek_warstwy, fps, szerokosc, wysokosc, sciezka_warstwy)
+
+    warstwa = {
+        "plik": sciezka_warstwy,
+        "od_s": round(poczatek / fps, 6),
+        "do_s": round(koniec_napisu / fps, 6),
+    }
+    podsumowanie = {"znaki": len(tresc_surowa), "od": poczatek, "do": koniec_napisu}
     return warstwa, podsumowanie
 
 
@@ -929,6 +968,12 @@ def renderuj(
         koniec_nadpisany=koniec_nadpisany,
     )
 
+    tresc_pionowa = wczytaj_pionowy_projektu(katalog_projektu)
+    koniec_dla_pionowego = koniec_nadpisany if koniec_nadpisany is not None else koniec_haka(plan, wzor.get("sekcje"))
+    warstwa_pionowo, podsumowanie_pionowo = przygotuj_pionowy(
+        tresc_pionowa, plan, katalog_pracy, szerokosc, wysokosc, koniec_dla_pionowego,
+    )
+
     sciezki_robocze = {str(material["plik"]): material["plik_roboczy"] for material in dobre if material["typ"] == "zdjecie"}
     czasy_klipow = {str(material["plik"]): material["czas_s"] for material in dobre if material["typ"] == "klip"}
 
@@ -995,6 +1040,7 @@ def renderuj(
         znak=znak, znak_do_s=znak_do_s,
         teksty=teksty_do_przebiegu,
         slowa=warstwa_slow,
+        pionowo=warstwa_pionowo,
     )
     zweryfikuj_wynik(wyjscie, szerokosc, wysokosc, fps, plan["liczba_klatek"], limit_mb)
 
@@ -1026,6 +1072,7 @@ def renderuj(
         "kolor": {"sila": sila_koloru, "sekcje": bool(wzor.get("sekcje"))} if uzyc_kolor else None,
         "teksty": podsumowanie_tekstow,
         "slowa": podsumowanie_slow,
+        "pionowo": podsumowanie_pionowo,
     }
 
     sciezka_podsumowania = wyjscie.with_suffix(".json")

@@ -62,6 +62,15 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-25 (zadanie 9.7: napis pionowy, gałąź `rytm`, Sonnet)
+- `src/tekst.py`: `obraz_pionowy(tresc, k, szerokosc, wysokosc)` (preset `szeryf`, kolory wspólne złoto/granat z 9.6, tekst poziomy narysowany LTR do ciasnego bboxa, potem `Image.rotate(90, expand=True)`; sprawdzone empirycznie, że PIL obraca przeciwnie do wskazówek zegara, więc pierwszy znak ląduje na dole, kolejne wyżej, dokładnie jak wymaga kontrakt), `okno_pionowe(plan, liczba_znakow, fps, koniec)`.
+- `src/render.py`: `wczytaj_pionowy_projektu`, `przygotuj_pionowy` (jeden klip `praca/pionowo.mov`, ten sam mechanizm `materializuj_warstwe` co słowa w 9.6, bez `-loop 1 -t`). `przebieg_koncowy` już miał parametr `pionowo` przygotowany w 9.6 (kolejność warstw: słowa, potem pionowo, przed znakiem wodnym). `renderuj` liczy koniec dla napisu pionowego tym samym `koniec_nadpisany` co linie tekstu (przed pierwszym słowem w rytmie, a bez słów przed `koniec_haka`).
+- `src/bot.py`: `/pionowo <tekst>` czyści przez `tekst.oczysc` znakami czcionki `szeryf`, limit 40 znaków (komunikat z limitem, nic się nie zapisuje przy przekroczeniu), `/pionowo` bez tekstu czyści pole. `src/komunikaty.py`: wpis w `POMOC`/`KOMENDY`, `PIONOWO_WYCZYSZCZONY`, `pionowo_zapisany`, `pionowo_za_dlugi`.
+- Odkrycie przy testowaniu `okno_pionowe`: na krótkim syntetycznym wzorze (4 ujęcia w 4 s) nie starcza miejsca między drugim ujęciem a `koniec_haka` na wypisanie nawet 2 do 3 znaków plus wymagany 1 s postoju, więc pełny test renderu potrzebował dłuższego wzoru (8 ujęć, `drop_ujecie` na piątym) — nie błąd kodu, tylko zbyt ciasny scenariusz testowy.
+- Odkrycie: na granicy okna (`between(t, od, do)` w ffmpeg) klatka dokładnie na `do` jeszcze pokazuje napis (test sprawdza dopiero `do + 2`), bo `between` jest domknięty z obu stron. Bez wpływu na jakość, tylko na dobór klatki w teście.
+- Testy: `tests/test_rytm.py` dostał 4 nowe testy (geometria `obraz_pionowy`: 0 do 12% szerokości, dolna krawędź na 85% wysokości ±1 punkt, wysokość rośnie z `k`; geometria `okno_pionowe` z przykładu; `ValueError` z maksimum; pełny render sprawdzający mały i pełny napis w trakcie pisania oraz brak napisu po końcu), razem 13 w pliku. `tests/test_bot.py` dostał 2 testy `/pionowo` (zapis i czyszczenie, limit 41 znaków). Pełny `python -m pytest -q` w trakcie.
+- Commit `render i bot: napis pionowy`.
+
 ### 2026-09-25 (zadanie 9.6: słowa w rytmie, gałąź `rytm`, Sonnet)
 - Gałąź `rytm` utworzona od `main` (17bf5a8, część 6 z poprawkami po odbiorze), potem scalona z `plan-rytm` (fast-forward, bez konfliktu) żeby dociągnąć aktualną wersję planu 9 i ten dziennik.
 - Czcionki `Pacifico-Regular.ttf` i `KaushanScript-Regular.ttf` pobrane z `google/fonts` (`ofl/pacifico`, `ofl/kaushanscript`) razem z `OFL.txt` do `zasoby/czcionki/pacifico/` i `zasoby/czcionki/kaushanscript/`. Obie mają komplet polskich znaków, więc zapasowa (Kaushan Script) w praktyce się nie uruchamia, tak jak przy pozostałych presetach.
