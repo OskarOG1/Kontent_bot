@@ -60,6 +60,26 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-25 (odbiór zadania 9.5: nakładka z kryciem, gałąź `krycie`, Opus)
+- **Werdykt: OK.** Kod Sonneta zgodny z kontraktem „Nakładka z kryciem” i „Skalowanie nakładki” z planu 9:
+  - `tryb_nakladki` po `alfa` i `zielen` daje `ekran` tylko wtedy, gdy co najmniej 40% pikseli pierwszej klatki ma największy kanał poniżej 40, a w pozostałych przypadkach `krycie`;
+  - w trybie `krycie`: skalowanie cover, `format=rgba,colorchannelmixer=aa=0.5` (`KRYCIE_NAKLADKI`), potem `overlay` w oknie od dropu;
+  - tryb `alfa` skaluje nakładkę tak, żeby zmieściła się w całości (`force_original_aspect_ratio=decrease`), i centruje ją na przezroczystym `pad`. Tryby `zielen` i `ekran` dalej wypełniają kadr;
+  - bot odpowiada „Nakładka zapisana: krycie 50%.” (plan podawał „półprzezroczysta (krycie 50%)”; test 3 wymaga tylko „krycie 50%”).
+- **Testy:** 226 z 226 (245 s). Wszystkie cztery testy z planu są: pięć trybów, średnia materiału i nakładki w oknie (±8), odpowiedź bota, pierścień 600x600 cały w kadrze i na środku (±2 px).
+- **Pomiar** `Pomiary/measure_nakladka.py` z flagą w `dane/nakladki/domyslna.mp4`, uruchomiony przeze mnie, bo Sonnet go nie puścił:
+  - A: drop na 5 z 5 wzorów w granicy 0,5 s (maks 0,1 s);
+  - B: zaliczone. Narzut wyszedł ujemny, od −29 do −32%, bo czas zegara to szum (znany problem 6);
+  - C: 5 arkuszy `outputs/porownanie_nakladka_*.png`, wszystkie z flagą.
+- **Arkusze** (klatki po dropie, wzór nad wynikiem):
+  - `0914`: flaga wchodzi na dropie, gwiazdy przy krawędziach jak we wzorze, plansza z czapką bez nakładki. Wynik jest ciemniejszy i bardziej niebieski niż wzór, bo flaga (krycie 50%) nakłada się na fioletowy cel koloru montażu. Gdyby było za ciężko, wystarczy obniżyć `KRYCIE_NAKLADKI` do około 0,4;
+  - `0923`: we wzorze flaga trwa tylko około 2 s po dropie, a dalej ujęcia są bez niej. Render trzyma nakładkę od dropu do planszy, jak ustaliła część 8. Długość nakładki brana ze wzoru to pomysł na przyszłość, poza 9.5.
+- **Uwagi do pracy Sonneta:**
+  - bez commita, bez wpisu w dzienniku i bez pomiaru;
+  - trzy pliki robocze w katalogu głównym repo (`scratch_klatka.npy`, `scratch_out.png`, `scratch_pierscien.png`) do usunięcia, nie wchodzą do commita;
+  - pracował równolegle z pełnym pomiarem koloru dla 5.6 (od 00:16), który przerwał się około 00:47 z kodem 4, bez komunikatu, po 7 z 15 arkuszy. Wyniki 0914, 0915 i 0921 są w pliku częściowym, więc pomiar wznawia się od `0922`.
+- PR #13 (zadanie 5.6) został scalony przed końcem pełnego pomiaru. Wynik pomiaru po wznowieniu trafi do dziennika osobnym wpisem.
+
 ### 2026-09-25 (zadanie 5.6: niebo bez przebarwienia, gałąź `niebo`, Opus)
 - Właściciel poprosił, żebym zrobił zadanie sam, bez Sonneta.
 - `src/kolor.py`:
@@ -570,8 +590,8 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Następne kroki
 
-1. Zadanie 5.6 (niebo bez przebarwienia) zrobione na gałęzi `niebo`, PR otwarty. Zostaje: wynik pełnego pomiaru w dzienniku, scalenie, `wdroz.ps1` (bez `--wszystkie`, kolorystyka wzoru bez zmian) i test ręczny przy sile 0,6 na zdjęciu tłumu z flagami.
-2. Zadanie 9.5 (nakładka z kryciem i skalowanie contain dla nakładek z przezroczystością) na gałęzi `krycie` od `main` po scaleniu 5.6, osobnym PR-em. Flaga jest w `dane/nakladki/domyslna.mp4` lokalnie i na serwerze. Przy wzorze `20260923_143107` wygrywa jego pierścień, a flagę da dopiero `/nakladka usun`.
-3. Część 6, potem 9 (9.1 do 9.4 oraz 9.6 do 9.8, napisy w rytmie). Po każdej odbiór na arkuszach i `wdroz.ps1`.
+1. Zadanie 9.5: commit `render: nakładka z kryciem` na gałęzi `krycie`, PR, scalenie, `wdroz.ps1`. Na serwerze przy wzorze `20260923_143107` dalej wygrywa pierścień (teraz cały, na środku kadru), a flagę da dopiero `/nakladka usun`.
+2. Wynik wznowionego pełnego pomiaru koloru (zadanie 5.6) do dziennika. Wdrożenie 5.6 razem z 9.5, potem test ręczny nieba przy sile 0,6.
+3. Część 6 (napisy w haku), potem 9.1 do 9.4 oraz 9.6 do 9.8. Od właściciela: teksty haków i akceptacja czcionki na arkuszu.
 4. Przy okazji wdrożenia: `docker stats` w trakcie montażu. Gdy szczyt zostaje poniżej 2 GB, limit pamięci wraca z 5g do 3g.
 5. Właściciel: własny znak wodny przez `/znak` (PNG z przezroczystością), jeśli ma być inny niż plik z `dane/promocyjne/`.

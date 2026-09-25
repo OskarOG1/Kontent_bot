@@ -799,6 +799,23 @@ async def test_nakladka_png_zapisuje_plik_i_podaje_tryb_drugi_zastepuje_pierwszy
     assert len(pliki) == 1
 
 
+async def test_nakladka_krycie_zapisuje_plik_i_podaje_tryb(srodowisko, tmp_path):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    przygotuj_wzor_i_utwor(konf)
+
+    plik_krycie = tmp_path / "n.mp4"
+    generuj.nakladka_testowa(plik_krycie, 0.5, "krycie")
+    sesja.tresc_pliku = plik_krycie.read_bytes()
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nakladka")))
+    wiadomosc = zbuduj_wiadomosc(document=dokument("f_nak", "u_nak", nazwa="n.mp4", file_size=1000))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+
+    zapisany = konf.katalog_danych / "nakladki" / "w1.mp4"
+    assert zapisany.exists()
+    assert teksty_odpowiedzi(sesja)[-1] == "Nakładka zapisana: krycie 50%."
+
+
 async def test_nakladka_usun_usuwa_plik(srodowisko):
     dyspozytor, bot_obiekt, sesja, konf = srodowisko
     przygotuj_wzor_i_utwor(konf)
