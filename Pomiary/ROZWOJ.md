@@ -13,7 +13,7 @@ Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym
 | 4 muzyka | kod gotowy na gałęzi `muzyka`, 2026-09-23. Testy 144 z 144, pomiar A/B/C w progach, arkusze D powstały. Tryb `dzwiek_wzoru` wyłączony decyzją właściciela (dziennik zadania 4.2 i 4.4): `wybierz_utwor` zawsze idzie po tempie. Scalona w PR #7 (`dc46f0b`) bez odbioru oceniającego. Zadanie 4.5 (pamięć analizy utworu) wykonane 2026-09-24 na gałęzi `pamiec`: testy 189 z 189, pomiar A i B w progach (szczyt analizy najdłuższego utworu 727,9 MB, szczyt renderu 737,5 MB). Wdrożona 2026-09-24. Test na serwerze: montaż z pustym indeksem (6 utworów do przeliczenia) kończy się kodem 0 w 190 s, szczyt renderu 981 MB, szczyt kontenera 1567 MB przy limicie 5 GB (wcześniej kod -9 przy 2,96 GB) |
 | 8 nakładka | scalona w PR #9 i #10 (2026-09-24), wdrożona. Testy 187 z 187 (190 s). Odbiór ponowny 2026-09-24 (Opus): OK. Pomiar A 5 z 5 wzorów w granicy 0,5 s (maks 0,1 s), arkusze C poprawne (hak czysty, nakładka od dropu, plansza bez nakładki i bez znaku, znak wodny jak w `0914`). Pomiar B niewiarygodny (narzut ujemny), zasada czasu procesora dopisana do bloku WSPÓLNE. Test ręczny: kod -9 przez brak pamięci w analizie utworów z części 4, nie przez nakładkę (znany problem 9) |
 | 5 kolor | kod gotowy na gałęzi `kolor`, 2026-09-24. Testy 214 z 214 (225 s). Pomiar A i B w progach (ΔE przy sile 0,6 mniejsze niż przy 0 w każdej sekcji wszystkich 5 prawdziwych wzorów), arkusze C (15) powstały. Narzut renderu 44 do 112% (bez ustalonego progu, do decyzji właściciela). Czas próbkowania „niepewny" (rozrzut przebiegów bazowych nad progiem 20%, na jednym, największym wzorze). Odbiór 2026-09-24 (Opus): poprawki w zadaniu 5.5 (klip krótszy od ujęcia wywraca montaż, wzór z jednym ujęciem, ciche nieudane próbkowanie). Siła domyślna 0,6 potwierdzona na arkuszach. Bez wdrożenia. Scalona w PR #12, wdrożona 2026-09-24. Zadanie 5.6 (niebo bez przebarwienia) scalone w PR #13 i wdrożone 2026-09-25, pełny pomiar po nim zaliczony |
-| 9 fabryka | zadanie 9.5 (nakładka z kryciem, pierścień w całości w kadrze) scalone w PR #14 i wdrożone 2026-09-25, odbiór OK. Reszta części 9 do zrobienia |
+| 9 fabryka | zadanie 9.5 scalone w PR #14 i wdrożone 2026-09-25. Zadania 9.6 do 9.8 (słowa w rytmie, napis pionowy) na gałęzi `rytm`: testy 272 z 272, odbiór 2026-09-25 z poprawkami (zadanie 9.9: wielkość napisów, napis pionowy na `0921` i `0922`). 9.1 do 9.4 do zrobienia |
 | 6 tekst | kod gotowy na gałęzi `tekst`, 2026-09-25. Testy 251 z 251 (311 s). Pomiar: najwyżej 20 do 27 linii w haku prawdziwych wzorów, narzut procesora 24% (bez progu), arkusze dla 5 wzorów. Odbiór 2026-09-25 (Opus): OK z trzema drobnymi poprawkami, czcionka do akceptacji właściciela. Bez PR i bez wdrożenia. Czcionka szeryfowa zaakceptowana, scalona w PR #15 i wdrożona 2026-09-25. Test lokalny w warunkach produkcji OK (2026-09-25) |
 
 Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`). Wdrożenie na serwer nadal przez `wdroz.ps1` (część 7).
@@ -61,6 +61,16 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 - Wyniki (`outputs/`), dane (`dane/`) i `.env` są poza gitem. Katalog `Pomiary/` od 2026-09-23 jest w repozytorium (decyzja właściciela), więc zmiany planów i dziennika trzeba commitować.
 
 ## Dziennik
+
+### 2026-09-25 (odbiór 9.6 do 9.8: słowa w rytmie i napis pionowy, gałąź `rytm`, Opus)
+- **Werdykt: poprawki (zadanie 9.9 w planie 9).** Mechanika jest dobra. Na 3 wzorach, które przeszły, słowa trafiają w 100% w uderzenia, a akcent wchodzi 0 do 1 uderzenia od dropu. Warstwy to klipy `png` bez `-loop`, a bez napisów polecenie przebiegu końcowego się nie zmienia. Testy: 272 z 272 w 285 s. Narzut procesora 10% (tylko raport).
+- **Błąd wielkości we wszystkich presetach:** `tekst.dopasuj_wysokosc` mierzy „AĄŻ” z ogonkiem i kropką, więc wersalik ma 64% celu. Przy 1920 px „H” ma 39 px zamiast 61 (`szeryf`), 49 zamiast 77 (`blok`) i 62 zamiast 96 (`rytm`). Część 6 właściciel zaakceptował w obecnym rozmiarze, więc w 9.9 cele `szeryf` i `blok` idą w dół tak, żeby wygląd się nie zmienił.
+- **Słowa około 4 razy mniejsze niż we wzorze:** w `0923` wypełnienie „our” ma 155 px wysokości przy 1920, a u nas litera „x” ma 33 px (`outputs/rytm_klatki.png`). Plan zakładał wersalik 5%, co było za mało nawet bez błędu pomiaru. W 9.9 wielkość idzie po literze „x”: 7,5% kadru.
+- **Napis pionowy przerywa montaż na `0921` i `0922`** (sekcje A i C pomiaru, `arkusze_powstaly: false`):
+  - `0921`: cały hak to jedno ujęcie, więc drugie ujęcie zaczyna się dopiero po pierwszym słowie i na start nie ma miejsca;
+  - `0922`: pisanie się mieści (komunikat „najwyżej 77”), ale koniec przyciągnięty do następnego cięcia wypada za pierwszym słowem.
+  - W 9.9: start od klatki 0, gdy drugie ujęcie jest za późno, koniec najpóźniej na pierwszym słowie, a gdy i tak się nie mieści, montaż bez tej warstwy z informacją w podpisie zamiast błędu całego montażu.
+- Wygląd poza wielkością bliski `0923`: złoto z granatowym obrysem, pismo odręczne, akcent wlatuje. Napis pionowy czyta się od dołu do góry przy lewej krawędzi.
 
 ### 2026-09-25 (zadanie 9.8: pomiar napisów w rytmie, gałąź `rytm`, Sonnet)
 - `Pomiary/measure_rytm.py` (nowy, wzorowany na `measure_tekst.py` i `measure_nakladka.py`), wynik `outputs/pomiar_rytm.json`. Słowa testowe „europe be like POLAND”, napis pionowy „1993 supply made in poland” (hasło właściciela, nie tekst ze wzoru, reguła 7). `render.uruchom_ffmpeg` podmieniony na wersję z `subprocess.run(..., timeout=900)`: zawieszony przebieg dałby `subprocess.TimeoutExpired`, złapane w sekcjach A i C jako błąd wzoru, pomiar idzie dalej. Żaden z 5 wzorów w tym przebiegu nie zawiesił się ani nie zbliżył do limitu.
@@ -738,7 +748,7 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 ## Następne kroki
 
 1. Część 6 wdrożona i sprawdzona lokalnie. Przy pierwszym prawdziwym editcie z napisami: czytelność na telefonie i zbieranie linii w `/nowy`.
-2. Po scaleniu PR z planem (gałąź `plan-rytm`): 9.6 do 9.8 (słowa w rytmie, napis pionowy, pomiar ze sloganem) na gałęzi `rytm` z promptem z nagłówka `PLAN_EDITY_9_FABRYKA.md`, potem 9.1 do 9.4 (restart, biblioteka wzorów, warianty) na gałęzi `fabryka`.
+2. Zadanie 9.9 (poprawki po odbiorze 9.6 do 9.8) na gałęzi `rytm`, ponowny pomiar `measure_rytm.py` na 5 wzorach, odbiór, PR, wdrożenie. Potem 9.1 do 9.4 (restart, biblioteka wzorów, warianty) na gałęzi `fabryka`.
 3. Przy okazji wdrożenia: `docker stats` w trakcie montażu. Gdy szczyt zostaje poniżej 2 GB, limit pamięci wraca z 5g do 3g.
 4. Właściciel: własny znak wodny przez `/znak` (PNG z przezroczystością), jeśli ma być inny niż plik z `dane/promocyjne/`; pliki `scratch_*` z katalogu głównego repo do usunięcia.
 5. Pomysły na później, bez planu: długość nakładki brana ze wzoru (w `0923` flaga trwa około 2 s po dropie); krycie flagi niżej niż 50%, jeśli na telefonie wyjdzie za ciężko.
