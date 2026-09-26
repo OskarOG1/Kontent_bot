@@ -490,7 +490,7 @@ def test_renderuj_ciecia_na_swoim_miejscu(tmp_path):
     fps = 30
 
     wyjscie = tmp_path / "wynik.mp4"
-    render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50)
+    render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50, bez_dynamiki=True)
 
     _, uderzenia = analyze.analizuj_rytm(utwor)
     material_zastepczy = [{"plik": "x", "typ": "zdjecie", "message_id": 0}]
@@ -730,6 +730,7 @@ def test_renderuj_kolor_hak_i_montaz_maja_przeciwny_znak_b(tmp_path):
     wyjscie = tmp_path / "wynik.mp4"
     podsumowanie = render.renderuj(
         wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50, sila_koloru=1.0,
+        bez_dynamiki=True,
     )
     assert podsumowanie["kolor"] == {"sila": 1.0, "sekcje": True}
 
@@ -881,7 +882,10 @@ def test_renderuj_zdjecie_z_alfa_pomija_lut_szare_dostaje(tmp_path, monkeypatch)
 
     polecenia = zbieraj_polecenia_ffmpeg(monkeypatch)
     wyjscie = tmp_path / "wynik.mp4"
-    render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50, sila_koloru=1.0)
+    render.renderuj(
+        wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50, sila_koloru=1.0,
+        bez_dynamiki=True,
+    )
 
     klatki = dekoduj_klatki(wyjscie, tmp_path, "alfa_kolor.raw")
     material_zastepczy = [{"plik": "x", "typ": "zdjecie", "message_id": 0}]
@@ -1033,7 +1037,7 @@ def test_renderuj_napis_nad_nakladka(tmp_path):
     wyjscie = tmp_path / "wynik.mp4"
     podsumowanie = render.renderuj(
         wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50,
-        nakladka=nakladka, pozycja_tekstu="gora",
+        nakladka=nakladka, pozycja_tekstu="gora", bez_dynamiki=True,
     )
 
     assert podsumowanie["teksty"]["okna"] == [[0, 30], [30, 60]]

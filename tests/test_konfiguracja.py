@@ -29,6 +29,7 @@ def test_domyslne_wartosci():
     assert konf.sila_koloru == 0.6
     assert konf.styl_tekstu == "szeryf"
     assert konf.pozycja_tekstu == "dol"
+    assert konf.dlugosc_nakladki_krycie_s == 2.5
 
 
 def test_katalog_danych_wzgledny_niezalezny_od_biezacego(monkeypatch, tmp_path):
@@ -89,3 +90,13 @@ def test_pozycja_tekstu_niestandardowa():
     konf = wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123", "STYL_TEKSTU": "blok", "POZYCJA_TEKSTU": "gora"})
     assert konf.styl_tekstu == "blok"
     assert konf.pozycja_tekstu == "gora"
+
+
+def test_dlugosc_nakladki_krycie_niestandardowa():
+    konf = wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123", "DLUGOSC_NAKLADKI_KRYCIE_S": "3,5"})
+    assert konf.dlugosc_nakladki_krycie_s == 3.5
+
+
+def test_dlugosc_nakladki_krycie_niepoprawna():
+    with pytest.raises(ValueError, match="DLUGOSC_NAKLADKI_KRYCIE_S"):
+        wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123", "DLUGOSC_NAKLADKI_KRYCIE_S": "abc"})

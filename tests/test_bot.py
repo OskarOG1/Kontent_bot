@@ -1011,6 +1011,24 @@ async def test_styl_i_pozycja_tekstu_renderu_z_konfiguracji(z_praca_w_tle, monke
     assert argumenty[argumenty.index("--pozycja-tekstu") + 1] == "gora"
 
 
+async def test_dlugosc_nakladki_krycie_renderu_z_konfiguracji(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    konf.dlugosc_nakladki_krycie_s = 3.5
+    przygotuj_wzor_i_utwor(konf)
+    wywolania = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    argumenty = wywolania[0]
+    assert argumenty[argumenty.index("--dlugosc-nakladki-krycie") + 1] == "3.5"
+
+
 async def test_dokument_za_duzy_przy_wysylce_daje_komunikat(z_praca_w_tle, monkeypatch):
     dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
     sesja.dokument_za_duzy = True

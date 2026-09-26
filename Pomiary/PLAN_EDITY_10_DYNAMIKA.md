@@ -226,6 +226,100 @@ Katalog: C:\Dev\edity-bot, gałąź dynamika. Wykonaj zadanie 10.5 z Pomiary/PLA
 ```
 - **Commit:** `Pomiary: pomiar dynamiki`
 
+## Poprawki po odbiorze (2026-09-26, Opus)
+Kod 10.1 do 10.4 jest zgodny z kontraktami, a testy przechodzą: 350 z 350. Pomiar 10.5 wykazał dwa błędy, które wymagają poprawki przed scaleniem, a arkusz dropu trzeci. Wszystkie trzy wynikają z planu, nie z wykonania. Poprawki idą na tej samej gałęzi `dynamika`, zadania 10.6 do 10.8.
+
+Prompt startowy poprawek (jedna sesja):
+```text
+Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania 10.6 do 10.8 z Pomiary/PLAN_EDITY_10_DYNAMIKA.md na istniejącej gałęzi `dynamika`, zaczynając od sekcji „Poprawki po odbiorze”. Na starcie przeczytaj Pomiary/ROZWOJ.md (problem 13 i wpis „odbiór 10.1 do 10.5”) i dopisuj do niego po każdym zadaniu. Otwieraj tylko pliki wymienione w zadaniu. Po każdym zadaniu uruchom jego weryfikację i zrób commit o nazwie podanej w zadaniu. Pliki robocze trzymaj poza repo. Na koniec zdaj krótki raport.
+```
+
+**Przeplot zdjęć i klipów (10.6):**
+- Skąd: `wstawki` układa kolejkę rundami. W pierwszej rundzie jest każdy materiał raz, w następnych już tylko dalsze kawałki klipów. `rozloz_tempo` bierze z tej kolejki po kolei, więc zdjęcia po 0,3 do 0,5 s kończą się w pierwszych sekundach editu.
+  - Na 5 wzorach pomiaru montaż po dropie składa się z samych klipów: 0% zdjęć i do 10 klipów pod rząd, razem 18 do 21 ujęć.
+  - Wzór `0915` ma 31 cięć. Stąd niespełniony próg „więcej ujęć niż bez dynamiki”.
+- Stała `ZDJEC_MIEDZY_KLIPAMI = 3`.
+- `render.przeplot(kawalki, zdjec_miedzy_klipami=ZDJEC_MIEDZY_KLIPAMI) -> list[dict]`:
+  - pierwszy element (hak z `uloz_wariant`) zostaje pierwszy, także gdy jest klipem, i się nie powtarza;
+  - z reszty zdjęcia i kawałki klipów zachowują swoją kolejność z `kawalki`. Kawałki klipów idą więc rundami, na przemian z różnych klipów;
+  - wynik: hak, a potem na każdy kawałek klipu seria `zdjec_miedzy_klipami` zdjęć i ten kawałek. Zdjęcia biorą się po kolei, a po ostatnim znowu od pierwszego zdjęcia reszty;
+  - zdjęcie reszty, które po ostatnim kawałku klipu nie wystąpiło ani razu, dopisuje się na koniec;
+  - gdy reszta nie ma zdjęć albo nie ma klipów, lista zostaje bez zmian;
+  - elementy to te same słowniki co w `kawalki`, bez nowych kluczy.
+- `renderuj` bez `--bez-dynamiki`: `kawalki = przeplot(wstawki(zwykle, DLUGOSC_WSTAWKI_S))`, reszta bez zmian. Z `--bez-dynamiki` bez zmian.
+- Symulacja na samych planach (Opus, próbka z pomiaru 10.5, 5 wzorów):
+  - 28 do 38 ujęć zamiast 18 do 21;
+  - po dropie 72 do 79% zdjęć, nigdy dwa klipy pod rząd;
+  - to samo zdjęcie 3 do 4 razy w editcie, mediany zdjęcia i klipu bez zmian;
+  - przy 2 zdjęciach na klip 23 do 35 ujęć.
+
+**Warstwy przebiegu końcowego jako klipy (10.7):**
+- Skąd: problem 13 w `ROZWOJ.md` (przyczynę ustalono przy odbiorze). Przebieg końcowy wisi, a czas procesora stoi, gdy flaga `krycie` wchodzi jako wideo ucięte opcją `-t`, a `polaczone.mp4` ma określoną treść:
+  - wystarczą 2 wejścia, `polaczone.mp4` z montażu `--bez-dynamiki` na `0923` i flaga z `-t 2.5`. Wisi za każdym razem, także bez dźwięku, napisów i znaku oraz bez `-stream_loop`;
+  - to samo polecenie z `polaczone.mp4` z montażu z dynamiką przechodzi, a przy tej samej luce do końca editu. Teoria luki z 10.5 odpada;
+  - flaga wstępnie zapisana do klipu 75 klatek, bez `-t`, przechodzi na obu. Pełny montaż z tą zmianą przechodzi na `0914`, `0921`, `0922` i `0923` (w pomiarze 10.5 wszystkie cztery wisiały);
+  - skoro wynik zależy od treści, wzory, które dziś przechodzą, mogą zawisnąć na innych materiałach, także z dynamiką.
+- Zasada (rozszerza problem 12): w przebiegu końcowym każde wejście poza `polaczone.mp4` i dźwiękiem to plik o dokładnie takiej liczbie klatek, jaką ma jego okno, bez `-t`, `-loop` i `-stream_loop`. Tak działają już napisy, słowa i napis pionowy.
+- `render.materializuj_nakladke(nakladka, tryb, liczba_klatek, fps, szerokosc, wysokosc, katalog) -> Path` to osobny proces ffmpeg z jednym wejściem:
+  - opcje wejścia: `-stream_loop -1`, a dla VP9 z alfą `-c:v libvpx-vp9` przed `-i`;
+  - przygotowanie trybu jak dziś w `przebieg_koncowy`, potem `-frames:v liczba_klatek`;
+  - `krycie` (skalowanie, przycięcie, dopełnienie kolorem brzegu) i `ekran` (skalowanie cover): wynik `libx264`, `yuv420p`, `-crf 12`, bez alfy, w `katalog/nakladka.mp4`. Krycie 0,5 i `blend` zostają w przebiegu końcowym;
+  - `alfa` i `zielen` (z `colorkey`): wynik z alfą, `png` w `katalog/nakladka.mov`, jak w `materializuj_warstwe`.
+- Znak wodny: skalowanie i krycie jak dziś, zapisane osobnym procesem ffmpeg z jednym wejściem (`-loop 1 -i znak`, `-frames:v` liczba klatek okna znaku) do `katalog/znak.mov` (`png`).
+- `przebieg_koncowy` przed złożeniem polecenia sam materializuje nakładkę i znak do katalogu `polaczone_wideo`, więc wywołania się nie zmieniają. W poleceniu warstwy tylko przesuwa `setpts=PTS+od/TB`. Przed żadnym `-i` poza dźwiękiem nie ma `-t`, `-loop` ani `-stream_loop`.
+- Flaga w kadrze, poprawka 10.4. W `krycie` dla nakładki szerszej niż wysoka krótszy bok skaluje się do `SKALA_NAKLADKI_KRYCIE = 0.85` szerokości kadru zamiast do pełnej. Nakładka pionowa bez zmian.
+  - Na `domyslna.mp4` krąg gwiazd ma 58% szerokości źródła, czyli 104% jego wysokości. Przy pełnej skali skrajne gwiazdy wychodzą za lewą i prawą krawędź kadru (`outputs/dynamika_drop.png`).
+  - Przy 0,85 mieszczą się z zapasem około 5% szerokości. Dolne gwiazdy ucina już samo źródło.
+
+**Pomiar ponownie (10.8):** `measure_dynamika.py` bez pamięci wyników (każdy przebieg renderuje od nowa, bo czas nie ma znaczenia). Progi A:
+- mediany jak w 10.5;
+- ujęć nie mniej niż ujęć wzoru (liczba z `--bez-dynamiki`);
+- po dropie, bez planszy, co najmniej 50% ujęć to zdjęcia i nigdy dwa klipy pod rząd;
+- żaden wycinek jako osobne ujęcie;
+- oba tryby na wszystkich 5 wzorach bez przekroczenia limitu.
+
+### [Task 10.6: Przeplot zdjęć i klipów]
+- **Objective:** `przeplot`, `ZDJEC_MIEDZY_KLIPAMI`, wpięcie w `renderuj`.
+- **Context/Inputs:** kontrakt „Przeplot zdjęć i klipów”; `src/render.py` (`wstawki`, `rozloz_tempo`, `renderuj`), `tests/test_dynamika.py`, `tests/generuj.py`.
+- **Constraints:** testy w `tests/test_dynamika.py`:
+  1. 8 zdjęć (hak jest zdjęciem) i 2 klipy po 3 kawałki: pierwszy element to hak, a między każdymi dwoma kawałkami klipów są dokładnie 3 zdjęcia. Każdy kawałek i każde zdjęcie reszty występuje, a hak raz;
+  2. hak jest klipem: zostaje pierwszy, a jego dalsze kawałki są w kolejce jak inne;
+  3. same zdjęcia albo same klipy: lista bez zmian;
+  4. 2 zdjęcia i 3 kawałki: zdjęcia powtarzają się po kolei;
+  5. pełny render 270x480 z dynamiką na wzorze z dropem, 6 zdjęć i 2 klipy po 8 s. Po dropie, bez planszy, żadne dwa ujęcia klipów nie stoją obok siebie, a zdjęcia to co najmniej połowa ujęć;
+  6. istniejące testy przechodzą, w tym test poleceń `--bez-dynamiki`.
+- **Sonnet Prompt:**
+```text
+Katalog: C:\Dev\edity-bot, gałąź dynamika. Wykonaj zadanie 10.6 z Pomiary/PLAN_EDITY_10_DYNAMIKA.md; otwórz src/render.py, tests/test_dynamika.py, tests/generuj.py. Weryfikacja: python -m pytest -q
+```
+- **Commit:** `render: przeplot zdjęć i klipów`
+
+### [Task 10.7: Warstwy przebiegu końcowego jako klipy]
+- **Objective:** `materializuj_nakladke`, znak wodny jako klip, `przebieg_koncowy` bez `-t`, `-loop` i `-stream_loop` na warstwach, `SKALA_NAKLADKI_KRYCIE`.
+- **Context/Inputs:** kontrakt „Warstwy przebiegu końcowego jako klipy”; problem 13 w `ROZWOJ.md`; `src/render.py` (`przebieg_koncowy`, `kolor_brzegu`, `strumien_wideo_nakladki`, `wymaga_dekodera_vp9_alfa`, `wymiary_i_pozycja_znaku`, `materializuj_warstwe`), `tests/test_nakladka.py`, `tests/generuj.py`.
+- **Constraints:** testy w `tests/test_nakladka.py`:
+  1. dla każdego trybu (`alfa` z PNG, `alfa` z VP9 z alfą, `zielen`, `ekran`, `krycie`) razem ze znakiem wodnym. Polecenie przebiegu końcowego (podmienione `render.uruchom_ffmpeg`, które zapisuje argumenty i woła oryginał) nie ma `-t`, `-loop` ani `-stream_loop` przed żadnym `-i` poza dźwiękiem. Klip nakładki i klip znaku mają tyle klatek, ile ich okna (`ffprobe -count_frames`);
+  2. istniejące testy pikselowe nakładek, znaku i napisu nad nakładką przechodzą bez zmiany treści asercji;
+  3. `krycie` z nakładką 16:9 ze znacznikami na 20% i 80% szerokości źródła: oba znaczniki widać w kadrze 9:16. Przy dzisiejszej pełnej skali oba wypadają poza kadr, więc test łapie brak `SKALA_NAKLADKI_KRYCIE`;
+  4. testy 10.4 (znaczniki w środkowym kwadracie, kolor pasa, nakładka pionowa bez zmian, 2,5 s i 0) przechodzą.
+- **Sonnet Prompt:**
+```text
+Katalog: C:\Dev\edity-bot, gałąź dynamika. Wykonaj zadanie 10.7 z Pomiary/PLAN_EDITY_10_DYNAMIKA.md; otwórz src/render.py, tests/test_nakladka.py, tests/generuj.py. Weryfikacja: python -m pytest -q
+```
+- **Commit:** `render: warstwy przebiegu końcowego jako klipy`
+
+### [Task 10.8: Pomiar ponownie]
+- **Objective:** pomiar 10.5 bez pamięci wyników, z nowymi progami, nowe arkusze i próbny edit.
+- **Context/Inputs:** kontrakt „Pomiar ponownie”; `Pomiary/measure_dynamika.py`. Materiały i sekcje jak w 10.5, a dodatkowo:
+  - w sekcji A na każdy wzór udział zdjęć po dropie i najdłuższa seria klipów;
+  - w sekcji B czas procesora z dynamiką i bez niej na pierwszym wzorze, z obu świeżych przebiegów.
+- **Constraints:** progi z kontraktu „Pomiar ponownie”. B tylko raport. C: pliki powstały, werdykt wydaje właściciel.
+- **Sonnet Prompt:**
+```text
+Katalog: C:\Dev\edity-bot, gałąź dynamika. Wykonaj zadanie 10.8 z Pomiary/PLAN_EDITY_10_DYNAMIKA.md; otwórz Pomiary/measure_dynamika.py, src/render.py. Weryfikacja: python Pomiary/measure_dynamika.py
+```
+- **Commit:** `Pomiary: pomiar dynamiki po poprawkach`
+
 ## Gotowe, gdy
 - `python -m pytest -q` przechodzi w całości.
 - Pomiar: A w progach, B zaraportowane, arkusze i próbny edit ocenione przez właściciela.
@@ -237,6 +331,9 @@ Katalog: C:\Dev\edity-bot, gałąź dynamika. Wykonaj zadanie 10.5 z Pomiary/PLA
 3. `render: kolaż wycinków`
 4. `render: flaga w kadrze i krócej`
 5. `Pomiary: pomiar dynamiki`
+6. `render: przeplot zdjęć i klipów`
+7. `render: warstwy przebiegu końcowego jako klipy`
+8. `Pomiary: pomiar dynamiki po poprawkach`
 
 ## Odbiór (oceniający)
 ```text
@@ -247,3 +344,4 @@ Katalog: C:\Dev\edity-bot. Oceniasz część 10 według Pomiary/PLAN_EDITY_10_DY
 3. `outputs/dynamika_drop.png` i próbny edit: błysk i wstrząs na dropie, akcent wlatuje, flaga cała w kadrze i znika po 2,5 s.
 4. Arkusze `outputs/porownanie_dynamika_*.png`: zdjęcia zmieniają się co uderzenie, klipy trwają dłużej, kolaże nie zasłaniają słów, plansza bez kolażu i znaku.
 5. `src/render.py`: kolejność filtrów w segmencie, parametry kodowania segmentów bez zmian, warstwy bez `-loop 1 -t`, `--bez-dynamiki` odtwarza stary plan.
+6. Po poprawkach 10.6 do 10.8: w przebiegu końcowym przed żadnym `-i` poza dźwiękiem nie ma `-t`, `-loop` ani `-stream_loop`. Na arkuszach zdjęcia są także po dropie, między klipami. Na arkuszu dropu flaga ma wszystkie boczne gwiazdy w kadrze.

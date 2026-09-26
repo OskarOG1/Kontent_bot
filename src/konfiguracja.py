@@ -19,6 +19,7 @@ class Konfiguracja:
     sila_koloru: float = 0.6
     styl_tekstu: str = "szeryf"
     pozycja_tekstu: str = "dol"
+    dlugosc_nakladki_krycie_s: float = 2.5
 
 
 def wczytaj(srodowisko: Mapping[str, str] | None = None) -> Konfiguracja:
@@ -62,6 +63,13 @@ def wczytaj(srodowisko: Mapping[str, str] | None = None) -> Konfiguracja:
     if pozycja_tekstu not in tekst.POZYCJE:
         raise ValueError("POZYCJA_TEKSTU")
 
+    try:
+        dlugosc_nakladki_krycie_s = float(srodowisko.get("DLUGOSC_NAKLADKI_KRYCIE_S", "2.5").replace(",", "."))
+    except ValueError:
+        raise ValueError("DLUGOSC_NAKLADKI_KRYCIE_S") from None
+    if dlugosc_nakladki_krycie_s < 0:
+        raise ValueError("DLUGOSC_NAKLADKI_KRYCIE_S")
+
     return Konfiguracja(
         token=token,
         wlasciciel_id=wlasciciel_id,
@@ -72,6 +80,7 @@ def wczytaj(srodowisko: Mapping[str, str] | None = None) -> Konfiguracja:
         sila_koloru=sila_koloru,
         styl_tekstu=styl_tekstu,
         pozycja_tekstu=pozycja_tekstu,
+        dlugosc_nakladki_krycie_s=dlugosc_nakladki_krycie_s,
     )
 
 

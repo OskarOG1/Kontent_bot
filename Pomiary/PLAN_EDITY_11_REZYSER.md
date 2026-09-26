@@ -78,14 +78,16 @@ Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania 11.1 do 11.4 z Pomia
 - Raport na koniec sesji: wniosek, liczby z pomiaru, problemy. Bez opisu drogi.
 
 ## Stan wejściowy
-`main` zawiera commit `Pomiary: pomiar dynamiki` (część 10 po odbiorze i scaleniu), a `python -m pytest -q` przechodzi. Utwórz gałąź `rezyser` od `main`. Jeśli commita brakuje, zatrzymaj się i zapytaj.
+`main` zawiera commit `Pomiary: pomiar dynamiki po poprawkach` (część 10 z poprawkami 10.6 do 10.8, po odbiorze i scaleniu), a `python -m pytest -q` przechodzi. Utwórz gałąź `rezyser` od `main`. Jeśli commita brakuje, zatrzymaj się i zapytaj.
 
 ## Kontrakt z wcześniejszych części
 Szukaj po nazwach, bo numery linii przesuną się po części 10.
 - Część 10 w `src/render.py`:
   - `rozdziel_wycinki(materialy)`, `rozloz_tempo(plan, wzor, uderzenia, kawalki, fps)`, `efekt_ujecia(...)` (klucze `uderzenie`, `blysk_s`, `wstrzas`, `przejscie`);
   - kolaż z puli wycinków (najwyżej 3 na ujęcie, wskok na uderzeniach);
-  - CLI `--bez-dynamiki`, podsumowanie `dynamika` i `kolaze`.
+  - CLI `--bez-dynamiki`, podsumowanie `dynamika` i `kolaze`;
+  - `przeplot(kawalki)` (10.6): kolejka z hakiem na początku, a potem na każdy kawałek klipu 3 zdjęcia i ten kawałek. Reszta planu po scenariuszu bierze się z tej kolejki;
+  - `materializuj_nakladke` (10.7): w przebiegu końcowym każda warstwa to klip o dokładnej liczbie klatek, bez `-t`, `-loop` i `-stream_loop` (problem 13 w `ROZWOJ.md`).
 - `render.uderzenia_wyniku`, `render.koniec_haka`, okna słów (`przygotuj_slowa`) i napisu pionowego (`przygotuj_pionowy`).
 - `render.przygotuj_materialy`: zdjęcia mają `plik_roboczy`, klipy `czas_s`.
 - `Pomiary/arkusz.py`: `arkusz_porownawczy(wzor, wynik, cel)`.

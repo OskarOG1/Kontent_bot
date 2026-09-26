@@ -42,6 +42,24 @@ UDZIAL_SZEROKOSCI_ZNAKU = 0.51
 POZYCJA_ZNAKU_PION = 0.8
 KRYCIE_ZNAKU = 0.65
 KRYCIE_NAKLADKI = 0.5
+TEMPO_ZDJECIA_MIN_S = 0.30
+TEMPO_KLIPU_MIN_S = 2.0
+TEMPO_KLIPU_MAX_S = 3.2
+DLUGOSC_WSTAWKI_S = 3.5
+DLUGOSC_NAKLADKI_KRYCIE_S = 2.5
+SILA_UDERZENIA_ZOOM = 0.12
+KLATEK_UDERZENIA_ZOOM = 5
+SILA_NAJAZDU = 0.35
+KLATEK_NAJAZDU = 6
+KLATEK_WSTRZASU = 15
+FILTR_SMUGI = "gblur=sigma=1:sigmaV=60:enable='lt(n,4)'"
+KOTWICA_ZOOM = "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+UDZIAL_SZEROKOSCI_KOLAZU = 0.55
+UDZIAL_WYSOKOSCI_KOLAZU = 0.36
+POLA_KOLAZU = ((0.30, 0.30), (0.70, 0.47), (0.38, 0.66))
+WSKOK_SKALE_KOLAZU = (0.45, 0.85, 1.12, 1.05)
+LICZBA_WYCINKOW_KOLAZU = 3
+MINIMUM_KLIPU_KOLAZU_S = 1.5
 
 
 def uruchom_ffmpeg(argumenty: list[str], katalog: Path | None = None) -> None:
@@ -82,31 +100,71 @@ def przygotuj_zdjecie(sciezka, katalog_pracy: Path, indeks: int, szerokosc: int,
     return wyjscie
 
 
-def wyrazenie_zoom(numer_ujecia: int, liczba_klatek: int) -> str:
+def wyrazenie_zoom(numer_ujecia: int, liczba_klatek: int, uderzenie: bool = False) -> str:
     if liczba_klatek <= 1:
         krok = 0.0
     else:
         krok = (ZOOM_MAKSYMALNY - 1.0) / (liczba_klatek - 1)
+    if not uderzenie:
+        if numer_ujecia % 2 == 0:
+            return f"min(zoom+{krok:.8f},{ZOOM_MAKSYMALNY})"
+        return f"if(eq(on,0),{ZOOM_MAKSYMALNY},max(zoom-{krok:.8f},1.0))"
     if numer_ujecia % 2 == 0:
-        return f"min(zoom+{krok:.8f},{ZOOM_MAKSYMALNY})"
-    return f"if(eq(on,0),{ZOOM_MAKSYMALNY},max(zoom-{krok:.8f},1.0))"
+        baza = f"(1+{krok:.8f}*on)"
+    else:
+        baza = f"({ZOOM_MAKSYMALNY}-{krok:.8f}*on)"
+    return f"{baza}*(1+{SILA_UDERZENIA_ZOOM}*pow(max(0,1-on/{KLATEK_UDERZENIA_ZOOM}),2))"
+
+
+def filtr_wstrzasu(szerokosc: int, wysokosc: int) -> str:
+    return (
+        f"scale=trunc(iw*1.08/2)*2:trunc(ih*1.08/2)*2,"
+        f"crop={szerokosc}:{wysokosc}:"
+        f"x='(iw-ow)/2+((iw-ow)/2)*sin(n*2.1)*max(0,1-n/{KLATEK_WSTRZASU})':"
+        f"y='(ih-oh)/2+((ih-oh)/2)*cos(n*1.7)*max(0,1-n/{KLATEK_WSTRZASU})'"
+    )
+
+
+def efekt_ujecia(ujecie: dict, indeks: int, klatka_dropu: int | None, licznik_zdjec_montazu: int) -> dict:
+    if indeks < 0:
+        return {"uderzenie": False, "blysk_s": 0.0, "wstrzas": False, "przejscie": "najazd"}
+    na_dropie = klatka_dropu is not None and ujecie["klatka_od"] == klatka_dropu
+    if na_dropie:
+        blysk_s, wstrzas = 0.30, True
+    elif ujecie["typ"] == "klip":
+        blysk_s, wstrzas = 0.10, False
+    else:
+        blysk_s, wstrzas = 0.0, False
+    przejscie = "brak"
+    po_dropie = klatka_dropu is not None and ujecie["klatka_od"] > klatka_dropu
+    if not na_dropie and ujecie["typ"] == "zdjecie" and po_dropie and licznik_zdjec_montazu % 3 == 0:
+        przejscie = "smuga"
+    return {"uderzenie": True, "blysk_s": blysk_s, "wstrzas": wstrzas, "przejscie": przejscie}
 
 
 def segment_zdjecia(
     sciezka_przygotowana: Path, wyjscie: Path, numer_ujecia: int, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int,
     lut_sciezka: str | None = None, katalog: Path | None = None,
+    uderzenie: bool = False, blysk_s: float = 0.0, wstrzas: bool = False, przejscie: str = "brak",
 ) -> None:
     szerokosc_robocza = szerokosc * MNOZNIK_ROBOCZY_ZOOM
     wysokosc_robocza = wysokosc * MNOZNIK_ROBOCZY_ZOOM
-    wyrazenie = wyrazenie_zoom(numer_ujecia, liczba_klatek)
+    wyrazenie = wyrazenie_zoom(numer_ujecia, liczba_klatek, uderzenie=uderzenie)
+    kotwica = f":{KOTWICA_ZOOM}" if uderzenie else ""
     filtr = (
         f"scale={szerokosc_robocza}:{wysokosc_robocza}:force_original_aspect_ratio=increase,"
         f"crop={szerokosc_robocza}:{wysokosc_robocza},"
-        f"zoompan=z='{wyrazenie}':d=1:s={szerokosc_robocza}x{wysokosc_robocza}:fps={fps},"
+        f"zoompan=z='{wyrazenie}'{kotwica}:d=1:s={szerokosc_robocza}x{wysokosc_robocza}:fps={fps},"
         f"scale={szerokosc}:{wysokosc}:flags=lanczos"
     )
     if lut_sciezka is not None:
         filtr += f",lut3d={lut_sciezka}"
+    if wstrzas:
+        filtr += f",{filtr_wstrzasu(szerokosc, wysokosc)}"
+    if przejscie == "smuga":
+        filtr += f",{FILTR_SMUGI}"
+    if blysk_s > 0:
+        filtr += f",fade=t=in:st=0:d={blysk_s}:color=white"
     filtr += ",setsar=1"
     uruchom_ffmpeg([
         "-loop", "1", "-i", str(sciezka_przygotowana),
@@ -121,6 +179,8 @@ def segment_zdjecia(
 def segment_klipu(
     sciezka_zrodlowa, wyjscie: Path, start_s: float, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int,
     lut_sciezka: str | None = None, katalog: Path | None = None,
+    uderzenie: bool = False, blysk_s: float = 0.0, wstrzas: bool = False, przejscie: str = "brak",
+    kolaz: Path | None = None,
 ) -> None:
     filtr = (
         f"scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,"
@@ -128,17 +188,39 @@ def segment_klipu(
         f"fps={fps},"
         f"tpad=stop_mode=clone:stop=-1"
     )
+    if uderzenie:
+        wyrazenie = f"(1+{SILA_UDERZENIA_ZOOM}*pow(max(0,1-on/{KLATEK_UDERZENIA_ZOOM}),2))"
+        filtr += f",zoompan=z='{wyrazenie}':{KOTWICA_ZOOM}:d=1:s={szerokosc}x{wysokosc}:fps={fps}"
     if lut_sciezka is not None:
         filtr += f",lut3d={lut_sciezka}"
+    if wstrzas:
+        filtr += f",{filtr_wstrzasu(szerokosc, wysokosc)}"
+    if przejscie == "smuga":
+        filtr += f",{FILTR_SMUGI}"
+    if blysk_s > 0:
+        filtr += f",fade=t=in:st=0:d={blysk_s}:color=white"
     filtr += ",setsar=1"
-    uruchom_ffmpeg([
-        "-ss", f"{start_s:.6f}", "-i", str(sciezka_zrodlowa),
-        "-vf", filtr,
-        "-frames:v", str(liczba_klatek),
-        "-an",
-        *PARAMETRY_KODOWANIA_SEGMENTU,
-        str(wyjscie),
-    ], katalog=katalog)
+    if kolaz is None:
+        uruchom_ffmpeg([
+            "-ss", f"{start_s:.6f}", "-i", str(sciezka_zrodlowa),
+            "-vf", filtr,
+            "-frames:v", str(liczba_klatek),
+            "-an",
+            *PARAMETRY_KODOWANIA_SEGMENTU,
+            str(wyjscie),
+        ], katalog=katalog)
+    else:
+        filtr_complex = f"[0:v]{filtr}[baza];[1:v]format=rgba[nak];[baza][nak]overlay=format=auto[out]"
+        uruchom_ffmpeg([
+            "-ss", f"{start_s:.6f}", "-i", str(sciezka_zrodlowa),
+            "-i", str(kolaz),
+            "-filter_complex", filtr_complex,
+            "-map", "[out]",
+            "-frames:v", str(liczba_klatek),
+            "-an",
+            *PARAMETRY_KODOWANIA_SEGMENTU,
+            str(wyjscie),
+        ], katalog=katalog)
 
 
 def obraz_do_statystyk(sciezka_przygotowana: Path, szerokosc: int = 270, wysokosc: int = 480) -> numpy.ndarray:
@@ -189,7 +271,9 @@ def statystyki_klipu(sciezka_zrodlowa, start_s: float, dlugosc_s: float, czas_kl
     return kolor.statystyki_obrazu(numpy.stack(klatki))
 
 
-def segment_planszy(sciezka, wyjscie: Path, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int) -> None:
+def segment_planszy(
+    sciezka, wyjscie: Path, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int, przejscie: str = "brak",
+) -> None:
     sciezka = Path(sciezka)
     wyjscie = Path(wyjscie)
     jest_zdjeciem = magazyn.typ_pliku(sciezka.name, None) == "zdjecie"
@@ -197,6 +281,12 @@ def segment_planszy(sciezka, wyjscie: Path, liczba_klatek: int, fps: float, szer
     tlo = f"scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,crop={szerokosc}:{wysokosc},boxblur={PROMIEN_ROZMYCIA_PLANSZY}:2"
     pierwszy_plan = f"scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=decrease,setsar=1"
     ogon = f",fps={fps}"
+    if przejscie == "najazd":
+        wyrazenie = f"(1+{SILA_NAJAZDU}*pow(max(0,1-on/{KLATEK_NAJAZDU}),2))"
+        ogon += (
+            f",zoompan=z='{wyrazenie}':{KOTWICA_ZOOM}:d=1:s={szerokosc}x{wysokosc}:fps={fps},"
+            f"gblur=sigma=18:enable='lt(n,3)'"
+        )
     if not jest_zdjeciem:
         ogon += ",tpad=stop_mode=clone:stop=-1"
     ogon += ",setsar=1[out]"
@@ -263,6 +353,33 @@ def piksele_pierwszej_klatki(sciezka: Path) -> numpy.ndarray | None:
         with Image.open(klatka) as obraz:
             tablica = numpy.array(obraz.convert("RGB")).reshape(-1, 3)
     return tablica if tablica.size > 0 else None
+
+
+def kolor_brzegu(sciezka: Path) -> tuple[int, int, int]:
+    strumien = strumien_wideo_nakladki(sciezka)
+    if strumien is None:
+        return (0, 0, 0)
+    szerokosc = int(strumien["width"])
+    wysokosc = int(strumien["height"])
+    with tempfile.TemporaryDirectory() as katalog_tymczasowy:
+        surowy = Path(katalog_tymczasowy) / "klatka.raw"
+        wynik = subprocess.run(
+            [
+                "ffmpeg", "-y", "-nostdin", "-loglevel", "error", "-i", str(sciezka),
+                "-frames:v", "1", "-pix_fmt", "rgb24", "-f", "rawvideo", str(surowy),
+            ],
+            stdin=subprocess.DEVNULL, capture_output=True,
+        )
+        if wynik.returncode != 0 or not surowy.exists():
+            return (0, 0, 0)
+        tablica = numpy.fromfile(surowy, dtype=numpy.uint8)
+    if tablica.size < szerokosc * wysokosc * 3:
+        return (0, 0, 0)
+    klatka = tablica[: szerokosc * wysokosc * 3].reshape(wysokosc, szerokosc, 3)
+    pas = max(1, round(wysokosc * 0.05))
+    brzeg = numpy.concatenate([klatka[:pas], klatka[-pas:]]).reshape(-1, 3)
+    srednia = brzeg.astype(numpy.float64).mean(axis=0)
+    return tuple(int(round(wartosc)) for wartosc in srednia)
 
 
 def pierwsza_klatka_zielona(sciezka: Path) -> bool:
@@ -351,6 +468,19 @@ def uloz_wariant(materialy: list, wariant: int) -> list:
     return [hak] + reszta
 
 
+def rozdziel_wycinki(materialy: list[dict]) -> tuple[list[dict], list[dict]]:
+    zwykle = []
+    wycinki = []
+    for material in materialy:
+        if material["typ"] == "zdjecie" and ma_alfa_z_pil(Path(material["plik"])):
+            wycinki.append(material)
+        else:
+            zwykle.append(material)
+    if not zwykle:
+        return list(materialy), []
+    return zwykle, wycinki
+
+
 def wstawki(materialy: list[dict], dlugosc_wstawki_s: float, minimum_s: float = 0.3) -> list[dict]:
     kolejki = []
     for material in materialy:
@@ -433,6 +563,98 @@ def plan_ujec(
     return {
         "fps": fps,
         "start_audio_s": round(start_audio_s, 6),
+        "liczba_klatek": liczba_klatek,
+        "ujecia": ujecia,
+    }
+
+
+def rozloz_tempo(plan: dict, wzor: dict, uderzenia: list[int], kawalki: list[dict], fps: int) -> dict:
+    liczba_klatek = plan["liczba_klatek"]
+    plan_ujecia = plan["ujecia"]
+    sekcje = wzor.get("sekcje")
+
+    twarde = {0, liczba_klatek}
+    if sekcje and sekcje.get("drop_ujecie") is not None:
+        twarde.add(koniec_haka(plan, sekcje))
+    if plan_ujecia:
+        twarde.add(plan_ujecia[-1]["klatka_od"])
+    twarde = sorted(twarde)
+
+    def numer_wzoru_dla(klatka: int) -> int:
+        wynik = 0
+        for ujecie_wzoru in plan_ujecia:
+            if ujecie_wzoru["klatka_od"] <= klatka:
+                wynik = ujecie_wzoru["numer_wzoru"]
+            else:
+                break
+        return wynik
+
+    def pierwsze_w_oknie(lista: list[int], dolna: int, gorna: int) -> int | None:
+        for wartosc in lista:
+            if dolna <= wartosc <= gorna:
+                return wartosc
+        return None
+
+    ciecia_wzoru = [u["klatka_od"] for u in plan_ujecia]
+    min_klatek_zdjecia = round(TEMPO_ZDJECIA_MIN_S * fps)
+    min_klatek_klipu = round(TEMPO_KLIPU_MIN_S * fps)
+    maks_klatek_klipu = round(TEMPO_KLIPU_MAX_S * fps)
+
+    ujecia = []
+    k = 0
+
+    for indeks_segmentu in range(len(twarde) - 1):
+        poczatek_segmentu = twarde[indeks_segmentu]
+        koniec_segmentu = twarde[indeks_segmentu + 1]
+        if koniec_segmentu <= poczatek_segmentu:
+            continue
+
+        if plan_ujecia and poczatek_segmentu == plan_ujecia[-1]["klatka_od"]:
+            material = kawalki[k % len(kawalki)]
+            ujecia.append({
+                "material": str(material["plik"]),
+                "typ": material["typ"],
+                "klatka_od": poczatek_segmentu,
+                "liczba_klatek": koniec_segmentu - poczatek_segmentu,
+                "start_w_klipie_s": material["od_s"] if material["typ"] == "klip" else 0.0,
+                "numer_wzoru": numer_wzoru_dla(poczatek_segmentu),
+            })
+            k += 1
+            continue
+
+        pozycja = poczatek_segmentu
+        while pozycja < koniec_segmentu:
+            material = kawalki[k % len(kawalki)]
+            if material["typ"] == "zdjecie":
+                cel = pierwsze_w_oknie(uderzenia, pozycja + min_klatek_zdjecia, koniec_segmentu)
+                koniec_ujecia = cel if cel is not None else koniec_segmentu
+            else:
+                dolna = pozycja + min_klatek_klipu
+                gorna = pozycja + maks_klatek_klipu
+                cel = pierwsze_w_oknie(ciecia_wzoru, dolna, gorna)
+                if cel is None:
+                    cel = pierwsze_w_oknie(uderzenia, dolna, gorna)
+                if cel is None:
+                    cel = dolna
+                koniec_ujecia = min(cel, koniec_segmentu)
+
+            if 0 < koniec_segmentu - koniec_ujecia < min_klatek_zdjecia:
+                koniec_ujecia = koniec_segmentu
+
+            ujecia.append({
+                "material": str(material["plik"]),
+                "typ": material["typ"],
+                "klatka_od": pozycja,
+                "liczba_klatek": koniec_ujecia - pozycja,
+                "start_w_klipie_s": material["od_s"] if material["typ"] == "klip" else 0.0,
+                "numer_wzoru": numer_wzoru_dla(pozycja),
+            })
+            pozycja = koniec_ujecia
+            k += 1
+
+    return {
+        "fps": plan["fps"],
+        "start_audio_s": plan["start_audio_s"],
         "liczba_klatek": liczba_klatek,
         "ujecia": ujecia,
     }
@@ -525,10 +747,13 @@ def przebieg_koncowy(
             )
             kompozycja = f"[0:v][nak]overlay=eval=frame:enable='{warunek}',setsar=1[v]"
         elif tryb_nakladki_wartosc == "krycie":
+            r, g, b = kolor_brzegu(nakladka)
+            kolor_hex = f"0x{r:02x}{g:02x}{b:02x}"
             przygotowanie_nakladki = (
-                f"[2:v]scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,"
-                f"crop={szerokosc}:{wysokosc},fps={fps},"
-                f"format=rgba,colorchannelmixer=aa={KRYCIE_NAKLADKI},setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
+                f"[2:v]scale='if(gt(iw,ih),-2,{szerokosc})':'if(gt(iw,ih),{szerokosc},-2)',"
+                f"crop='min(iw,{szerokosc})':'min(ih,{wysokosc})',"
+                f"pad={szerokosc}:{wysokosc}:(ow-iw)/2:(oh-ih)/2:color={kolor_hex},"
+                f"fps={fps},format=rgba,colorchannelmixer=aa={KRYCIE_NAKLADKI},setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
             )
             kompozycja = f"[0:v][nak]overlay=eval=frame:enable='{warunek}',setsar=1[v]"
         else:
@@ -676,12 +901,18 @@ def koniec_haka(plan: dict, sekcje: dict | None) -> int:
     return max(fps, min(klatka, liczba_klatek))
 
 
-def okno_nakladki(wzor: dict, plan: dict, plansza_uzyta: bool) -> tuple[float, float]:
+def okno_nakladki(
+    wzor: dict, plan: dict, plansza_uzyta: bool, tryb: str | None = None, dlugosc_krycie_s: float = 0.0,
+) -> tuple[float, float]:
     plan_ujecia = plan["ujecia"]
     liczba_klatek = plan["liczba_klatek"]
     fps = plan["fps"]
     klatka_start = koniec_haka(plan, wzor.get("sekcje"))
-    klatka_koniec = plan_ujecia[-1]["klatka_od"] if plansza_uzyta else liczba_klatek
+    klatka_koniec_domyslna = plan_ujecia[-1]["klatka_od"] if plansza_uzyta else liczba_klatek
+    if tryb == "krycie" and dlugosc_krycie_s > 0:
+        klatka_koniec = min(klatka_start + round(dlugosc_krycie_s * fps), klatka_koniec_domyslna)
+    else:
+        klatka_koniec = klatka_koniec_domyslna
     return round(klatka_start / fps, 6), round(klatka_koniec / fps, 6)
 
 
@@ -759,6 +990,68 @@ def materializuj_warstwe(generator_klatek, liczba_klatek: int, fps: float, szero
     if kod != 0:
         blad = proces.stderr.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"ffmpeg zakonczyl sie kodem {kod}: {blad}")
+
+
+def kolaz_kwalifikuje(ujecie: dict, numer_klipu: int, klatka_dropu: int | None, okna_slow: list, fps: float) -> bool:
+    if numer_klipu % 2 != 1:
+        return False
+    if ujecie["liczba_klatek"] / fps < MINIMUM_KLIPU_KOLAZU_S:
+        return False
+    if klatka_dropu is not None and ujecie["klatka_od"] == klatka_dropu:
+        return False
+    poczatek = ujecie["klatka_od"]
+    koniec = poczatek + ujecie["liczba_klatek"]
+    for od, do in okna_slow:
+        if poczatek < do and od < koniec:
+            return False
+    return True
+
+
+def wytnij_do_alfa(sciezka: Path):
+    obraz = Image.open(sciezka).convert("RGBA")
+    bbox = obraz.getchannel("A").getbbox()
+    if bbox is not None:
+        obraz = obraz.crop(bbox)
+    return obraz
+
+
+def dopasuj_do_pola_kolazu(obraz, szerokosc: int, wysokosc: int):
+    pole_szerokosc = szerokosc * UDZIAL_SZEROKOSCI_KOLAZU
+    pole_wysokosc = wysokosc * UDZIAL_WYSOKOSCI_KOLAZU
+    skala = min(pole_szerokosc / obraz.width, pole_wysokosc / obraz.height)
+    nowy_rozmiar = (max(1, round(obraz.width * skala)), max(1, round(obraz.height * skala)))
+    return obraz.resize(nowy_rozmiar, Image.LANCZOS)
+
+
+def wybierz_wycinki_kolazu(wycinki_posortowane: list[dict], indeks_puli: int) -> tuple[list[dict], int]:
+    ile = LICZBA_WYCINKOW_KOLAZU
+    wybrane = [wycinki_posortowane[(indeks_puli + i) % len(wycinki_posortowane)] for i in range(ile)]
+    return wybrane, indeks_puli + ile
+
+
+def przygotuj_kolaz(
+    wycinki_kolazu: list[dict], uderzenia_lokalne: list[int], liczba_klatek: int, fps: float,
+    szerokosc: int, wysokosc: int, wyjscie: Path,
+) -> None:
+    obrazy = [dopasuj_do_pola_kolazu(wytnij_do_alfa(Path(w["plik"])), szerokosc, wysokosc) for w in wycinki_kolazu]
+    poczatki = [uderzenia_lokalne[i] if i < len(uderzenia_lokalne) else liczba_klatek for i in range(len(obrazy))]
+    srodki = [(round(POLA_KOLAZU[i][0] * szerokosc), round(POLA_KOLAZU[i][1] * wysokosc)) for i in range(len(obrazy))]
+
+    def klatka_dla(indeks_lokalny: int):
+        platno = Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
+        for i, obraz in enumerate(obrazy):
+            if indeks_lokalny < poczatki[i]:
+                continue
+            przesuniecie = indeks_lokalny - poczatki[i]
+            skala = WSKOK_SKALE_KOLAZU[przesuniecie] if przesuniecie < len(WSKOK_SKALE_KOLAZU) else 1.0
+            szerokosc_klatki = max(1, round(obraz.width * skala))
+            wysokosc_klatki = max(1, round(obraz.height * skala))
+            wersja = obraz.resize((szerokosc_klatki, wysokosc_klatki), Image.LANCZOS)
+            srodek_x, srodek_y = srodki[i]
+            platno.alpha_composite(wersja, (srodek_x - szerokosc_klatki // 2, srodek_y - wysokosc_klatki // 2))
+        return platno
+
+    materializuj_warstwe(klatka_dla, liczba_klatek, fps, szerokosc, wysokosc, wyjscie)
 
 
 def uderzenia_wyniku(uderzenia_utworu: list[float], start_audio_s: float, liczba_klatek: int, fps: float) -> list[int]:
@@ -919,6 +1212,8 @@ def renderuj(
     styl_tekstu: str = "szeryf",
     pozycja_tekstu: str = "dol",
     wariant: int = 0,
+    bez_dynamiki: bool = False,
+    dlugosc_nakladki_krycie_s: float = DLUGOSC_NAKLADKI_KRYCIE_S,
 ) -> dict:
     czas_startu = time.time()
     wzor_json = Path(wzor_json).resolve()
@@ -961,19 +1256,33 @@ def renderuj(
         raise RuntimeError("Brak dobrego materiału do renderu")
     dobre = uloz_wariant(dobre, wariant)
 
-    material_zastepczy = [{"plik": "zastepczy", "typ": "zdjecie", "message_id": 0}]
-    plan_wstepny = plan_ujec(
-        wzor, uderzenia_utworu, material_zastepczy, fps,
-        start_uderzenie=start_uderzenie, przesuniecie_s=przesuniecie_s,
-    )
-    dlugosci_s = [u["liczba_klatek"] / fps for u in plan_wstepny["ujecia"]]
-    dlugosc_wstawki_s = min(2.0, max(0.5, statistics.median(dlugosci_s)))
+    if bez_dynamiki:
+        material_zastepczy = [{"plik": "zastepczy", "typ": "zdjecie", "message_id": 0}]
+        plan_wstepny = plan_ujec(
+            wzor, uderzenia_utworu, material_zastepczy, fps,
+            start_uderzenie=start_uderzenie, przesuniecie_s=przesuniecie_s,
+        )
+        dlugosci_s = [u["liczba_klatek"] / fps for u in plan_wstepny["ujecia"]]
+        dlugosc_wstawki_s = min(2.0, max(0.5, statistics.median(dlugosci_s)))
 
-    kawalki = wstawki(dobre, dlugosc_wstawki_s)
-    plan = plan_ujec(
-        wzor, uderzenia_utworu, kawalki, fps,
-        start_uderzenie=start_uderzenie, przesuniecie_s=przesuniecie_s,
-    )
+        kawalki = wstawki(dobre, dlugosc_wstawki_s)
+        plan = plan_ujec(
+            wzor, uderzenia_utworu, kawalki, fps,
+            start_uderzenie=start_uderzenie, przesuniecie_s=przesuniecie_s,
+        )
+        liczba_wycinkow = 0
+        wycinki = []
+        uderzenia_wyn = []
+    else:
+        zwykle, wycinki = rozdziel_wycinki(dobre)
+        kawalki = wstawki(zwykle, DLUGOSC_WSTAWKI_S)
+        plan_bazowy = plan_ujec(
+            wzor, uderzenia_utworu, kawalki, fps,
+            start_uderzenie=start_uderzenie, przesuniecie_s=przesuniecie_s,
+        )
+        uderzenia_wyn = uderzenia_wyniku(uderzenia_utworu, plan_bazowy["start_audio_s"], plan_bazowy["liczba_klatek"], fps)
+        plan = rozloz_tempo(plan_bazowy, wzor, uderzenia_wyn, kawalki, fps)
+        liczba_wycinkow = len(wycinki)
 
     slowa_surowe = wczytaj_slowa_projektu(katalog_projektu)
     warstwa_slow, podsumowanie_slow = przygotuj_slowa(
@@ -999,12 +1308,24 @@ def renderuj(
     plansza_uzyta = plansza is not None and len(plan["ujecia"]) > 1
     kolorystyka = wzor.get("kolorystyka")
     uzyc_kolor = sila_koloru > 0 and kolorystyka is not None
+    sekcje = wzor.get("sekcje")
+    klatka_dropu = koniec_haka(plan, sekcje) if sekcje and sekcje.get("drop_ujecie") is not None else None
+    licznik_zdjec_montazu = 0
+    licznik_klipow = 0
+    wycinki_posortowane = sorted(wycinki, key=lambda material: material["message_id"])
+    indeks_puli_kolazu = 0
+    okna_slow = podsumowanie_slow.get("okna", []) if podsumowanie_slow else []
+    podsumowanie_kolazy = []
 
     sciezki_segmentow = []
     for indeks, ujecie in enumerate(plan["ujecia"]):
         sciezka_segmentu = katalog_pracy / f"segment_{indeks:06d}.mp4"
         if plansza_uzyta and indeks == len(plan["ujecia"]) - 1:
-            segment_planszy(plansza, sciezka_segmentu, ujecie["liczba_klatek"], fps, szerokosc, wysokosc)
+            efekt = None if bez_dynamiki else efekt_ujecia(ujecie, -1, klatka_dropu, licznik_zdjec_montazu)
+            segment_planszy(
+                plansza, sciezka_segmentu, ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
+                przejscie=efekt["przejscie"] if efekt else "brak",
+            )
         else:
             lut_nazwa = None
             if uzyc_kolor and ujecie["typ"] == "zdjecie" and ma_alfa_z_pil(Path(ujecie["material"])):
@@ -1024,15 +1345,38 @@ def renderuj(
                 lut_nazwa = f"lut_{indeks:06d}.cube"
                 kolor.zapisz_cube(lut, katalog_pracy / lut_nazwa)
             katalog_ffmpeg = katalog_pracy if lut_nazwa is not None else None
+            if not bez_dynamiki and ujecie["typ"] == "zdjecie" and klatka_dropu is not None and ujecie["klatka_od"] > klatka_dropu:
+                licznik_zdjec_montazu += 1
+            efekt = None if bez_dynamiki else efekt_ujecia(ujecie, indeks, klatka_dropu, licznik_zdjec_montazu)
             if ujecie["typ"] == "zdjecie":
                 segment_zdjecia(
                     sciezki_robocze[ujecie["material"]], sciezka_segmentu, indeks, ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
                     lut_sciezka=lut_nazwa, katalog=katalog_ffmpeg,
+                    uderzenie=efekt["uderzenie"] if efekt else False,
+                    blysk_s=efekt["blysk_s"] if efekt else 0.0,
+                    wstrzas=efekt["wstrzas"] if efekt else False,
+                    przejscie=efekt["przejscie"] if efekt else "brak",
                 )
             else:
+                licznik_klipow += 1
+                sciezka_kolazu = None
+                if not bez_dynamiki and wycinki_posortowane and kolaz_kwalifikuje(ujecie, licznik_klipow, klatka_dropu, okna_slow, fps):
+                    wybrane, indeks_puli_kolazu = wybierz_wycinki_kolazu(wycinki_posortowane, indeks_puli_kolazu)
+                    uderzenia_lokalne = [
+                        k - ujecie["klatka_od"] for k in uderzenia_wyn
+                        if ujecie["klatka_od"] < k < ujecie["klatka_od"] + ujecie["liczba_klatek"]
+                    ]
+                    sciezka_kolazu = katalog_pracy / f"kolaz_{indeks:06d}.mov"
+                    przygotuj_kolaz(wybrane, uderzenia_lokalne, ujecie["liczba_klatek"], fps, szerokosc, wysokosc, sciezka_kolazu)
+                    podsumowanie_kolazy.append({"ujecie": indeks, "wycinki": [Path(w["plik"]).name for w in wybrane]})
                 segment_klipu(
                     ujecie["material"], sciezka_segmentu, ujecie["start_w_klipie_s"], ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
                     lut_sciezka=lut_nazwa, katalog=katalog_ffmpeg,
+                    uderzenie=efekt["uderzenie"] if efekt else False,
+                    blysk_s=efekt["blysk_s"] if efekt else 0.0,
+                    wstrzas=efekt["wstrzas"] if efekt else False,
+                    przejscie=efekt["przejscie"] if efekt else "brak",
+                    kolaz=sciezka_kolazu,
                 )
         sciezki_segmentow.append(sciezka_segmentu)
 
@@ -1043,7 +1387,9 @@ def renderuj(
     nakladka_od_s = nakladka_do_s = None
     if nakladka is not None:
         tryb_nak = tryb_nakladki(nakladka)
-        nakladka_od_s, nakladka_do_s = okno_nakladki(wzor, plan, plansza_uzyta)
+        nakladka_od_s, nakladka_do_s = okno_nakladki(
+            wzor, plan, plansza_uzyta, tryb=tryb_nak, dlugosc_krycie_s=dlugosc_nakladki_krycie_s,
+        )
         if (nakladka_do_s - nakladka_od_s) * fps < 1:
             nakladka = None
             tryb_nak = None
@@ -1065,6 +1411,15 @@ def renderuj(
 
     materialy_uzyte = len({u["material"] for u in plan["ujecia"]})
     rozmiar_mb = wyjscie.stat().st_size / (1024 * 1024)
+
+    dlugosci_zdjec_s = [u["liczba_klatek"] / fps for u in plan["ujecia"] if u["typ"] == "zdjecie"]
+    dlugosci_klipow_s = [u["liczba_klatek"] / fps for u in plan["ujecia"] if u["typ"] == "klip"]
+    podsumowanie_dynamiki = {
+        "ujecia": len(plan["ujecia"]),
+        "mediana_zdjecia_s": round(statistics.median(dlugosci_zdjec_s), 3) if dlugosci_zdjec_s else None,
+        "mediana_klipu_s": round(statistics.median(dlugosci_klipow_s), 3) if dlugosci_klipow_s else None,
+        "wycinki": liczba_wycinkow,
+    }
 
     podsumowanie = {
         "wariant": wariant,
@@ -1093,6 +1448,8 @@ def renderuj(
         "teksty": podsumowanie_tekstow,
         "slowa": podsumowanie_slow,
         "pionowo": podsumowanie_pionowo,
+        "dynamika": podsumowanie_dynamiki,
+        "kolaze": podsumowanie_kolazy,
     }
 
     sciezka_podsumowania = wyjscie.with_suffix(".json")
@@ -1121,6 +1478,8 @@ def glowna(argumenty: list[str] | None = None) -> int:
     parser.add_argument("--styl-tekstu", choices=sorted(tekst.PRESETY), default="szeryf")
     parser.add_argument("--pozycja-tekstu", choices=sorted(tekst.POZYCJE), default="dol")
     parser.add_argument("--wariant", type=int, default=0)
+    parser.add_argument("--bez-dynamiki", action="store_true")
+    parser.add_argument("--dlugosc-nakladki-krycie", type=float, default=DLUGOSC_NAKLADKI_KRYCIE_S)
     ustalone = parser.parse_args(argumenty)
     try:
         renderuj(
@@ -1135,6 +1494,8 @@ def glowna(argumenty: list[str] | None = None) -> int:
             styl_tekstu=ustalone.styl_tekstu,
             pozycja_tekstu=ustalone.pozycja_tekstu,
             wariant=ustalone.wariant,
+            bez_dynamiki=ustalone.bez_dynamiki,
+            dlugosc_nakladki_krycie_s=ustalone.dlugosc_nakladki_krycie,
         )
     except Exception as blad:
         print(str(blad), file=sys.stderr)
