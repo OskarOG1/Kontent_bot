@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -41,18 +42,65 @@ def zbuduj_projekt_czarny(tmp_path, n=4):
     return zbuduj_projekt(tmp_path, dodaj)
 
 
-def zrenderuj(tmp_path, projekt, wzor, nakladka=None, plansza=None, znak=None, szerokosc=270, wysokosc=480, fps=30):
+def zrenderuj(
+    tmp_path, projekt, wzor, nakladka=None, plansza=None, znak=None, szerokosc=270, wysokosc=480, fps=30,
+    dlugosc_nakladki_krycie_s=None,
+):
     wzor_json = tmp_path / "wzor.json"
     wzor_json.write_text(json.dumps(wzor), encoding="utf-8")
     utwor = tmp_path / "klik.wav"
     generuj.klik(utwor, bpm=128, czas_s=6.0, pierwsze_uderzenie_s=0.3)
     wyjscie = tmp_path / "wynik.mp4"
+    dodatkowe = {}
+    if dlugosc_nakladki_krycie_s is not None:
+        dodatkowe["dlugosc_nakladki_krycie_s"] = dlugosc_nakladki_krycie_s
     podsumowanie = render.renderuj(
         wzor_json, projekt, utwor, wyjscie,
         szerokosc=szerokosc, wysokosc=wysokosc, fps=fps, limit_mb=50,
         nakladka=nakladka, plansza=plansza, znak=znak, bez_dynamiki=True,
+        **dodatkowe,
     )
     return wyjscie, podsumowanie
+
+
+def nakladka_krycie_16_9_ze_znacznikami(sciezka, czas_s=1.0, fps=30, rozmiar=(640, 360)):
+    import subprocess
+    import tempfile
+
+    szerokosc, wysokosc = rozmiar
+    tlo = np.zeros((wysokosc, szerokosc, 3), dtype=np.uint8)
+    tlo[:] = (100, 100, 180)
+    bok = 24
+    y0 = wysokosc // 2 - bok // 2
+    for x0 in (176, 464):
+        tlo[y0:y0 + bok, x0:x0 + bok] = (220, 30, 30)
+    dane_klatki = tlo.tobytes()
+    liczba_klatek = max(1, round(czas_s * fps))
+    argumenty = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{szerokosc}x{wysokosc}",
+        "-framerate", str(fps), "-i", "pipe:0",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p", "-an",
+        "-frames:v", str(liczba_klatek), str(sciezka),
+    ]
+    with tempfile.TemporaryDirectory() as katalog_tymczasowy:
+        katalog = Path(katalog_tymczasowy)
+        with open(katalog / "stderr.txt", "wb") as plik_bledow:
+            proces = subprocess.Popen(argumenty, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=plik_bledow)
+            try:
+                for _ in range(liczba_klatek):
+                    proces.stdin.write(dane_klatki)
+            except BrokenPipeError:
+                pass
+            finally:
+                try:
+                    proces.stdin.close()
+                except BrokenPipeError:
+                    pass
+            kod = proces.wait()
+        if kod != 0:
+            blad = (katalog / "stderr.txt").read_text(encoding="utf-8", errors="replace")
+            raise RuntimeError(f"ffmpeg zakonczyl sie kodem {kod}: {blad}")
 
 
 def pas_gorny(klatka, ulamek=0.2):
@@ -427,3 +475,87 @@ def test_znak_wodny_nad_nakladka_alfa(tmp_path):
     wysokosc, szerokosc = klatka.shape[:2]
     piksel = klatka[round(wysokosc * 0.8), szerokosc // 2].astype(np.int32)
     assert piksel[1] > 100 and piksel[2] > 100
+
+
+def test_kolor_brzegu_srednia_gornych_i_dolnych_wierszy(tmp_path):
+    nakladka = tmp_path / "krycie_16_9.mp4"
+    nakladka_krycie_16_9_ze_znacznikami(nakladka)
+
+    r, g, b = render.kolor_brzegu(nakladka)
+
+    assert abs(r - 100) <= 10
+    assert abs(g - 100) <= 10
+    assert abs(b - 180) <= 10
+
+
+def test_nakladka_krycie_16_9_oba_znaczniki_widoczne_w_kadrze_9_16(tmp_path):
+    projekt = zbuduj_projekt_czarny(tmp_path)
+    wzor = wzor_4_ciecia_z_dropem(2)
+    nakladka = tmp_path / "krycie_16_9.mp4"
+    nakladka_krycie_16_9_ze_znacznikami(nakladka, czas_s=1.0)
+
+    wyjscie, podsumowanie = zrenderuj(tmp_path, projekt, wzor, nakladka=nakladka)
+    assert podsumowanie["nakladka"]["tryb"] == "krycie"
+
+    fps = 30
+    od_s = podsumowanie["nakladka"]["od_s"]
+    do_s = podsumowanie["nakladka"]["do_s"]
+    klatki = dekoduj_klatki(wyjscie, tmp_path, "dek.raw")
+    srodek = min(round((od_s + do_s) / 2 * fps), klatki.shape[0] - 1)
+    klatka = klatki[srodek].astype(np.int32)
+    wysokosc, szerokosc = klatka.shape[:2]
+
+    lewa_strefa = klatka[:, :round(szerokosc * 0.2)]
+    prawa_strefa = klatka[:, round(szerokosc * 0.8):]
+
+    def ma_czerwony(strefa):
+        return bool(np.any((strefa[..., 0] - strefa[..., 1] > 30) & (strefa[..., 0] - strefa[..., 2] > 30)))
+
+    assert ma_czerwony(lewa_strefa)
+    assert ma_czerwony(prawa_strefa)
+
+
+def wzor_dlugi_z_dropem():
+    return {
+        "ciecia_uderzenia": [0.0, 1.0, 2.0, 8.0],
+        "koniec_uderzenia": 9.0,
+        "ciecia_s": [0.0],
+        "zrodlo": {"czas_s": 9.0},
+        "sekcje": {"drop_s": None, "drop_ujecie": 2, "koniec_haka_uderzenia": None},
+    }
+
+
+def test_nakladka_krycie_ograniczona_do_2_5s_od_dropu(tmp_path):
+    projekt = zbuduj_projekt_niebieski(tmp_path)
+    wzor = wzor_dlugi_z_dropem()
+    nakladka = tmp_path / "krycie.mp4"
+    generuj.nakladka_testowa(nakladka, 3.0, "krycie")
+
+    wyjscie, podsumowanie = zrenderuj(tmp_path, projekt, wzor, nakladka=nakladka)
+
+    assert podsumowanie["nakladka"]["tryb"] == "krycie"
+    assert podsumowanie["nakladka"]["do_s"] == pytest.approx(podsumowanie["nakladka"]["od_s"] + 2.5, abs=1e-3)
+
+
+def test_nakladka_krycie_zero_trwa_do_konca_i_alfa_bez_zmian(tmp_path):
+    projekt = zbuduj_projekt_niebieski(tmp_path)
+    wzor = wzor_dlugi_z_dropem()
+    fps = 30
+    material_zastepczy = [{"plik": "x", "typ": "zdjecie", "message_id": 0}]
+
+    nakladka_krycie = tmp_path / "krycie.mp4"
+    generuj.nakladka_testowa(nakladka_krycie, 5.0, "krycie")
+    wyjscie_krycie, podsumowanie_krycie = zrenderuj(
+        tmp_path, projekt, wzor, nakladka=nakladka_krycie, dlugosc_nakladki_krycie_s=0,
+    )
+    _, uderzenia = analyze.analizuj_rytm(tmp_path / "klik.wav")
+    plan = render.plan_ujec(wzor, uderzenia, material_zastepczy, fps)
+    oczekiwany_koniec_s = plan["liczba_klatek"] / fps
+    assert podsumowanie_krycie["nakladka"]["do_s"] == pytest.approx(oczekiwany_koniec_s, abs=1e-3)
+    assert oczekiwany_koniec_s - podsumowanie_krycie["nakladka"]["od_s"] > 2.5
+
+    nakladka_alfa = tmp_path / "alfa.mov"
+    generuj.nakladka_testowa(nakladka_alfa, 5.0, "alfa")
+    wyjscie_alfa, podsumowanie_alfa = zrenderuj(tmp_path, projekt, wzor, nakladka=nakladka_alfa)
+    assert podsumowanie_alfa["nakladka"]["tryb"] == "alfa"
+    assert podsumowanie_alfa["nakladka"]["do_s"] == pytest.approx(oczekiwany_koniec_s, abs=1e-3)

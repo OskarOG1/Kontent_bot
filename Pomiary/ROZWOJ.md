@@ -64,6 +64,17 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-26 (zadanie 10.4: flaga w kadrze, gałąź `dynamika`, Sonnet)
+- `src/render.py`: `kolor_brzegu(sciezka)` dekoduje pierwszą klatkę pliku nakładki (ffmpeg → rawvideo), liczy średni kolor z górnych i dolnych 5% wierszy. Nowa stała `DLUGOSC_NAKLADKI_KRYCIE_S = 2.5`.
+- Tryb `krycie` w `przebieg_koncowy`: `scale='if(gt(iw,ih),-2,W)':'if(gt(iw,ih),W,-2)'` (krótszy bok, czyli wysokość przy źródle poziomym, skalowany do szerokości kadru `W`), `crop='min(iw,W)':'min(ih,H)'` (środek, bez zmian dla źródeł pionowych, bo tam skalowanie już daje ok. `W×H`), `pad=W:H:...:color=<kolor_brzegu w hex>` (pas nad i pod, tylko gdy źródło jest szersze niż `W/H`). Dla nakładki 9:16 wynik identyczny jak przed zmianą (sprawdzone testem `test_nakladka_krycie_okno_daje_srednia_a_poza_oknem_bez_zmian` z części 8/9, bez modyfikacji, nadal przechodzi piksel w piksel).
+- `okno_nakladki(wzor, plan, plansza_uzyta, tryb=None, dlugosc_krycie_s=0.0)`: gdy `tryb=="krycie"` i `dlugosc_krycie_s>0`, koniec okna to `min(start+dlugosc_krycie_s*fps, koniec_domyslny)` (nigdy dłużej niż do planszy/końca). Inne tryby i `dlugosc_krycie_s<=0` bez zmian (do planszy jak dziś).
+- `renderuj` dostał `dlugosc_nakladki_krycie_s: float = DLUGOSC_NAKLADKI_KRYCIE_S`, przekazywane do `okno_nakladki` razem z `tryb_nak` (już liczonym wcześniej). CLI `--dlugosc-nakladki-krycie`.
+- `src/konfiguracja.py`: pole `dlugosc_nakladki_krycie_s: float = 2.5`, zmienna `DLUGOSC_NAKLADKI_KRYCIE_S` (parsowana jak `SILA_KOLORU`: przecinek/kropka, błąd parsowania albo wartość ujemna → `ValueError`). Wpis w `.env.example`.
+- `src/bot.py`: `renderuj_w_tle` dokłada `--dlugosc-nakladki-krycie` z konfiguracji do wywołania CLI (obok istniejących `--sila-koloru`, `--styl-tekstu`, `--pozycja-tekstu`).
+- Nowe testy: `tests/test_konfiguracja.py` +2 (wartość niestandardowa z przecinkiem, błędna wartość), `tests/test_bot.py` +1 (parametr trafia do wywołania CLI), `tests/test_nakladka.py` +4: `kolor_brzegu` na syntetycznej nakładce 16:9 z tłem i znacznikami (średnia zgadza się z tłem, znaczniki poza pasem 5%), pełny render z nakładką 16:9 pokazuje oba znaczniki w kadrze 9:16 (lewa i prawa strefa 20% szerokości), krycie ograniczone do 2,5 s od dropu na dłuższym wzorze, `DLUGOSC_NAKLADKI_KRYCIE_S=0` trwa do końca (dłużej niż 2,5 s) a tryb `alfa` z tym samym wzorem też trwa do końca bez zmian.
+- `python -m pytest -q`: 350 z 350 w 355 s.
+- Commit `render: flaga w kadrze i krócej`.
+
 ### 2026-09-26 (zadanie 10.3: kolaż wycinków, gałąź `dynamika`, Sonnet)
 - `src/render.py`: nowe stałe `UDZIAL_SZEROKOSCI_KOLAZU=0.55`, `UDZIAL_WYSOKOSCI_KOLAZU=0.36`, `POLA_KOLAZU` (środki trzech pól), `WSKOK_SKALE_KOLAZU=(0.45,0.85,1.12,1.05)` (od klatki 4 po pojawieniu skala 1.0), `LICZBA_WYCINKOW_KOLAZU=3`, `MINIMUM_KLIPU_KOLAZU_S=1.5`.
 - `kolaz_kwalifikuje(ujecie, numer_klipu, klatka_dropu, okna_slow, fps)`: „co drugi klip” to `numer_klipu % 2 == 1` (numer_klipu liczony 1, 2, 3... od pierwszego klipu w planie, licznik rośnie dla każdego ujęcia typu klip poza planszą, niezależnie od kwalifikacji), reszta warunków (długość, drop, nachodzenie na okna słów z `podsumowanie_slow["okna"]`) jak w kontrakcie.

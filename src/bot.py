@@ -198,6 +198,7 @@ async def renderuj_zadanie_w_tle(
         "--limit-mb", str(limit_mb), "--sila-koloru", str(konf.sila_koloru),
         "--styl-tekstu", konf.styl_tekstu, "--pozycja-tekstu", konf.pozycja_tekstu,
         "--wariant", str(zadanie["wariant"]),
+        "--dlugosc-nakladki-krycie", str(konf.dlugosc_nakladki_krycie_s),
     ]
     if nakladka is not None:
         argumenty += ["--nakladka", str(nakladka)]

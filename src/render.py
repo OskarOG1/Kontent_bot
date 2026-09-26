@@ -46,6 +46,7 @@ TEMPO_ZDJECIA_MIN_S = 0.30
 TEMPO_KLIPU_MIN_S = 2.0
 TEMPO_KLIPU_MAX_S = 3.2
 DLUGOSC_WSTAWKI_S = 3.5
+DLUGOSC_NAKLADKI_KRYCIE_S = 2.5
 SILA_UDERZENIA_ZOOM = 0.12
 KLATEK_UDERZENIA_ZOOM = 5
 SILA_NAJAZDU = 0.35
@@ -352,6 +353,33 @@ def piksele_pierwszej_klatki(sciezka: Path) -> numpy.ndarray | None:
         with Image.open(klatka) as obraz:
             tablica = numpy.array(obraz.convert("RGB")).reshape(-1, 3)
     return tablica if tablica.size > 0 else None
+
+
+def kolor_brzegu(sciezka: Path) -> tuple[int, int, int]:
+    strumien = strumien_wideo_nakladki(sciezka)
+    if strumien is None:
+        return (0, 0, 0)
+    szerokosc = int(strumien["width"])
+    wysokosc = int(strumien["height"])
+    with tempfile.TemporaryDirectory() as katalog_tymczasowy:
+        surowy = Path(katalog_tymczasowy) / "klatka.raw"
+        wynik = subprocess.run(
+            [
+                "ffmpeg", "-y", "-nostdin", "-loglevel", "error", "-i", str(sciezka),
+                "-frames:v", "1", "-pix_fmt", "rgb24", "-f", "rawvideo", str(surowy),
+            ],
+            stdin=subprocess.DEVNULL, capture_output=True,
+        )
+        if wynik.returncode != 0 or not surowy.exists():
+            return (0, 0, 0)
+        tablica = numpy.fromfile(surowy, dtype=numpy.uint8)
+    if tablica.size < szerokosc * wysokosc * 3:
+        return (0, 0, 0)
+    klatka = tablica[: szerokosc * wysokosc * 3].reshape(wysokosc, szerokosc, 3)
+    pas = max(1, round(wysokosc * 0.05))
+    brzeg = numpy.concatenate([klatka[:pas], klatka[-pas:]]).reshape(-1, 3)
+    srednia = brzeg.astype(numpy.float64).mean(axis=0)
+    return tuple(int(round(wartosc)) for wartosc in srednia)
 
 
 def pierwsza_klatka_zielona(sciezka: Path) -> bool:
@@ -719,10 +747,13 @@ def przebieg_koncowy(
             )
             kompozycja = f"[0:v][nak]overlay=eval=frame:enable='{warunek}',setsar=1[v]"
         elif tryb_nakladki_wartosc == "krycie":
+            r, g, b = kolor_brzegu(nakladka)
+            kolor_hex = f"0x{r:02x}{g:02x}{b:02x}"
             przygotowanie_nakladki = (
-                f"[2:v]scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,"
-                f"crop={szerokosc}:{wysokosc},fps={fps},"
-                f"format=rgba,colorchannelmixer=aa={KRYCIE_NAKLADKI},setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
+                f"[2:v]scale='if(gt(iw,ih),-2,{szerokosc})':'if(gt(iw,ih),{szerokosc},-2)',"
+                f"crop='min(iw,{szerokosc})':'min(ih,{wysokosc})',"
+                f"pad={szerokosc}:{wysokosc}:(ow-iw)/2:(oh-ih)/2:color={kolor_hex},"
+                f"fps={fps},format=rgba,colorchannelmixer=aa={KRYCIE_NAKLADKI},setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
             )
             kompozycja = f"[0:v][nak]overlay=eval=frame:enable='{warunek}',setsar=1[v]"
         else:
@@ -870,12 +901,18 @@ def koniec_haka(plan: dict, sekcje: dict | None) -> int:
     return max(fps, min(klatka, liczba_klatek))
 
 
-def okno_nakladki(wzor: dict, plan: dict, plansza_uzyta: bool) -> tuple[float, float]:
+def okno_nakladki(
+    wzor: dict, plan: dict, plansza_uzyta: bool, tryb: str | None = None, dlugosc_krycie_s: float = 0.0,
+) -> tuple[float, float]:
     plan_ujecia = plan["ujecia"]
     liczba_klatek = plan["liczba_klatek"]
     fps = plan["fps"]
     klatka_start = koniec_haka(plan, wzor.get("sekcje"))
-    klatka_koniec = plan_ujecia[-1]["klatka_od"] if plansza_uzyta else liczba_klatek
+    klatka_koniec_domyslna = plan_ujecia[-1]["klatka_od"] if plansza_uzyta else liczba_klatek
+    if tryb == "krycie" and dlugosc_krycie_s > 0:
+        klatka_koniec = min(klatka_start + round(dlugosc_krycie_s * fps), klatka_koniec_domyslna)
+    else:
+        klatka_koniec = klatka_koniec_domyslna
     return round(klatka_start / fps, 6), round(klatka_koniec / fps, 6)
 
 
@@ -1176,6 +1213,7 @@ def renderuj(
     pozycja_tekstu: str = "dol",
     wariant: int = 0,
     bez_dynamiki: bool = False,
+    dlugosc_nakladki_krycie_s: float = DLUGOSC_NAKLADKI_KRYCIE_S,
 ) -> dict:
     czas_startu = time.time()
     wzor_json = Path(wzor_json).resolve()
@@ -1349,7 +1387,9 @@ def renderuj(
     nakladka_od_s = nakladka_do_s = None
     if nakladka is not None:
         tryb_nak = tryb_nakladki(nakladka)
-        nakladka_od_s, nakladka_do_s = okno_nakladki(wzor, plan, plansza_uzyta)
+        nakladka_od_s, nakladka_do_s = okno_nakladki(
+            wzor, plan, plansza_uzyta, tryb=tryb_nak, dlugosc_krycie_s=dlugosc_nakladki_krycie_s,
+        )
         if (nakladka_do_s - nakladka_od_s) * fps < 1:
             nakladka = None
             tryb_nak = None
@@ -1439,6 +1479,7 @@ def glowna(argumenty: list[str] | None = None) -> int:
     parser.add_argument("--pozycja-tekstu", choices=sorted(tekst.POZYCJE), default="dol")
     parser.add_argument("--wariant", type=int, default=0)
     parser.add_argument("--bez-dynamiki", action="store_true")
+    parser.add_argument("--dlugosc-nakladki-krycie", type=float, default=DLUGOSC_NAKLADKI_KRYCIE_S)
     ustalone = parser.parse_args(argumenty)
     try:
         renderuj(
@@ -1454,6 +1495,7 @@ def glowna(argumenty: list[str] | None = None) -> int:
             pozycja_tekstu=ustalone.pozycja_tekstu,
             wariant=ustalone.wariant,
             bez_dynamiki=ustalone.bez_dynamiki,
+            dlugosc_nakladki_krycie_s=ustalone.dlugosc_nakladki_krycie,
         )
     except Exception as blad:
         print(str(blad), file=sys.stderr)
