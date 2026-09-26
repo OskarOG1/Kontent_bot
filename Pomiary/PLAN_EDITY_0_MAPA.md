@@ -30,14 +30,14 @@ Prawdziwe wzory (`0914`, `0915`, `0921`, `0922`, `0923`, wszystkie 4K, w `dane/w
 | 8 | PLAN_EDITY_8_NAKLADKA | drop we wzorze, Twoja nakładka od dropu, Twoja plansza na końcu | wykonana, PR #9 i #10, wdrożona, odbiór OK (2026-09-24) | własna nakładka (gwiazdy); plansza i znak wodny są w `dane/promocyjne/` | Sonnet |
 | 5 | PLAN_EDITY_5_KOLOR | kolorystyka wzoru na sekcję (hak, montaż), LUT na każdy segment | wykonana, PR #12 i #13 (5.6, niebo), wdrożona 2026-09-25, siła domyślna 0,6 | nic | Sonnet |
 | 6 | PLAN_EDITY_6_TEKST | Twoje napisy w haku, styl jak we wzorach, strefy bezpieczne TikToka | wykonana, PR #15, wdrożona 2026-09-25, czcionka szeryfowa zaakceptowana, test lokalny OK | test ręczny | Sonnet |
-| 9 | PLAN_EDITY_9_FABRYKA | restart bez strat, biblioteka wzorów z wyborem, warianty, partie, `/ponow`; nakładka z kryciem (flaga, 9.5, zaraz po części 8); słowa w rytmie i napis pionowy jak w `0923` (9.6 do 9.8, po części 6) | 9.5 do 9.10 scalone (PR #14, #17, #18); 9.1 do 9.4 w toku na gałęzi `fabryka` (2026-09-26) | klip flagi jako nakładka, akceptacja czcionki pisanej | Sonnet |
+| 9 | PLAN_EDITY_9_FABRYKA | restart bez strat, biblioteka wzorów z wyborem, warianty, partie, `/ponow`; nakładka z kryciem (flaga, 9.5, zaraz po części 8); słowa w rytmie i napis pionowy jak w `0923` (9.6 do 9.8, po części 6) | 9.5 do 9.10 scalone (PR #14, #17, #18) i wdrożone; 9.1 do 9.4 w PR #20, odbiór OK 2026-09-26 | klip flagi jako nakładka, akceptacja czcionki pisanej | Sonnet |
 | 10 | PLAN_EDITY_10_DYNAMIKA | zdjęcia co uderzenie, klipy 2 do 3,2 s, przejścia na cięciach (uderzenie zoomem, błysk, wstrząs, smuga, najazd), kolaż wycinków w rytmie, flaga cała w kadrze i krótsza | do zrobienia po części 9 (plan 2026-09-26, prototyp Opusa) | ocena arkuszy i próbnego editu | Sonnet |
 | 11 | PLAN_EDITY_11_REZYSER | AI (Claude Opus 5.5) układa scenariusz z Twoich materiałów przed montażem i ocenia wynik, z jedną poprawką | do zrobienia po części 10 (plan 2026-09-26) | klucz `OPENROUTER_API_KEY` i `MODEL_AI` w `.env`, zgoda na koszt pomiaru | Sonnet |
 
 ## Kolejność (poprawiona 2026-09-23)
 1. Zrobione: części 1, 2, 7, 3, 4, 8, 5 i 6.
    - Zadanie 4.5 (pamięć analizy utworu) scalone i wdrożone.
-   - Zadania 5.6 (niebo) i 9.5 (nakładka z kryciem) scalone i wdrożone 2026-09-25. Część 6 scalona i wdrożona 2026-09-25. Następne 9.6 do 9.8 (gałąź `rytm`), potem 9.1 do 9.4.
+   - Zadania 5.6 (niebo) i 9.5 (nakładka z kryciem) scalone i wdrożone 2026-09-25. Część 6 scalona i wdrożona 2026-09-25. Zadania 9.6 do 9.10 scalone i wdrożone 2026-09-26, 9.1 do 9.4 po odbiorze w PR #20. Następna część 10, potem 11.
 2. Część 4 idzie pierwsza, bo bez niej edit leci na intro utworu, a nie na fragmencie ze wzoru, i reszta stylu traci sens.
 3. Część 8 wprowadza sekcje wzoru, na których stoją części 5 i 6. Nakładka to najbardziej rozpoznawalny element wzorów.
 4. Części 5 i 6: obie zależą od 8, a między sobą nie, więc 6 może iść przed 5.
