@@ -42,6 +42,10 @@ UDZIAL_SZEROKOSCI_ZNAKU = 0.51
 POZYCJA_ZNAKU_PION = 0.8
 KRYCIE_ZNAKU = 0.65
 KRYCIE_NAKLADKI = 0.5
+TEMPO_ZDJECIA_MIN_S = 0.30
+TEMPO_KLIPU_MIN_S = 2.0
+TEMPO_KLIPU_MAX_S = 3.2
+DLUGOSC_WSTAWKI_S = 3.5
 
 
 def uruchom_ffmpeg(argumenty: list[str], katalog: Path | None = None) -> None:
@@ -351,6 +355,19 @@ def uloz_wariant(materialy: list, wariant: int) -> list:
     return [hak] + reszta
 
 
+def rozdziel_wycinki(materialy: list[dict]) -> tuple[list[dict], list[dict]]:
+    zwykle = []
+    wycinki = []
+    for material in materialy:
+        if material["typ"] == "zdjecie" and ma_alfa_z_pil(Path(material["plik"])):
+            wycinki.append(material)
+        else:
+            zwykle.append(material)
+    if not zwykle:
+        return list(materialy), []
+    return zwykle, wycinki
+
+
 def wstawki(materialy: list[dict], dlugosc_wstawki_s: float, minimum_s: float = 0.3) -> list[dict]:
     kolejki = []
     for material in materialy:
@@ -433,6 +450,98 @@ def plan_ujec(
     return {
         "fps": fps,
         "start_audio_s": round(start_audio_s, 6),
+        "liczba_klatek": liczba_klatek,
+        "ujecia": ujecia,
+    }
+
+
+def rozloz_tempo(plan: dict, wzor: dict, uderzenia: list[int], kawalki: list[dict], fps: int) -> dict:
+    liczba_klatek = plan["liczba_klatek"]
+    plan_ujecia = plan["ujecia"]
+    sekcje = wzor.get("sekcje")
+
+    twarde = {0, liczba_klatek}
+    if sekcje and sekcje.get("drop_ujecie") is not None:
+        twarde.add(koniec_haka(plan, sekcje))
+    if plan_ujecia:
+        twarde.add(plan_ujecia[-1]["klatka_od"])
+    twarde = sorted(twarde)
+
+    def numer_wzoru_dla(klatka: int) -> int:
+        wynik = 0
+        for ujecie_wzoru in plan_ujecia:
+            if ujecie_wzoru["klatka_od"] <= klatka:
+                wynik = ujecie_wzoru["numer_wzoru"]
+            else:
+                break
+        return wynik
+
+    def pierwsze_w_oknie(lista: list[int], dolna: int, gorna: int) -> int | None:
+        for wartosc in lista:
+            if dolna <= wartosc <= gorna:
+                return wartosc
+        return None
+
+    ciecia_wzoru = [u["klatka_od"] for u in plan_ujecia]
+    min_klatek_zdjecia = round(TEMPO_ZDJECIA_MIN_S * fps)
+    min_klatek_klipu = round(TEMPO_KLIPU_MIN_S * fps)
+    maks_klatek_klipu = round(TEMPO_KLIPU_MAX_S * fps)
+
+    ujecia = []
+    k = 0
+
+    for indeks_segmentu in range(len(twarde) - 1):
+        poczatek_segmentu = twarde[indeks_segmentu]
+        koniec_segmentu = twarde[indeks_segmentu + 1]
+        if koniec_segmentu <= poczatek_segmentu:
+            continue
+
+        if plan_ujecia and poczatek_segmentu == plan_ujecia[-1]["klatka_od"]:
+            material = kawalki[k % len(kawalki)]
+            ujecia.append({
+                "material": str(material["plik"]),
+                "typ": material["typ"],
+                "klatka_od": poczatek_segmentu,
+                "liczba_klatek": koniec_segmentu - poczatek_segmentu,
+                "start_w_klipie_s": material["od_s"] if material["typ"] == "klip" else 0.0,
+                "numer_wzoru": numer_wzoru_dla(poczatek_segmentu),
+            })
+            k += 1
+            continue
+
+        pozycja = poczatek_segmentu
+        while pozycja < koniec_segmentu:
+            material = kawalki[k % len(kawalki)]
+            if material["typ"] == "zdjecie":
+                cel = pierwsze_w_oknie(uderzenia, pozycja + min_klatek_zdjecia, koniec_segmentu)
+                koniec_ujecia = cel if cel is not None else koniec_segmentu
+            else:
+                dolna = pozycja + min_klatek_klipu
+                gorna = pozycja + maks_klatek_klipu
+                cel = pierwsze_w_oknie(ciecia_wzoru, dolna, gorna)
+                if cel is None:
+                    cel = pierwsze_w_oknie(uderzenia, dolna, gorna)
+                if cel is None:
+                    cel = dolna
+                koniec_ujecia = min(cel, koniec_segmentu)
+
+            if 0 < koniec_segmentu - koniec_ujecia < min_klatek_zdjecia:
+                koniec_ujecia = koniec_segmentu
+
+            ujecia.append({
+                "material": str(material["plik"]),
+                "typ": material["typ"],
+                "klatka_od": pozycja,
+                "liczba_klatek": koniec_ujecia - pozycja,
+                "start_w_klipie_s": material["od_s"] if material["typ"] == "klip" else 0.0,
+                "numer_wzoru": numer_wzoru_dla(pozycja),
+            })
+            pozycja = koniec_ujecia
+            k += 1
+
+    return {
+        "fps": plan["fps"],
+        "start_audio_s": plan["start_audio_s"],
         "liczba_klatek": liczba_klatek,
         "ujecia": ujecia,
     }
@@ -919,6 +1028,7 @@ def renderuj(
     styl_tekstu: str = "szeryf",
     pozycja_tekstu: str = "dol",
     wariant: int = 0,
+    bez_dynamiki: bool = False,
 ) -> dict:
     czas_startu = time.time()
     wzor_json = Path(wzor_json).resolve()
@@ -961,19 +1071,31 @@ def renderuj(
         raise RuntimeError("Brak dobrego materiału do renderu")
     dobre = uloz_wariant(dobre, wariant)
 
-    material_zastepczy = [{"plik": "zastepczy", "typ": "zdjecie", "message_id": 0}]
-    plan_wstepny = plan_ujec(
-        wzor, uderzenia_utworu, material_zastepczy, fps,
-        start_uderzenie=start_uderzenie, przesuniecie_s=przesuniecie_s,
-    )
-    dlugosci_s = [u["liczba_klatek"] / fps for u in plan_wstepny["ujecia"]]
-    dlugosc_wstawki_s = min(2.0, max(0.5, statistics.median(dlugosci_s)))
+    if bez_dynamiki:
+        material_zastepczy = [{"plik": "zastepczy", "typ": "zdjecie", "message_id": 0}]
+        plan_wstepny = plan_ujec(
+            wzor, uderzenia_utworu, material_zastepczy, fps,
+            start_uderzenie=start_uderzenie, przesuniecie_s=przesuniecie_s,
+        )
+        dlugosci_s = [u["liczba_klatek"] / fps for u in plan_wstepny["ujecia"]]
+        dlugosc_wstawki_s = min(2.0, max(0.5, statistics.median(dlugosci_s)))
 
-    kawalki = wstawki(dobre, dlugosc_wstawki_s)
-    plan = plan_ujec(
-        wzor, uderzenia_utworu, kawalki, fps,
-        start_uderzenie=start_uderzenie, przesuniecie_s=przesuniecie_s,
-    )
+        kawalki = wstawki(dobre, dlugosc_wstawki_s)
+        plan = plan_ujec(
+            wzor, uderzenia_utworu, kawalki, fps,
+            start_uderzenie=start_uderzenie, przesuniecie_s=przesuniecie_s,
+        )
+        liczba_wycinkow = 0
+    else:
+        zwykle, wycinki = rozdziel_wycinki(dobre)
+        kawalki = wstawki(zwykle, DLUGOSC_WSTAWKI_S)
+        plan_bazowy = plan_ujec(
+            wzor, uderzenia_utworu, kawalki, fps,
+            start_uderzenie=start_uderzenie, przesuniecie_s=przesuniecie_s,
+        )
+        uderzenia_wyn = uderzenia_wyniku(uderzenia_utworu, plan_bazowy["start_audio_s"], plan_bazowy["liczba_klatek"], fps)
+        plan = rozloz_tempo(plan_bazowy, wzor, uderzenia_wyn, kawalki, fps)
+        liczba_wycinkow = len(wycinki)
 
     slowa_surowe = wczytaj_slowa_projektu(katalog_projektu)
     warstwa_slow, podsumowanie_slow = przygotuj_slowa(
@@ -1066,6 +1188,15 @@ def renderuj(
     materialy_uzyte = len({u["material"] for u in plan["ujecia"]})
     rozmiar_mb = wyjscie.stat().st_size / (1024 * 1024)
 
+    dlugosci_zdjec_s = [u["liczba_klatek"] / fps for u in plan["ujecia"] if u["typ"] == "zdjecie"]
+    dlugosci_klipow_s = [u["liczba_klatek"] / fps for u in plan["ujecia"] if u["typ"] == "klip"]
+    podsumowanie_dynamiki = {
+        "ujecia": len(plan["ujecia"]),
+        "mediana_zdjecia_s": round(statistics.median(dlugosci_zdjec_s), 3) if dlugosci_zdjec_s else None,
+        "mediana_klipu_s": round(statistics.median(dlugosci_klipow_s), 3) if dlugosci_klipow_s else None,
+        "wycinki": liczba_wycinkow,
+    }
+
     podsumowanie = {
         "wariant": wariant,
         "czas_s": round(plan["liczba_klatek"] / fps, 3),
@@ -1093,6 +1224,7 @@ def renderuj(
         "teksty": podsumowanie_tekstow,
         "slowa": podsumowanie_slow,
         "pionowo": podsumowanie_pionowo,
+        "dynamika": podsumowanie_dynamiki,
     }
 
     sciezka_podsumowania = wyjscie.with_suffix(".json")
@@ -1121,6 +1253,7 @@ def glowna(argumenty: list[str] | None = None) -> int:
     parser.add_argument("--styl-tekstu", choices=sorted(tekst.PRESETY), default="szeryf")
     parser.add_argument("--pozycja-tekstu", choices=sorted(tekst.POZYCJE), default="dol")
     parser.add_argument("--wariant", type=int, default=0)
+    parser.add_argument("--bez-dynamiki", action="store_true")
     ustalone = parser.parse_args(argumenty)
     try:
         renderuj(
@@ -1135,6 +1268,7 @@ def glowna(argumenty: list[str] | None = None) -> int:
             styl_tekstu=ustalone.styl_tekstu,
             pozycja_tekstu=ustalone.pozycja_tekstu,
             wariant=ustalone.wariant,
+            bez_dynamiki=ustalone.bez_dynamiki,
         )
     except Exception as blad:
         print(str(blad), file=sys.stderr)
