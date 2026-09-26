@@ -16,7 +16,15 @@ from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand, FSInputFile, Message, ReactionTypeEmoji
+from aiogram.types import (
+    BotCommand,
+    CallbackQuery,
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    ReactionTypeEmoji,
+)
 
 import komunikaty
 import konfiguracja as konfiguracja_modul
@@ -38,6 +46,8 @@ LIMIT_RENDERU_S = 900
 LIMIT_GETFILE_LOKALNY_S = 1800
 LIMIT_SLOW_RYTM = 12
 LIMIT_ZNAKOW_PIONOWO = 40
+LIMIT_WARIANTOW = 5
+LIMIT_WZOROW_WSZYSTKIE = 10
 ROZMIAR_KAWALKA_KOPII_B = 64 * 1024
 SKRYPT_ANALIZY = Path(__file__).resolve().parent / "analyze.py"
 SKRYPT_RENDERU = Path(__file__).resolve().parent / "render.py"
@@ -158,9 +168,11 @@ async def obsluz_cmd_nowy(message: Message, state: FSMContext, konf: Konfiguracj
     await message.answer(komunikaty.NOWY_PROJEKT)
 
 
-async def renderuj_w_tle(
-    message: Message,
+async def renderuj_zadanie_w_tle(
+    bot: Bot,
+    chat_id: int,
     katalog_projektu: Path,
+    indeks_zadania: int,
     wzor_json: Path,
     katalog_muzyki: Path,
     konf: Konfiguracja,
@@ -171,18 +183,21 @@ async def renderuj_w_tle(
 ) -> None:
     await zapowiedz.wait()
     dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
-    dane_projektu["stan"] = "renderowanie"
+    zadanie = dane_projektu["zadania"][indeks_zadania]
+    zadanie["stan"] = "renderowanie"
+    dane_projektu["stan"] = magazyn.stan_z_zadan(dane_projektu["zadania"])
     magazyn.zapisz_projekt(katalog_projektu, dane_projektu)
-    await bezpiecznie_odpisz(message, komunikaty.MONTUJE)
+    await bezpiecznie_wyslij(bot, chat_id, komunikaty.MONTUJE)
 
     limit_mb = efektywny_limit_wysylki_mb(konf)
-    wynik_mp4 = katalog_projektu / "wynik.mp4"
+    wynik_mp4 = katalog_projektu / zadanie["plik"]
     argumenty = [
         sys.executable, str(SKRYPT_RENDERU),
         "--wzor", str(wzor_json), "--projekt", str(katalog_projektu),
         "--muzyka", str(katalog_muzyki), "--wyjscie", str(wynik_mp4),
         "--limit-mb", str(limit_mb), "--sila-koloru", str(konf.sila_koloru),
         "--styl-tekstu", konf.styl_tekstu, "--pozycja-tekstu", konf.pozycja_tekstu,
+        "--wariant", str(zadanie["wariant"]),
     ]
     if nakladka is not None:
         argumenty += ["--nakladka", str(nakladka)]
@@ -191,37 +206,102 @@ async def renderuj_w_tle(
     if znak is not None:
         argumenty += ["--znak", str(znak)]
     wynik = await kolejka_modul.uruchom(argumenty, limit_s=LIMIT_RENDERU_S)
+
+    def zapisz_wynik_zadania(stan: str, wynik: str | None = None, blad: str | None = None) -> None:
+        dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
+        zadanie = dane_projektu["zadania"][indeks_zadania]
+        zadanie["stan"] = stan
+        zadanie["wynik"] = wynik
+        zadanie["blad"] = blad
+        dane_projektu["stan"] = magazyn.stan_z_zadan(dane_projektu["zadania"])
+        magazyn.zapisz_projekt(katalog_projektu, dane_projektu)
+
     if wynik.przekroczono_czas or wynik.kod != 0:
         opis = "przekroczono limit czasu" if wynik.przekroczono_czas else (pierwsza_linia(wynik.stderr) or f"kod {wynik.kod}")
-        dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
-        dane_projektu["stan"] = "blad"
-        dane_projektu["blad"] = opis
-        magazyn.zapisz_projekt(katalog_projektu, dane_projektu)
-        await bezpiecznie_odpisz(message, komunikaty.blad_renderu(opis))
+        zapisz_wynik_zadania("blad", blad=opis)
+        await bezpiecznie_wyslij(bot, chat_id, komunikaty.blad_renderu(opis))
         return
 
     try:
         podsumowanie = json.loads(wynik_mp4.with_suffix(".json").read_text(encoding="utf-8"))
-        podpis = komunikaty.podsumowanie_renderu(podsumowanie)
+        nazwa = magazyn.nazwa_wzoru(wzor_json.parent)
+        podpis = komunikaty.podsumowanie_wariantu(nazwa, podsumowanie.get("wariant", zadanie["wariant"]), podsumowanie)
     except (OSError, ValueError, KeyError):
         log.exception("nie udalo sie odczytac podsumowania renderu, wynik=%s", wynik_mp4)
         podpis = None
 
     try:
-        await message.answer_document(FSInputFile(wynik_mp4), caption=podpis)
+        await bot.send_document(chat_id, FSInputFile(wynik_mp4), caption=podpis)
     except TelegramEntityTooLarge:
         rozmiar = wynik_mp4.stat().st_size if wynik_mp4.exists() else None
-        await bezpiecznie_odpisz(message, komunikaty.limit_rozmiaru(rozmiar, limit_mb))
+        zapisz_wynik_zadania("blad", blad="plik za duzy")
+        await bezpiecznie_wyslij(bot, chat_id, komunikaty.limit_rozmiaru(rozmiar, limit_mb))
         return
     except Exception:
         log.exception("wysylka wyniku nie powiodla sie")
-        await bezpiecznie_odpisz(message, komunikaty.BLAD_WYSYLKI)
+        zapisz_wynik_zadania("blad", blad="wysylka nieudana")
+        await bezpiecznie_wyslij(bot, chat_id, komunikaty.BLAD_WYSYLKI)
         return
 
-    dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
-    dane_projektu["stan"] = "gotowy"
-    dane_projektu["wynik"] = wynik_mp4.name
-    magazyn.zapisz_projekt(katalog_projektu, dane_projektu)
+    zapisz_wynik_zadania("gotowy", wynik=wynik_mp4.name)
+
+
+def zbuduj_zadania_gotowe(argument: str, konf: Konfiguracja) -> tuple[list[tuple[str, int, str]] | None, str | None]:
+    if not argument:
+        wzor_json = magazyn.aktywny_wzor(konf.katalog_danych)
+        if wzor_json is None:
+            return None, komunikaty.BRAK_WZORU
+        wzor_id = wzor_json.parent.name
+        return [(wzor_id, 0, "wynik.mp4")], None
+    if argument.isdigit():
+        liczba = int(argument)
+        if not (2 <= liczba <= LIMIT_WARIANTOW):
+            return None, komunikaty.GOTOWE_UZYCIE
+        wzor_json = magazyn.aktywny_wzor(konf.katalog_danych)
+        if wzor_json is None:
+            return None, komunikaty.BRAK_WZORU
+        wzor_id = wzor_json.parent.name
+        return [(wzor_id, wariant, f"wynik_{wzor_id}_{wariant}.mp4") for wariant in range(liczba)], None
+    if argument == "wszystkie":
+        wzory = magazyn.lista_wzorow(konf.katalog_danych)[:LIMIT_WZOROW_WSZYSTKIE]
+        if not wzory:
+            return None, komunikaty.BRAK_WZORU
+        return [
+            (wzor_json.parent.name, 0, f"wynik_{wzor_json.parent.name}_0.mp4") for wzor_json in wzory
+        ], None
+    return None, komunikaty.GOTOWE_UZYCIE
+
+
+async def zlecz_zadania_renderu(
+    bot: Bot,
+    chat_id: int,
+    katalog_projektu: Path,
+    zadania_wejsciowe: list[tuple[str, int, str]],
+    konf: Konfiguracja,
+    kolejka_obiekt: kolejka_modul.Kolejka,
+) -> tuple[int, asyncio.Event]:
+    katalog_muzyki = konf.katalog_danych / "muzyka"
+    zapowiedz = asyncio.Event()
+    pierwsza_pozycja = None
+    for indeks, (wzor_id, _wariant, _plik) in enumerate(zadania_wejsciowe):
+        wzor_json = konf.katalog_danych / "wzory" / wzor_id / "wzor.json"
+        nakladka = magazyn.plik_zasobu(konf.katalog_danych, "nakladki", wzor_id)
+        plansza = magazyn.plik_zasobu(konf.katalog_danych, "plansze", wzor_id)
+        znak = konf.katalog_danych / "znak_wodny.png"
+        znak = znak if znak.is_file() else None
+
+        async def zadanie(
+            indeks=indeks, wzor_json=wzor_json, nakladka=nakladka, plansza=plansza, znak=znak,
+        ) -> None:
+            await renderuj_zadanie_w_tle(
+                bot, chat_id, katalog_projektu, indeks, wzor_json, katalog_muzyki, konf, zapowiedz,
+                nakladka, plansza, znak,
+            )
+
+        pozycja = await kolejka_obiekt.dodaj(zadanie)
+        if pierwsza_pozycja is None:
+            pierwsza_pozycja = pozycja
+    return pierwsza_pozycja, zapowiedz
 
 
 async def obsluz_cmd_gotowe(
@@ -231,6 +311,7 @@ async def obsluz_cmd_gotowe(
     projekt_aktywny: dict,
     pobrania_w_toku: dict,
     kolejka_obiekt: kolejka_modul.Kolejka,
+    command: CommandObject,
 ) -> None:
     dane_stanu = await state.get_data()
     projekt_id = dane_stanu.get("projekt_id")
@@ -249,9 +330,10 @@ async def obsluz_cmd_gotowe(
         await message.answer(komunikaty.BRAK_MATERIALOW)
         return
 
-    wzor_json = magazyn.najnowszy_wzor(konf.katalog_danych)
-    if wzor_json is None:
-        await message.answer(komunikaty.BRAK_WZORU)
+    argument = (command.args or "").strip()
+    zadania_wejsciowe, blad = zbuduj_zadania_gotowe(argument, konf)
+    if zadania_wejsciowe is None:
+        await message.answer(blad)
         return
 
     katalog_muzyki = konf.katalog_danych / "muzyka"
@@ -259,14 +341,11 @@ async def obsluz_cmd_gotowe(
         await message.answer(komunikaty.BRAK_MUZYKI)
         return
 
-    wzor_id = wzor_json.parent.name
-    nakladka = magazyn.plik_zasobu(konf.katalog_danych, "nakladki", wzor_id)
-    plansza = magazyn.plik_zasobu(konf.katalog_danych, "plansze", wzor_id)
-    znak = konf.katalog_danych / "znak_wodny.png"
-    znak = znak if znak.is_file() else None
-
     dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
-    dane_projektu["wzor_id"] = wzor_id
+    dane_projektu["zadania"] = [
+        {"wzor_id": wzor_id, "wariant": wariant, "plik": plik, "stan": "w_kolejce", "wynik": None, "blad": None}
+        for wzor_id, wariant, plik in zadania_wejsciowe
+    ]
     dane_projektu["stan"] = "w_kolejce"
     magazyn.zapisz_projekt(katalog_projektu, dane_projektu)
 
@@ -277,14 +356,62 @@ async def obsluz_cmd_gotowe(
     klipy = sum(1 for wpis in materialy if wpis["typ"] == "klip")
     linie = len(dane_projektu.get("teksty", []))
 
-    zapowiedz = asyncio.Event()
-
-    async def zadanie() -> None:
-        await renderuj_w_tle(message, katalog_projektu, wzor_json, katalog_muzyki, konf, zapowiedz, nakladka, plansza, znak)
-
-    pozycja = await kolejka_obiekt.dodaj(zadanie)
+    pozycja, zapowiedz = await zlecz_zadania_renderu(
+        message.bot, message.chat.id, katalog_projektu, zadania_wejsciowe, konf, kolejka_obiekt,
+    )
     try:
         await message.answer(komunikaty.projekt_w_kolejce(zdjecia, klipy, linie, pozycja))
+    finally:
+        zapowiedz.set()
+
+
+async def obsluz_cmd_ponow(
+    message: Message,
+    konf: Konfiguracja,
+    kolejka_obiekt: kolejka_modul.Kolejka,
+    command: CommandObject,
+) -> None:
+    katalog_projektow = konf.katalog_danych / "projekty"
+    kandydaci = []
+    if katalog_projektow.is_dir():
+        for katalog in katalog_projektow.iterdir():
+            if not katalog.is_dir():
+                continue
+            try:
+                dane = magazyn.wczytaj_projekt(katalog)
+            except (OSError, ValueError):
+                continue
+            if dane.get("stan") in ("gotowy", "blad"):
+                kandydaci.append(katalog)
+    if not kandydaci:
+        await message.answer(komunikaty.PONOW_BRAK_PROJEKTU)
+        return
+    katalog_projektu = max(kandydaci, key=lambda katalog: katalog.name)
+
+    argument = (command.args or "").strip()
+    zadania_wejsciowe, blad = zbuduj_zadania_gotowe(argument, konf)
+    if zadania_wejsciowe is None:
+        await message.answer(blad)
+        return
+
+    katalog_muzyki = konf.katalog_danych / "muzyka"
+    if not music.pliki_muzyki(katalog_muzyki):
+        await message.answer(komunikaty.BRAK_MUZYKI)
+        return
+
+    dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
+    dane_projektu["zadania"] = [
+        {"wzor_id": wzor_id, "wariant": wariant, "plik": plik, "stan": "w_kolejce", "wynik": None, "blad": None}
+        for wzor_id, wariant, plik in zadania_wejsciowe
+    ]
+    dane_projektu["stan"] = "w_kolejce"
+    magazyn.zapisz_projekt(katalog_projektu, dane_projektu)
+
+    pozycja, zapowiedz = await zlecz_zadania_renderu(
+        message.bot, message.chat.id, katalog_projektu, zadania_wejsciowe, konf, kolejka_obiekt,
+    )
+    try:
+        await message.answer(komunikaty.ponowiony_w_kolejce(len(zadania_wejsciowe), pozycja))
     finally:
         zapowiedz.set()
 
@@ -325,9 +452,9 @@ async def obsluz_cmd_status(
         liczba_wzorow = sum(1 for katalog in katalog_wzorow.iterdir() if katalog.is_dir() and (katalog / "wzor.json").is_file())
     linie.append(komunikaty.status_kolejki(kolejka_obiekt.dlugosc(), liczba_wzorow))
     linie.append(komunikaty.status_muzyki(len(music.pliki_muzyki(konf.katalog_danych / "muzyka"))))
-    aktywny_wzor = magazyn.najnowszy_wzor(konf.katalog_danych)
-    if aktywny_wzor is not None:
-        wzor_id = aktywny_wzor.parent.name
+    wzor_aktywny = magazyn.aktywny_wzor(konf.katalog_danych)
+    if wzor_aktywny is not None:
+        wzor_id = wzor_aktywny.parent.name
         ma_nakladke = magazyn.plik_zasobu(konf.katalog_danych, "nakladki", wzor_id) is not None
         ma_plansze = magazyn.plik_zasobu(konf.katalog_danych, "plansze", wzor_id) is not None
         linie.append(komunikaty.status_zasobow_wzoru(wzor_id, ma_nakladke, ma_plansze))
@@ -335,9 +462,65 @@ async def obsluz_cmd_status(
     await message.answer("\n".join(linie))
 
 
-async def bezpiecznie_odpisz(message: Message, tekst: str) -> None:
+def klawiatura_wzoru(wzor_id: str, nazwa: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[
+            InlineKeyboardButton(text=f"Wybierz {nazwa}", callback_data=f"wzor_wybierz:{wzor_id}"),
+            InlineKeyboardButton(text=f"Usuń {nazwa}", callback_data=f"wzor_usun:{wzor_id}"),
+        ]]
+    )
+
+
+async def obsluz_cmd_wzory(message: Message, konf: Konfiguracja) -> None:
+    wzory = magazyn.lista_wzorow(konf.katalog_danych)[:20]
+    if not wzory:
+        await message.answer(komunikaty.BRAK_WZOROW)
+        return
+    wzor_aktywny = magazyn.aktywny_wzor(konf.katalog_danych)
+    id_aktywnego = wzor_aktywny.parent.name if wzor_aktywny is not None else None
+    for wzor_json in wzory:
+        wzor_id = wzor_json.parent.name
+        dane = json.loads(wzor_json.read_text(encoding="utf-8"))
+        nazwa = magazyn.nazwa_wzoru(wzor_json.parent)
+        linia = komunikaty.linia_wzoru(nazwa, wzor_id, dane, aktywny=(wzor_id == id_aktywnego))
+        await message.answer(linia, reply_markup=klawiatura_wzoru(wzor_id, nazwa))
+
+
+async def obsluz_wzor_wybierz(callback: CallbackQuery, konf: Konfiguracja) -> None:
+    wzor_id = callback.data.split(":", 1)[1]
+    magazyn.ustaw_aktywny_wzor(konf.katalog_danych, wzor_id)
+    nazwa = magazyn.nazwa_wzoru(konf.katalog_danych / "wzory" / wzor_id)
+    await callback.answer()
+    await callback.message.edit_text(komunikaty.wzor_wybrany(nazwa))
+
+
+async def obsluz_wzor_usun_pytanie(callback: CallbackQuery, konf: Konfiguracja) -> None:
+    wzor_id = callback.data.split(":", 1)[1]
+    nazwa = magazyn.nazwa_wzoru(konf.katalog_danych / "wzory" / wzor_id)
+    klawiatura = InlineKeyboardMarkup(
+        inline_keyboard=[[
+            InlineKeyboardButton(text=f"Tak, usuń {nazwa}", callback_data=f"wzor_usun_potwierdz:{wzor_id}"),
+        ]]
+    )
+    await callback.answer()
+    await callback.message.edit_text(komunikaty.wzor_usun_potwierdzenie(nazwa), reply_markup=klawiatura)
+
+
+async def obsluz_wzor_usun_potwierdz(callback: CallbackQuery, konf: Konfiguracja) -> None:
+    wzor_id = callback.data.split(":", 1)[1]
+    nazwa = magazyn.nazwa_wzoru(konf.katalog_danych / "wzory" / wzor_id)
+    shutil.rmtree(konf.katalog_danych / "wzory" / wzor_id, ignore_errors=True)
+    usun_pliki_zasobu(konf.katalog_danych, "nakladki", wzor_id)
+    usun_pliki_zasobu(konf.katalog_danych, "plansze", wzor_id)
+    if magazyn.wczytaj_ustawienia(konf.katalog_danych).get("aktywny_wzor") == wzor_id:
+        magazyn.ustaw_aktywny_wzor(konf.katalog_danych, None)
+    await callback.answer()
+    await callback.message.edit_text(komunikaty.wzor_usuniety(nazwa))
+
+
+async def bezpiecznie_wyslij(bot: Bot, chat_id: int, tekst: str) -> None:
     try:
-        await message.answer(tekst)
+        await bot.send_message(chat_id, tekst)
     except TelegramAPIError:
         log.exception("nie udalo sie wyslac odpowiedzi")
 
@@ -362,27 +545,36 @@ def podsumuj_wzor(dane: dict) -> str:
     )
 
 
-async def analizuj_wzor_w_tle(message: Message, zrodlo: Path, wzor_json: Path, zapowiedz: asyncio.Event) -> None:
+def zapisz_blad_wzoru(katalog_wzoru: Path, opis: str) -> None:
+    (Path(katalog_wzoru) / "blad.txt").write_text(opis + "\n", encoding="utf-8")
+
+
+async def analizuj_wzor_w_tle(
+    bot: Bot, chat_id: int, zrodlo: Path, wzor_json: Path, konf: Konfiguracja, zapowiedz: asyncio.Event,
+) -> None:
     await zapowiedz.wait()
     wynik = await kolejka_modul.uruchom(
         [sys.executable, str(SKRYPT_ANALIZY), str(zrodlo), str(wzor_json)],
         limit_s=LIMIT_ANALIZY_S,
     )
     if wynik.przekroczono_czas:
-        await bezpiecznie_odpisz(message, komunikaty.ANALIZA_PRZEKROCZONO_CZAS)
+        zapisz_blad_wzoru(wzor_json.parent, "przekroczono limit czasu")
+        await bezpiecznie_wyslij(bot, chat_id, komunikaty.ANALIZA_PRZEKROCZONO_CZAS)
         return
     if wynik.kod != 0:
         opis = pierwsza_linia(wynik.stderr) or f"kod {wynik.kod}"
-        await bezpiecznie_odpisz(message, komunikaty.blad_analizy(opis))
+        zapisz_blad_wzoru(wzor_json.parent, opis)
+        await bezpiecznie_wyslij(bot, chat_id, komunikaty.blad_analizy(opis))
         return
     try:
         dane = json.loads(wzor_json.read_text(encoding="utf-8"))
         tekst = podsumuj_wzor(dane)
     except (OSError, ValueError, KeyError, ZeroDivisionError):
         log.exception("nie udalo sie odczytac wyniku analizy, wzor=%s", wzor_json)
-        await bezpiecznie_odpisz(message, komunikaty.blad_analizy("nie udało się odczytać wyniku"))
+        await bezpiecznie_wyslij(bot, chat_id, komunikaty.blad_analizy("nie udało się odczytać wyniku"))
         return
-    await bezpiecznie_odpisz(message, tekst)
+    magazyn.ustaw_aktywny_wzor(konf.katalog_danych, wzor_json.parent.name)
+    await bezpiecznie_wyslij(bot, chat_id, tekst)
 
 
 async def obsluz_wzor_plik(
@@ -415,11 +607,12 @@ async def obsluz_wzor_plik(
         await message.answer(komunikaty.BLAD_POBIERANIA)
         return
 
+    magazyn.zapisz_nazwe_wzoru(katalog_wzoru, message.caption)
     await wroc_po_zapisie(state)
     zapowiedz = asyncio.Event()
 
     async def zadanie() -> None:
-        await analizuj_wzor_w_tle(message, cel, katalog_wzoru / "wzor.json", zapowiedz)
+        await analizuj_wzor_w_tle(message.bot, message.chat.id, cel, katalog_wzoru / "wzor.json", konf, zapowiedz)
 
     pozycja = await kolejka_obiekt.dodaj(zadanie)
     try:
@@ -452,7 +645,7 @@ async def wroc_po_zapisie(state: FSMContext) -> None:
 
 
 async def obsluz_cmd_nakladka(message: Message, state: FSMContext, konf: Konfiguracja, command: CommandObject) -> None:
-    wzor_json = magazyn.najnowszy_wzor(konf.katalog_danych)
+    wzor_json = magazyn.aktywny_wzor(konf.katalog_danych)
     if wzor_json is None:
         await message.answer(komunikaty.BRAK_WZORU)
         return
@@ -497,7 +690,7 @@ async def obsluz_nakladka_dokument(message: Message, state: FSMContext, konf: Ko
 
 
 async def obsluz_cmd_plansza(message: Message, state: FSMContext, konf: Konfiguracja, command: CommandObject) -> None:
-    wzor_json = magazyn.najnowszy_wzor(konf.katalog_danych)
+    wzor_json = magazyn.aktywny_wzor(konf.katalog_danych)
     if wzor_json is None:
         await message.answer(komunikaty.BRAK_WZORU)
         return
@@ -729,10 +922,15 @@ def zbuduj_router() -> Router:
     router.message.register(obsluz_cmd_znak, Command("znak"))
     router.message.register(obsluz_cmd_nowy, Command("nowy"))
     router.message.register(obsluz_cmd_gotowe, Command("gotowe"))
+    router.message.register(obsluz_cmd_ponow, Command("ponow"))
     router.message.register(obsluz_cmd_anuluj, Command("anuluj"))
     router.message.register(obsluz_cmd_status, Command("status"))
     router.message.register(obsluz_cmd_slowa, Command("slowa"))
     router.message.register(obsluz_cmd_pionowo, Command("pionowo"))
+    router.message.register(obsluz_cmd_wzory, Command("wzory"))
+    router.callback_query.register(obsluz_wzor_wybierz, F.data.startswith("wzor_wybierz:"))
+    router.callback_query.register(obsluz_wzor_usun_potwierdz, F.data.startswith("wzor_usun_potwierdz:"))
+    router.callback_query.register(obsluz_wzor_usun_pytanie, F.data.startswith("wzor_usun:"))
     router.message.register(obsluz_wzor_plik, StateFilter(Stany.czekam_na_wzor), to_wideo)
     router.message.register(obsluz_wzor_niepoprawny, StateFilter(Stany.czekam_na_wzor))
     router.message.register(obsluz_nakladka_dokument, StateFilter(Stany.czekam_na_nakladke), F.document)
@@ -751,6 +949,7 @@ def utworz_dispatcher(konf: Konfiguracja, kolejka_obiekt: kolejka_modul.Kolejka)
     dyspozytor = Dispatcher(storage=MemoryStorage())
     dyspozytor.message.filter(wlasciciel(konf.wlasciciel_id))
     dyspozytor.edited_message.filter(wlasciciel(konf.wlasciciel_id))
+    dyspozytor.callback_query.filter(wlasciciel(konf.wlasciciel_id))
     dyspozytor.include_router(zbuduj_router())
     dyspozytor["konf"] = konf
     dyspozytor["kolejka_obiekt"] = kolejka_obiekt
@@ -759,6 +958,82 @@ def utworz_dispatcher(konf: Konfiguracja, kolejka_obiekt: kolejka_modul.Kolejka)
     dyspozytor["reagowane_albumy"] = set()
     dyspozytor["blokada_projektu"] = asyncio.Lock()
     return dyspozytor
+
+
+async def wznow_po_starcie(bot: Bot, konf: Konfiguracja, kolejka_obiekt: kolejka_modul.Kolejka) -> None:
+    katalog_projektow = konf.katalog_danych / "projekty"
+    if katalog_projektow.is_dir():
+        for katalog_projektu in sorted(katalog for katalog in katalog_projektow.iterdir() if katalog.is_dir()):
+            try:
+                dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
+            except (OSError, ValueError):
+                continue
+            zadania = dane_projektu.get("zadania") or []
+            niedokonczone = [
+                indeks for indeks, zadanie in enumerate(zadania) if zadanie["stan"] in ("w_kolejce", "renderowanie")
+            ]
+            if not niedokonczone:
+                continue
+
+            katalog_muzyki = konf.katalog_danych / "muzyka"
+            zapowiedz = asyncio.Event()
+            wznowione = False
+            for indeks in niedokonczone:
+                zadanie_dane = zadania[indeks]
+                wzor_id = zadanie_dane["wzor_id"]
+                wzor_json = konf.katalog_danych / "wzory" / wzor_id / "wzor.json"
+                if not wzor_json.is_file():
+                    continue
+                zadanie_dane["stan"] = "w_kolejce"
+                wznowione = True
+                nakladka = magazyn.plik_zasobu(konf.katalog_danych, "nakladki", wzor_id)
+                plansza = magazyn.plik_zasobu(konf.katalog_danych, "plansze", wzor_id)
+                znak = konf.katalog_danych / "znak_wodny.png"
+                znak = znak if znak.is_file() else None
+
+                async def zadanie(
+                    indeks=indeks, wzor_json=wzor_json, nakladka=nakladka, plansza=plansza, znak=znak,
+                ) -> None:
+                    await renderuj_zadanie_w_tle(
+                        bot, konf.wlasciciel_id, katalog_projektu, indeks, wzor_json, katalog_muzyki, konf,
+                        zapowiedz, nakladka, plansza, znak,
+                    )
+
+                await kolejka_obiekt.dodaj(zadanie)
+
+            if not wznowione:
+                continue
+            dane_projektu["stan"] = magazyn.stan_z_zadan(zadania)
+            magazyn.zapisz_projekt(katalog_projektu, dane_projektu)
+            try:
+                await bezpiecznie_wyslij(
+                    bot, konf.wlasciciel_id, f"Wznawiam montaż projektu {katalog_projektu.name} po restarcie.",
+                )
+            finally:
+                zapowiedz.set()
+
+    katalog_wzorow = konf.katalog_danych / "wzory"
+    if katalog_wzorow.is_dir():
+        for katalog_wzoru in sorted(katalog for katalog in katalog_wzorow.iterdir() if katalog.is_dir()):
+            if (katalog_wzoru / "wzor.json").is_file() or (katalog_wzoru / "blad.txt").is_file():
+                continue
+            zrodla = sorted(katalog_wzoru.glob("zrodlo.*"))
+            if not zrodla:
+                continue
+            zrodlo = zrodla[0]
+            wzor_json = katalog_wzoru / "wzor.json"
+            zapowiedz = asyncio.Event()
+
+            async def zadanie(zrodlo=zrodlo, wzor_json=wzor_json, zapowiedz=zapowiedz) -> None:
+                await analizuj_wzor_w_tle(bot, konf.wlasciciel_id, zrodlo, wzor_json, konf, zapowiedz)
+
+            await kolejka_obiekt.dodaj(zadanie)
+            try:
+                await bezpiecznie_wyslij(
+                    bot, konf.wlasciciel_id, f"Wznawiam analizę wzoru {katalog_wzoru.name} po restarcie.",
+                )
+            finally:
+                zapowiedz.set()
 
 
 def zbuduj_sesje(konf: Konfiguracja) -> AiohttpSession | None:
@@ -773,6 +1048,7 @@ async def uruchom_bota(konf: Konfiguracja) -> None:
     kolejka_obiekt.start()
     dyspozytor = utworz_dispatcher(konf, kolejka_obiekt)
     await bot.set_my_commands([BotCommand(command=nazwa, description=opis) for nazwa, opis in komunikaty.KOMENDY])
+    await wznow_po_starcie(bot, konf, kolejka_obiekt)
     await dyspozytor.start_polling(bot)
 
 

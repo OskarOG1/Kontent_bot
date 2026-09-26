@@ -13,7 +13,9 @@ Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym
 | 4 muzyka | kod gotowy na gałęzi `muzyka`, 2026-09-23. Testy 144 z 144, pomiar A/B/C w progach, arkusze D powstały. Tryb `dzwiek_wzoru` wyłączony decyzją właściciela (dziennik zadania 4.2 i 4.4): `wybierz_utwor` zawsze idzie po tempie. Scalona w PR #7 (`dc46f0b`) bez odbioru oceniającego. Zadanie 4.5 (pamięć analizy utworu) wykonane 2026-09-24 na gałęzi `pamiec`: testy 189 z 189, pomiar A i B w progach (szczyt analizy najdłuższego utworu 727,9 MB, szczyt renderu 737,5 MB). Wdrożona 2026-09-24. Test na serwerze: montaż z pustym indeksem (6 utworów do przeliczenia) kończy się kodem 0 w 190 s, szczyt renderu 981 MB, szczyt kontenera 1567 MB przy limicie 5 GB (wcześniej kod -9 przy 2,96 GB) |
 | 8 nakładka | scalona w PR #9 i #10 (2026-09-24), wdrożona. Testy 187 z 187 (190 s). Odbiór ponowny 2026-09-24 (Opus): OK. Pomiar A 5 z 5 wzorów w granicy 0,5 s (maks 0,1 s), arkusze C poprawne (hak czysty, nakładka od dropu, plansza bez nakładki i bez znaku, znak wodny jak w `0914`). Pomiar B niewiarygodny (narzut ujemny), zasada czasu procesora dopisana do bloku WSPÓLNE. Test ręczny: kod -9 przez brak pamięci w analizie utworów z części 4, nie przez nakładkę (znany problem 9) |
 | 5 kolor | kod gotowy na gałęzi `kolor`, 2026-09-24. Testy 214 z 214 (225 s). Pomiar A i B w progach (ΔE przy sile 0,6 mniejsze niż przy 0 w każdej sekcji wszystkich 5 prawdziwych wzorów), arkusze C (15) powstały. Narzut renderu 44 do 112% (bez ustalonego progu, do decyzji właściciela). Czas próbkowania „niepewny" (rozrzut przebiegów bazowych nad progiem 20%, na jednym, największym wzorze). Odbiór 2026-09-24 (Opus): poprawki w zadaniu 5.5 (klip krótszy od ujęcia wywraca montaż, wzór z jednym ujęciem, ciche nieudane próbkowanie). Siła domyślna 0,6 potwierdzona na arkuszach. Bez wdrożenia. Scalona w PR #12, wdrożona 2026-09-24. Zadanie 5.6 (niebo bez przebarwienia) scalone w PR #13 i wdrożone 2026-09-25, pełny pomiar po nim zaliczony |
-| 9 fabryka | zadania 9.5 do 9.9 scalone (PR #14, #17) i wdrożone. Zadanie 9.10 (akcent na całą szerokość) na gałęzi `akcent`: testy 284 z 284, odbiór OK 2026-09-26. 9.1 do 9.4 do zrobienia (plan poprawiony 2026-09-26) |
+| 9 fabryka | 9.5 do 9.10 scalone (PR #14, #17, #18) i wdrożone. 9.1 do 9.4 (restart, `/wzory`, warianty, `/ponow`, pomiar) w PR #20: testy 323 z 323, odbiór OK 2026-09-26. Bez wdrożenia |
+| 10 dynamika | plan w PR #19 (2026-09-26), prototyp Opusa zrobiony poza repo. Do zrobienia po scaleniu #20 |
+| 11 reżyser AI | plan w PR #19 (OpenRouter, Claude Opus 5.5). Do zrobienia po części 10. Od właściciela: `OPENROUTER_API_KEY` i `MODEL_AI` w `.env` |
 | 6 tekst | kod gotowy na gałęzi `tekst`, 2026-09-25. Testy 251 z 251 (311 s). Pomiar: najwyżej 20 do 27 linii w haku prawdziwych wzorów, narzut procesora 24% (bez progu), arkusze dla 5 wzorów. Odbiór 2026-09-25 (Opus): OK z trzema drobnymi poprawkami, czcionka do akceptacji właściciela. Bez PR i bez wdrożenia. Czcionka szeryfowa zaakceptowana, scalona w PR #15 i wdrożona 2026-09-25. Test lokalny w warunkach produkcji OK (2026-09-25) |
 
 Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`). Wdrożenie na serwer nadal przez `wdroz.ps1` (część 7).
@@ -61,6 +63,85 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 - Wyniki (`outputs/`), dane (`dane/`) i `.env` są poza gitem. Katalog `Pomiary/` od 2026-09-23 jest w repozytorium (decyzja właściciela), więc zmiany planów i dziennika trzeba commitować.
 
 ## Dziennik
+
+### 2026-09-26 (odbiór 9.1 do 9.4, prototyp dynamiki, plany części 10 i 11, Opus)
+- **Odbiór 9.1 do 9.4: OK.** Testy: 323 z 323 w 307 s.
+- Pomiar `measure_fabryka.py`:
+  - A: `uloz_wariant` powtarzalny w 100 z 100 prób, średni udział innych materiałów niż w wariancie 0 wynosi 83% (próg 50%);
+  - B: 2,0 do 2,3 s renderu na sekundę wyniku, tylko raport;
+  - C: trzy arkusze na `0914` mają ten sam hak, a resztę materiałów w innej kolejności.
+- **Zgodność ze starymi projektami:** `projekt.json` ma teraz listę `zadania` zamiast pojedynczych pól. Na serwerze są 4 stare projekty, wszystkie zakończone (2 `gotowy`, 2 `blad`). Wznowienie czyta tylko `zadania` (`get("zadania") or []`), więc ich nie ruszy. `/ponow` buduje zadania od nowa, więc działa także na starym projekcie.
+- Sonnet przed startem 9.1 scalił PR #18 (`akcent`) sam, powołując się na decyzję właściciela w swojej sesji. Zapisuję do wiadomości.
+- **Prototyp dynamiki** (kopia kodu poza repo, ten sam edit na `0923`, 32 materiały w projekcie):
+  - wynik: 25 ujęć zamiast 18, 22 materiały zamiast 17, render 146 s;
+  - zmiany: zdjęcia co uderzenie, klipy od 2 do 3,2 s, uderzenie zoomem na cięciach, błysk na klipach, błysk i wstrząs na dropie, kolaż wycinków wskakujących w rytmie na co drugim klipie, flaga (`krycie`) cała w kadrze i przez 2,5 s;
+  - uwagi właściciela, które do tego prowadziły:
+    - „zbyt wolno się zmieniają klatki, te edity muszą być mocno dopaminowe”;
+    - „nie ma w tym przejść żadnych”;
+    - „gwiazdki wylatują poza ekran”;
+    - „powinno być kilka zdjęć naraz” (jak w `0923`, gdzie wycinki wskakują na tło);
+  - w prototypie wycinki nachodziły na słowa w rytmie, co plan 10 wyklucza.
+- **Plany części 10 (dynamika) i 11 (reżyser i krytyk AI) w PR #19.**
+  - Część 11 idzie przez OpenRouter (decyzja właściciela), a zalecany model to Claude Opus 5.5.
+  - Właściciel dopisuje do `.env` `OPENROUTER_API_KEY` i `MODEL_AI` z nazwą modelu z OpenRoutera.
+  - W mapie decyzje 23 (efekty na cięciach w zakresie) i 24 (reżyser AI).
+
+### 2026-09-26 (zadanie 9.4: pomiar fabryki, gałąź `fabryka`, Sonnet)
+- Nowy `Pomiary/measure_fabryka.py`, wynik w `outputs/pomiar_fabryka.json`, wzorowany na `measure_muzyka.py` (sekcje, zapis po każdej, cache `outputs/wzor_<id>.json`). `render.uruchom_ffmpeg` podmieniony w całym pomiarze na wersję z `subprocess.run(..., timeout=900)`, jak w `measure_rytm.py`.
+- **Sekcja A** (syntetyczna, 12 materiałów, wzór 32 ujęć): `render.uloz_wariant(materialy, 3)` wywołany 100 razy daje identyczny wynik za każdym razem. Średni udział ujęć z innym materiałem niż w wariancie 0 (warianty 1 do 5, porównanie przez `render.plan_ujec`) to 83,12% (78,12 do 90,62% na poszczególnych wariantach), próg 50% spełniony z zapasem.
+- **Sekcja B** (syntetyczny projekt 1080x1920, 20 s, 10 ujęć, 6 materiałów): czas renderu 3 wariantów lokalnie 40,7 do 46,8 s (2,03 do 2,34 s renderu na s wyniku). Tylko raport, bez progu i bez szacunku na serwer (decyzja właściciela 2026-09-24, zapisana już w planie).
+- **Sekcja C**: brak `dane/probki/wzory` (katalog nie istnieje od 2026-09-24), więc próbka materiałów budowana wprost z biblioteki właściciela zgodnie z blokiem WSPÓLNE: pierwsze 8 z `dane/zdjęcia/`, pierwsze 4 z `dane/nagrania/`, pierwsze 2 z przezroczystością z `dane/zdjęcia_bez_tła/` (twarde dowiązania, kopia gdy się nie da), inaczej zdjęcia z generatora. Wzór do porównania to pierwszy plik z `dane/wzory/*.mp4` (tu `0914`, z cache `outputs/wzor_0914.json`). Warianty 0, 1 i 2 wyrenderowane z prawdziwą muzyką z `dane/muzyka/`, trzy arkusze `outputs/porownanie_fabryka_0914_<wariant>.png` powstały. Wizualnie: hak (pierwszy materiał) identyczny we wszystkich wariantach, dalsza kolejność materiałów różna, struktura wzoru (cięcia, plansza) zachowana.
+- `python Pomiary/measure_fabryka.py`: kod 0, A i C w progach, B zaraportowane.
+- Commit `Pomiary: pomiar fabryki`.
+
+### 2026-09-26 (zadanie 9.3: warianty, partie i ponowienie, gałąź `fabryka`, Sonnet)
+- `render.py`: `uloz_wariant(materialy, wariant)` (czysta funkcja: wariant 0 bez zmian, inaczej pierwszy materiał zostaje pierwszy, reszta tasowana `random.Random(wariant).shuffle`), wołana w `renderuj` zaraz po `przygotuj_materialy`, przed `wstawki`. CLI dostał `--wariant` (domyślnie 0), podsumowanie renderu pole `"wariant"`.
+- **Schemat `projekt.json` zmieniony:** pola `wzor_id`/`wynik`/`blad` na poziomie projektu zastąpione listą `"zadania": [{"wzor_id", "wariant", "plik", "stan", "wynik", "blad"}]`. `magazyn.nowy_projekt` startuje z `"zadania": []`. Nowa `magazyn.stan_z_zadan(zadania)`: `"renderowanie"`, gdy którekolwiek zadanie jest `w_kolejce` albo `renderowanie`, inaczej `"gotowy"` gdy choć jedno `gotowy`, inaczej `"blad"`. **Uwaga:** stan projektu nie ma już wartości `w_kolejce` (to dziś stan pojedynczego zadania) — zaktualizowałem też test z zadania 9.1 (`test_projekt_renderowanie_wraca_do_kolejki_z_jedna_wiadomoscia`), który zakładał stary top-level `w_kolejce`.
+- `bot.py`:
+  - `renderuj_w_tle` zastąpione przez `renderuj_zadanie_w_tle(bot, chat_id, katalog_projektu, indeks_zadania, wzor_json, katalog_muzyki, konf, zapowiedz, nakladka, plansza, znak)`: renderuje jedno zadanie z listy, aktualizuje jego `stan`/`wynik`/`blad` po indeksie i przelicza stan projektu przez `magazyn.stan_z_zadan`. Podpis dokumentu przez nowe `komunikaty.podsumowanie_wariantu(nazwa, wariant, dane)` (zaczyna się od „Wzór <nazwa>, wariant <i>.”);
+  - `zbuduj_zadania_gotowe(argument, konf)`: czysta funkcja bez argumentu → 1 zadanie (wariant 0, plik `wynik.mp4`) na aktywnym wzorze; `"2".."5"` → tyle zadań (`wynik_<wzor_id>_<wariant>.mp4`) na aktywnym wzorze; `"wszystkie"` → po jednym zadaniu (wariant 0) na do 10 najnowszych wzorach; każdy inny argument (w tym `"1"`, `"9"`) → `None` i komunikat użycia. Współdzielona przez `/gotowe` i `/ponow`;
+  - `zlecz_zadania_renderu(...)` dodaje po jednym zadaniu do kolejki na wpis z `zbuduj_zadania_gotowe`, ze wspólnym `zapowiedz` (jak dawniej dla pojedynczego renderu), zwraca pozycję pierwszego zadania;
+  - `/gotowe` (bez zmiany kolejności sprawdzeń: materiały → argument/wzór → muzyka) buduje `dane_projektu["zadania"]` i zleca render przez `zlecz_zadania_renderu`;
+  - `/ponow [N | wszystkie]` (`obsluz_cmd_ponow`, nowa komenda): szuka najnowszego katalogu w `dane/projekty/` w stanie `gotowy` albo `blad` (bez takiego → komunikat `PONOW_BRAK_PROJEKTU`), sprawdza tylko muzykę (materiały już są), nadpisuje `zadania` i zleca render bez zbierania materiałów;
+  - `wznow_po_starcie` (z 9.1) przepisane na nowy schemat: dla każdego projektu z co najmniej jednym zadaniem w `w_kolejce`/`renderowanie` wznawia tylko te zadania (po indeksie), pomija `gotowy`/`blad`, i dopiero po wznowieniu przelicza stan projektu przez `magazyn.stan_z_zadan`.
+- `komunikaty.py`: `GOTOWE_UZYCIE`, `PONOW_BRAK_PROJEKTU`, `ponowiony_w_kolejce`, `podsumowanie_wariantu`; wpis `/ponow` w `POMOC` i `KOMENDY`, `/gotowe` w `POMOC` rozszerzony o warianty i „wszystkie”.
+- Testy: `tests/test_render.py` +5 (`uloz_wariant` powtarzalność/pierwszy materiał/różne warianty, CLI `--wariant` w podsumowaniu). `tests/test_magazyn.py` +3 (`stan_z_zadan` dla trzech przypadków), `nowy_projekt` zaktualizowany na `zadania: []`. `tests/test_bot.py` +8 (`/gotowe 3` z różnymi plikami i wariantami, `/gotowe wszystkie` na dwóch wzorach, `/gotowe 9` bez skutku, stan `gotowy` z jednym `blad` wśród trzech, stan `blad` gdy wszystkie zawiodły, `/ponow` bez projektu, `/ponow 2` bez ponownego wysyłania materiałów), 2 istniejące testy dostosowane do `dane_projektu["zadania"][0]["wynik"/"blad"]`. `tests/test_fabryka.py` +1 (wznowienie ponawia tylko zadanie `w_kolejce`, pomija `gotowy` i `blad`), 1 dostosowany do nowego stanu projektu. `python -m pytest -q`: 323 z 323 w 293 s (307 wcześniej + 16 nowych).
+- Commit `render i bot: warianty i partie`.
+
+### 2026-09-26 (zadanie 9.2: biblioteka wzorów, gałąź `fabryka`, Sonnet)
+- `magazyn.py`: `dane/ustawienia.json` (`{"aktywny_wzor": "<id>" | null}`, zapis atomowy jak `zapisz_projekt`) przez `wczytaj_ustawienia`/`zapisz_ustawienia`. `aktywny_wzor(katalog_danych)` zwraca `wzor.json` ze `ustawienia.json`, jeśli plik istnieje, inaczej `najnowszy_wzor`. `ustaw_aktywny_wzor(katalog_danych, wzor_id | None)`. `nazwa_wzoru(katalog_wzoru)` czyta `nazwa.txt` (obcięte do 60 znaków przy zapisie przez `zapisz_nazwe_wzoru`), bez pliku zwraca `id`. `lista_wzorow(katalog_danych)` zwraca wszystkie `wzor.json` od najnowszego (do obcięcia limitu 20 w bocie).
+- `bot.py`:
+  - `/wzory` (`obsluz_cmd_wzory`) wysyła osobną wiadomość na każdy z do 20 najnowszych wzorów: linia `komunikaty.linia_wzoru` (nazwa, data z id, długość, tempo, drop, znacznik „(aktywny)”) plus klawiatura inline „Wybierz <nazwa>” / „Usuń <nazwa>” (`callback_data` = `wzor_wybierz:<id>` / `wzor_usun:<id>`);
+  - „Usuń” pokazuje drugi krok z przyciskiem „Tak, usuń <nazwa>” (`wzor_usun_potwierdz:<id>`), dopiero on kasuje `dane/wzory/<id>/` (`shutil.rmtree`) razem z plikami w `dane/nakladki/` i `dane/plansze/` (`usun_pliki_zasobu`) i, jeśli usunięty wzór był aktywny, czyści `aktywny_wzor` (spada na `najnowszy_wzor`);
+  - `dyspozytor.callback_query.filter(wlasciciel(...))` w `utworz_dispatcher`, tak jak dla `message`/`edited_message`: przycisk od obcego nie dociera do handlera, `sesja.wywolania` zostaje puste;
+  - `obsluz_wzor_plik` zapisuje `message.caption` do `nazwa.txt` przez `magazyn.zapisz_nazwe_wzoru` zaraz po pobraniu pliku źródłowego, przed zleceniem analizy;
+  - `analizuj_wzor_w_tle` dostał parametr `konf` i po udanej analizie woła `magazyn.ustaw_aktywny_wzor` z nowym id (nowo przeanalizowany wzór staje się aktywny, tak jak dziś najnowszy). Zmiana sygnatury dotyczy obu wywołań: `obsluz_wzor_plik` i `wznow_po_starcie` z zadania 9.1;
+  - `obsluz_cmd_gotowe`, `obsluz_cmd_status`, `obsluz_cmd_nakladka`, `obsluz_cmd_plansza` używają `magazyn.aktywny_wzor` zamiast `magazyn.najnowszy_wzor`.
+- `komunikaty.py`: wpis `/wzory` w `POMOC` i `KOMENDY`, `BRAK_WZOROW`, `data_z_id`, `linia_wzoru`, `wzor_wybrany`, `wzor_usun_potwierdzenie`, `wzor_usuniety`.
+- `tests/pomocnicze.py`: `SesjaTestowa.make_request` obsługuje `AnswerCallbackQuery` (zwraca `True`) i `EditMessageText` (zwraca `Message` jak przy `SendMessage`). Nowe `zbuduj_callback(dane, od_id=WLASCICIEL_ID, wiadomosc=None)` i `zbuduj_update_callback(callback)`.
+- Testy: `tests/test_magazyn.py` +10 (ustawienia atomowe, aktywny wzór bez/z ustawieniem i po usunięciu aktywnego, nazwa z pliku/obcięta/bez podpisu, lista wzorów od najnowszego). `tests/test_bot.py` +8 (podpis wideo trafia do `nazwa.txt`, `/wzory` z klawiaturą i bez wzorów, przycisk „Wybierz” ustawia aktywny, „Usuń” bez potwierdzenia nic nie rusza, po potwierdzeniu kasuje katalog i nakładkę, przycisk od obcego nic nie zmienia, `/gotowe` bierze aktywny wzór a nie najnowszy). `python -m pytest -q`: 307 z 307 w 266 s (290 wcześniej + 17 nowych).
+- Commit `bot: biblioteka wzorów`.
+
+### 2026-09-26 (zadanie 9.1: wznowienie po restarcie, gałąź `fabryka`, Sonnet)
+- Stan wejściowy sprawdzony: `main` miał tylko 9.5 do 9.9, brakowało commita `tekst: akcent na całą szerokość i wjazd poza kadr` (9.10) wymaganego przez „Stan wejściowy” w planie. PR #18 (`akcent`) scalony do `main` (merge commit) przed rozpoczęciem, zgodnie z decyzją właściciela w tej sesji. Gałąź `fabryka` utworzona od zaktualizowanego `main`.
+- `bot.wznow_po_starcie(bot, konf, kolejka_obiekt)`, wołane w `uruchom_bota` po `set_my_commands`, przed `start_polling`:
+  - projekty w `dane/projekty/*` ze stanem `w_kolejce` albo `renderowanie` (posortowane po nazwie katalogu) wracają do stanu `w_kolejce`, dostają jedno zadanie w kolejce (ten sam `renderuj_w_tle` co `/gotowe`, z nakładką/planszą/znakiem odczytanymi na nowo z `magazyn.plik_zasobu` i pliku znaku) i wiadomość „Wznawiam montaż projektu <id> po restarcie.” na czat `konf.wlasciciel_id`. Projekt bez `wzor_id` albo z brakującym `wzor.json` jest pomijany (nie ma jak go domontować);
+  - katalogi wzorów z `zrodlo.*`, bez `wzor.json` i bez `blad.txt` wracają do analizy z wiadomością „Wznawiam analizę wzoru <id> po restarcie.”.
+- `renderuj_w_tle(bot, chat_id, ...)` i `analizuj_wzor_w_tle(bot, chat_id, ...)` zamiast `message`: wysyłka przez `bot.send_message`/`bot.send_document`. Nowy `bezpiecznie_wyslij(bot, chat_id, tekst)` zastępuje `bezpiecznie_odpisz(message, tekst)`. Wywołania z `obsluz_cmd_gotowe` i `obsluz_wzor_plik` przekazują `message.bot, message.chat.id`.
+- Nieudana analiza (timeout albo kod różny od 0) zapisuje `blad.txt` w katalogu wzoru przez nowy `zapisz_blad_wzoru(katalog_wzoru, opis)`, żeby `wznow_po_starcie` nie próbował jej w kółko.
+- `render.renderuj`: `katalog_pracy` jest usuwany (`shutil.rmtree`) na starcie, jeśli już istnieje, zanim powstanie na nowo. Pozostałość przerwanego przebiegu (np. plik pod nazwą, którą render chce nadać segmentowi) już nie psuje kolejnego montażu.
+- Nowy plik `tests/test_fabryka.py` (7 testów): projekt `renderowanie`/`w_kolejce` wraca do kolejki z jedną wiadomością, projekt `gotowy` nietknięty, wzór bez `wzor.json` wraca do analizy a z `blad.txt` nie, nieudana analiza zapisuje `blad.txt`, render z katalogiem `praca/segment_000000.mp4` (celowo zrobionym jako katalog, nie plik, żeby wymusić kolizję bez czyszczenia) kończy się sukcesem. Reszta zestawu (dostosowana do `bot`/`chat_id` pośrednio, bo testy w `test_bot.py` wołają przez dyspozytor, nie bezpośrednio funkcje) bez zmian w treści.
+- `python -m pytest -q`: 290 z 290 w 297 s.
+- Commit `bot: wznowienie po restarcie`.
+
+### 2026-09-26 (edit pokazowy na wzór `0923` dla właściciela, Opus)
+- Prośba właściciela: edit na wzór najnowszego wzoru z efektami, z dużą liczbą materiałów, inny niż wzór i niż poprzednie testy. Montaż lokalny kodem z gałęzi `akcent`, CLI jak w bocie.
+- Materiały: 17 z biblioteki `dane/`, bez tych z poprzednich testów. Wzór `0923` ma 18 ujęć, więc więcej się nie zmieści. Na otwarcie czapka przed Koloseum, przed dropem czapka przed wieżą Eiffla. Klipy przycięte ręcznie do 6 s dobrych fragmentów (Ferrari w Dolomitach, „Kingdom of Heaven”, „The King”, F1, Kraków). `slowa` „europe be like POLAND”, `pionowo` „1993 supply made in poland”, flaga jako nakładka, plansza `06164aa4…` (czapka), znak wodny, siła koloru 0,6.
+- Wynik: kod 0, render 105 s, film 26,2 s, 18 ujęć, 17 materiałów, muzyka dobrana po tempie 130,8 BPM.
+- Wnioski na później:
+  - klipy z filmów mają czarne pasy kinowe, które zostają w kadrze 9:16 (tu przycięte ręcznie `cropdetect`). Bot mógłby sam wykrywać i ucinać pasy w klipach;
+  - flaga z kryciem 50% leży na całym montażu, więc wszystko po dropie jest niebieskie. We wzorze `0923` flaga trwa około 2 s po dropie. Długość nakładki brana ze wzoru albo ustawiana osobno byłaby mocno widoczną poprawką;
+  - pierwsze ujęcie z klipu zaczyna się od początku nagrania, więc długie filmy trzeba przycinać przed wysłaniem.
 
 ### 2026-09-26 (odbiór 9.10, materiały na serwerze, plan 9.1 do 9.4, Opus)
 - **Odbiór 9.10: OK.**
@@ -808,8 +889,13 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Następne kroki
 
-1. Część 6 wdrożona i sprawdzona lokalnie. Przy pierwszym prawdziwym editcie z napisami: czytelność na telefonie i zbieranie linii w `/nowy`.
-2. Gałąź `akcent` (9.10 i plan 9.1 do 9.4): PR, scalenie, `wdroz.ps1`. Potem 9.1 do 9.4 na gałęzi `fabryka` z promptem z nagłówka `PLAN_EDITY_9_FABRYKA.md`.
-3. Przy okazji wdrożenia: `docker stats` w trakcie montażu. Gdy szczyt zostaje poniżej 2 GB, limit pamięci wraca z 5g do 3g.
-4. Właściciel: własny znak wodny przez `/znak` (PNG z przezroczystością), jeśli ma być inny niż plik z `dane/promocyjne/`; pliki `scratch_*` z katalogu głównego repo do usunięcia.
-5. Pomysły na później, bez planu: długość nakładki brana ze wzoru (w `0923` flaga trwa około 2 s po dropie); krycie flagi niżej niż 50%, jeśli na telefonie wyjdzie za ciężko.
+1. Scalić PR #20 (`fabryka`) i #19 (plany 10 i 11), potem `wdroz.ps1`. Test na Telegramie:
+   - `/wzory`: 5 wzorów z nazwami, a aktywny `0915`;
+   - `/gotowe 3`;
+   - `/ponow wszystkie`;
+   - restart kontenera w trakcie montażu (`docker compose restart bot`).
+2. Część 10 (dynamika) na gałęzi `dynamika`, prompt z nagłówka `PLAN_EDITY_10_DYNAMIKA.md`.
+3. Część 11 (reżyser AI) po części 10. Właściciel: `OPENROUTER_API_KEY` i `MODEL_AI` w `.env` na serwerze i lokalnie.
+4. Przy okazji wdrożenia: `docker stats` w trakcie montażu. Gdy szczyt zostaje poniżej 2 GB, limit pamięci wraca z 5g do 3g.
+5. Właściciel: własny znak wodny przez `/znak` (PNG z przezroczystością), jeśli ma być inny niż plik z `dane/promocyjne/`.
+6. Pomysły na później, bez planu: automatyczne ucinanie czarnych pasów kinowych w klipach (`cropdetect`); fragment klipu wybierany z jego środka zamiast od początku (w części 11 zrobi to reżyser).

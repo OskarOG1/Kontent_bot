@@ -24,7 +24,9 @@ from pomocnicze import (
     klip,
     nazwy_wywolan,
     zbuduj_bota,
+    zbuduj_callback,
     zbuduj_update,
+    zbuduj_update_callback,
     zbuduj_wiadomosc,
     zdjecie,
 )
@@ -675,7 +677,7 @@ async def test_render_sukces_jedno_send_document(z_praca_w_tle, monkeypatch):
     projekt_id = jedyny_projekt_id(konf)
     dane_projektu = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / projekt_id)
     assert dane_projektu["stan"] == "gotowy"
-    assert dane_projektu["wynik"] == "wynik.mp4"
+    assert dane_projektu["zadania"][0]["wynik"] == "wynik.mp4"
 
 
 async def test_render_sukces_podpis_z_linia_napisow(z_praca_w_tle, monkeypatch):
@@ -734,9 +736,149 @@ async def test_render_blad_daje_komunikat_i_stan_blad(z_praca_w_tle, monkeypatch
     projekt_id = jedyny_projekt_id(konf)
     dane_projektu = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / projekt_id)
     assert dane_projektu["stan"] == "blad"
-    assert dane_projektu["blad"] == "Brak dobrego materialu"
+    assert dane_projektu["zadania"][0]["blad"] == "Brak dobrego materialu"
     assert teksty_odpowiedzi(sesja)[-1] == "Montaż nie powiódł się: Brak dobrego materialu"
     assert "SendDocument" not in nazwy_wywolan(sesja)
+
+
+async def test_gotowe_n_dodaje_n_zadan_z_roznymi_plikami(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+
+    wywolania = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+    wiadomosc = zbuduj_wiadomosc(photo=zdjecie("f_material", "u_material", file_size=1000))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/gotowe 3")))
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    warianty = sorted(int(argumenty[argumenty.index("--wariant") + 1]) for argumenty in wywolania)
+    assert warianty == [0, 1, 2]
+    pliki = sorted(Path(argumenty[argumenty.index("--wyjscie") + 1]).name for argumenty in wywolania)
+    assert pliki == ["wynik_w1_0.mp4", "wynik_w1_1.mp4", "wynik_w1_2.mp4"]
+
+    projekt_id = jedyny_projekt_id(konf)
+    dane_projektu = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / projekt_id)
+    assert dane_projektu["stan"] == "gotowy"
+    assert len(dane_projektu["zadania"]) == 3
+    assert all(zadanie["stan"] == "gotowy" for zadanie in dane_projektu["zadania"])
+
+
+async def test_gotowe_wszystkie_dodaje_zadanie_na_kazdy_wzor(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+    katalog_w2 = konf.katalog_danych / "wzory" / "w2"
+    katalog_w2.mkdir(parents=True)
+    wzor_przygotowany(katalog_w2 / "wzor.json")
+
+    wywolania = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+    wiadomosc = zbuduj_wiadomosc(photo=zdjecie("f_material", "u_material", file_size=1000))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/gotowe wszystkie")))
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    uzyte_wzory = sorted(Path(argumenty[argumenty.index("--wzor") + 1]).parent.name for argumenty in wywolania)
+    assert uzyte_wzory == ["w1", "w2"]
+
+
+async def test_gotowe_niepoprawny_argument_nic_nie_dodaje(z_praca_w_tle):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+    wiadomosc = zbuduj_wiadomosc(photo=zdjecie("f_material", "u_material", file_size=1000))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/gotowe 9")))
+
+    assert kolejka_obiekt.dlugosc() == 0
+    assert "Użycie" in teksty_odpowiedzi(sesja)[-1]
+
+
+async def test_stan_projektu_gotowy_z_jednym_bledem_gdy_inne_sie_udaly(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wariant = int(argumenty[argumenty.index("--wariant") + 1])
+        if wariant == 1:
+            return kolejka.Wynik(kod=1, stdout="", stderr="Blad wariantu\n", czas_s=0.1, przekroczono_czas=False)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+    wiadomosc = zbuduj_wiadomosc(photo=zdjecie("f_material", "u_material", file_size=1000))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/gotowe 3")))
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    projekt_id = jedyny_projekt_id(konf)
+    dane_projektu = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / projekt_id)
+    assert dane_projektu["stan"] == "gotowy"
+    stany = sorted(zadanie["stan"] for zadanie in dane_projektu["zadania"])
+    assert stany == ["blad", "gotowy", "gotowy"]
+
+
+async def test_stan_projektu_blad_gdy_wszystkie_warianty_zawiodly(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        return kolejka.Wynik(kod=1, stdout="", stderr="Blad\n", czas_s=0.1, przekroczono_czas=False)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/nowy")))
+    wiadomosc = zbuduj_wiadomosc(photo=zdjecie("f_material", "u_material", file_size=1000))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wiadomosc))
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/gotowe 2")))
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    projekt_id = jedyny_projekt_id(konf)
+    dane_projektu = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / projekt_id)
+    assert dane_projektu["stan"] == "blad"
+
+
+async def test_ponow_bez_projektu_daje_komunikat(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/ponow")))
+    assert "Nie ma ostatniego projektu" in teksty_odpowiedzi(sesja)[-1]
+
+
+async def test_ponow_po_zakonczonym_projekcie_dodaje_zadania_bez_materialow(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+
+    monkeypatch.setattr(kolejka, "uruchom", render_udany_podmieniony())
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    wywolania = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/ponow 2")))
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    assert len(wywolania) == 2
+    projekt_id = jedyny_projekt_id(konf)
+    dane_projektu = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / projekt_id)
+    assert len(dane_projektu["zadania"]) == 2
+    assert dane_projektu["stan"] == "gotowy"
 
 
 async def test_brak_wzoru_nie_dodaje_zadania_do_kolejki(z_praca_w_tle):
@@ -1265,6 +1407,116 @@ async def test_render_bez_znaku_bez_argumentu(z_praca_w_tle, monkeypatch):
     await czekaj_na_kolejke(kolejka_obiekt)
 
     assert "--znak" not in wywolania[0]
+
+
+async def test_wzor_z_podpisem_zapisuje_nazwe(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wzor_przygotowany(Path(argumenty[3]))
+        return kolejka.Wynik(kod=0, stdout="", stderr="", czas_s=0.1, przekroczono_czas=False)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/wzor")))
+    wideo = zbuduj_wiadomosc(video=klip("f_wzor", "u_wzor", file_size=1000), caption="Mój wzorcowy edit")
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(wideo))
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    katalogi = list((konf.katalog_danych / "wzory").iterdir())
+    assert len(katalogi) == 1
+    assert magazyn.nazwa_wzoru(katalogi[0]) == "Mój wzorcowy edit"
+
+
+async def test_wzory_wysyla_liste_z_klawiatura(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    przygotuj_wzor_i_utwor(konf)
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/wzory")))
+
+    wyslane = [metoda for metoda in sesja.wywolania if type(metoda).__name__ == "SendMessage"]
+    assert len(wyslane) == 1
+    assert wyslane[0].reply_markup is not None
+    dane_przyciskow = [
+        przycisk.callback_data
+        for wiersz in wyslane[0].reply_markup.inline_keyboard
+        for przycisk in wiersz
+    ]
+    assert "wzor_wybierz:w1" in dane_przyciskow
+    assert "wzor_usun:w1" in dane_przyciskow
+
+
+async def test_wzory_bez_wzorow_daje_komunikat(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/wzory")))
+    assert "Nie masz jeszcze" in teksty_odpowiedzi(sesja)[-1]
+
+
+async def test_przycisk_wybierz_ustawia_aktywny_wzor(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    przygotuj_wzor_i_utwor(konf)
+
+    callback = zbuduj_callback("wzor_wybierz:w1")
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update_callback(callback))
+
+    assert magazyn.wczytaj_ustawienia(konf.katalog_danych)["aktywny_wzor"] == "w1"
+
+
+async def test_przycisk_usun_bez_potwierdzenia_nic_nie_usuwa(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    przygotuj_wzor_i_utwor(konf)
+
+    callback = zbuduj_callback("wzor_usun:w1")
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update_callback(callback))
+
+    assert (konf.katalog_danych / "wzory" / "w1").is_dir()
+
+
+async def test_przycisk_usun_po_potwierdzeniu_usuwa_wzor_i_nakladke(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    przygotuj_wzor_i_utwor(konf)
+    katalog_nakladek = konf.katalog_danych / "nakladki"
+    katalog_nakladek.mkdir(parents=True)
+    (katalog_nakladek / "w1.mp4").write_bytes(b"x")
+
+    callback = zbuduj_callback("wzor_usun_potwierdz:w1")
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update_callback(callback))
+
+    assert not (konf.katalog_danych / "wzory" / "w1").exists()
+    assert not (katalog_nakladek / "w1.mp4").exists()
+
+
+async def test_przycisk_od_obcego_nic_nie_zmienia(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    przygotuj_wzor_i_utwor(konf)
+
+    callback = zbuduj_callback("wzor_usun_potwierdz:w1", od_id=OBCY_ID)
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update_callback(callback))
+
+    assert (konf.katalog_danych / "wzory" / "w1").is_dir()
+    assert sesja.wywolania == []
+
+
+async def test_gotowe_uzywa_aktywnego_wzoru_a_nie_najnowszego(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    przygotuj_wzor_i_utwor(konf)
+    katalog_nowy = konf.katalog_danych / "wzory" / "w2"
+    katalog_nowy.mkdir(parents=True)
+    wzor_przygotowany(katalog_nowy / "wzor.json")
+    magazyn.ustaw_aktywny_wzor(konf.katalog_danych, "w1")
+
+    wywolania = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    argumenty = wywolania[0]
+    uzyty_wzor = Path(argumenty[argumenty.index("--wzor") + 1])
+    assert uzyty_wzor.parent.name == "w1"
 
 
 async def test_status_pokazuje_znak_wodny(srodowisko):
