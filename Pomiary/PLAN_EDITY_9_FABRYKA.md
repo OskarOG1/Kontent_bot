@@ -5,10 +5,16 @@
 - 9.5 (nakładka z kryciem) wymaga tylko części 8. Można ją zrobić zaraz po scaleniu części 8, na własnej gałęzi `krycie`, przed częściami 5 i 6;
 - 9.6 i 9.7 (napisy w rytmie) wymagają części 6, czyli modułu `tekst`, `tekst.oczysc`, `tekst.PRESETY` i czcionek w `zasoby/`.
 - Kolejność od 2026-09-25: po scaleniu części 6 idą najpierw 9.6 do 9.8 na własnej gałęzi `rytm` od `main`, z osobnym PR-em (prompt niżej). Potem 9.1 do 9.4 na gałęzi `fabryka`.
+- Od 2026-09-26: zadania 9.5 do 9.10 są w `main`. Zostały 9.1 do 9.4 na gałęzi `fabryka`, z promptem „Prompt startowy dla 9.1 do 9.4” niżej.
 
 Prompt startowy dla 9.6 do 9.8:
 ```text
 Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania 9.6, 9.7 i 9.8 z Pomiary/PLAN_EDITY_9_FABRYKA.md na gałęzi `rytm` od aktualnego `main` (przed startem `git pull`), zaczynając od „Stan wejściowy”. Zadania 9.1 do 9.5 pomiń. Na starcie przeczytaj Pomiary/ROZWOJ.md i dopisuj do niego po każdym zadaniu. Otwieraj tylko pliki wymienione w zadaniu. Po każdym zadaniu uruchom jego weryfikację i zrób commit o nazwie podanej w zadaniu. Pliki robocze trzymaj poza repo. Na koniec zdaj krótki raport.
+```
+
+Prompt startowy dla 9.1 do 9.4:
+```text
+Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania 9.1, 9.2, 9.3 i 9.4 z Pomiary/PLAN_EDITY_9_FABRYKA.md na gałęzi `fabryka` od aktualnego `main` (przed startem `git pull`), zaczynając od „Stan wejściowy”. Zadania 9.5 do 9.10 są już zrobione, pomiń je. Na starcie przeczytaj Pomiary/ROZWOJ.md i dopisuj do niego po każdym zadaniu. Otwieraj tylko pliki wymienione w zadaniu. Po każdym zadaniu uruchom jego weryfikację i zrób commit o nazwie podanej w zadaniu. Pliki robocze trzymaj poza repo. Na koniec zdaj krótki raport.
 ```
 
 **Gałąź:** `fabryka` od `main` po scaleniu poprzednich części.
@@ -78,28 +84,30 @@ Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania z Pomiary/PLAN_EDITY
 ## Stan wejściowy
 `main` zawiera commity `bot: muzyka z biblioteki` (część 4) i `bot: nakładka i plansza wzoru` (część 8), a `python -m pytest -q` przechodzi. Zanotuj w `ROZWOJ.md`, czy są już części 5 i 6 oraz commit `render: nakładka z kryciem` (zadanie 9.5 zrobione wcześniej na gałęzi `krycie`, wtedy je pomiń). Bez części 6 wykonaj 9.1 do 9.5, a 9.6 do 9.8 odłóż. Utwórz gałąź `fabryka` od `main`. Inaczej zatrzymaj się i zapytaj.
 Stan na 2026-09-25: `main` ma części 4, 8, 5 (z 5.5 i 5.6) i zadanie 9.5, a część 6 jest po odbiorze na gałęzi `tekst` i po scaleniu będzie w `main` (commit `tekst: poprawki po odbiorze`). Zadania 9.6 do 9.8 idą na gałęzi `rytm`, a nie `fabryka` (patrz nagłówek). Jeśli `main` nie ma commita `tekst: poprawki po odbiorze`, zatrzymaj się i zapytaj.
+Stan na 2026-09-26: `main` ma części 1 do 8 oraz zadania 9.5 do 9.10 (ostatni commit zadania to `tekst: akcent na całą szerokość i wjazd poza kadr`). Utwórz gałąź `fabryka` od `main` i wykonaj tylko 9.1 do 9.4. Jeśli `main` nie ma tego commita, zatrzymaj się i zapytaj.
 
 ## Kontrakt z wcześniejszych części
-Numery linii z `57ba8fe`, więc szukaj po nazwach.
+Numery linii sprawdzone 2026-09-26 na `main` po zadaniu 9.9 (przedtem z `57ba8fe`). Mogą się przesunąć o kilka linii, więc szukaj po nazwach.
 - `src/kolejka.py`: `Kolejka` (64) trzyma zadania w `asyncio.Queue` w pamięci; `dodaj(zadanie) -> pozycja`; `uruchom(argumenty, limit_s, katalog) -> Wynik` (21).
 - `src/bot.py`:
   - pamięć i uruchamianie:
     - `MemoryStorage` dla stanów rozmowy;
-    - `projekt_aktywny` i `pobrania_w_toku` w słowniku dyspozytora (`utworz_dispatcher`, 488);
-    - filtr właściciela na `message` i `edited_message` (490 i 491);
-    - `uruchom_bota` (508);
+    - `projekt_aktywny` i `pobrania_w_toku` w słowniku dyspozytora (`utworz_dispatcher`, 750);
+    - filtr właściciela na `message` i `edited_message` (`wlasciciel`, 716, podpinany w `utworz_dispatcher`);
+    - `uruchom_bota` (770): tworzy `Bot`, startuje `Kolejka`, ustawia komendy z `komunikaty.KOMENDY` i woła `start_polling`;
   - montaż:
-    - `renderuj_w_tle(message, katalog_projektu, wzor_json, ..., zapowiedz)` (153) odpowiada przez `message.answer` i `message.answer_document`;
-    - `obsluz_cmd_gotowe` (211) bierze `magazyn.najnowszy_wzor` i dodaje jedno zadanie;
-  - analiza: `analizuj_wzor_w_tle(message, zrodlo, wzor_json, zapowiedz)` (332) i `obsluz_wzor_plik` (355);
-  - części 4 i 8 dokładają do CLI renderu `--muzyka`, `--nakladka` i `--plansza`, a do komend `/nakladka` i `/plansza`.
+    - `renderuj_w_tle(message, katalog_projektu, wzor_json, katalog_muzyki, konf, zapowiedz, nakladka=None, plansza=None, znak=None)` (161) odpowiada przez `message.answer` i `message.answer_document`. Do CLI renderu przekazuje `--limit-mb`, `--sila-koloru`, `--styl-tekstu`, `--pozycja-tekstu` oraz, gdy są, `--nakladka`, `--plansza` i `--znak`;
+    - `obsluz_cmd_gotowe` (227) bierze `magazyn.najnowszy_wzor`, nakładkę i planszę tego wzoru (`magazyn.plik_zasobu`) i znak wodny, a potem dodaje jedno zadanie;
+  - analiza: `analizuj_wzor_w_tle(message, zrodlo, wzor_json, zapowiedz)` (365) i `obsluz_wzor_plik` (388);
+  - komendy `/nakladka` (454), `/plansza` (499), `/znak` (543), `/slowa` (637) i `/pionowo` (675). `usun_pliki_zasobu(katalog_danych, rodzaj, wzor_id)` (435) usuwa nakładkę albo planszę wzoru i przyda się przy usuwaniu wzoru w 9.2.
 - `src/magazyn.py`:
   - `nowy_projekt` (25): `projekt.json` ze `stan` równym `zbieranie`, potem `w_kolejce`, `renderowanie`, `gotowy`, `blad` albo `anulowany`;
   - `nowy_wzor` (44), `najnowszy_wzor` (53), `wczytaj_projekt` i `zapisz_projekt` (104 i 110, zapis atomowy);
   - `plik_zasobu` (część 8).
 - `src/render.py`:
-  - `renderuj` tworzy `praca/` przez `mkdir(exist_ok=True)`, więc pozostałości przerwanego przebiegu zostają;
-  - `wstawki` (140) układa kawałki rundami w kolejności materiałów.
+  - `renderuj` (896) tworzy `praca/` przez `mkdir(exist_ok=True)` i usuwa ją dopiero na końcu udanego przebiegu, więc pozostałości przerwanego przebiegu zostają;
+  - `wstawki` (345) układa kawałki rundami w kolejności materiałów;
+  - napisy (`teksty`), słowa w rytmie (`slowa`) i napis pionowy (`pionowo`) siedzą w `projekt.json` i render czyta je sam. Warianty i `/ponow` dostają je więc bez zmian w bocie.
 - `tests/pomocnicze.py`: `SesjaTestowa` (95) obsługuje `SendMessage`, `SendDocument` i `GetFile`; `zbuduj_wiadomosc` (38), `zbuduj_update` (49).
 - Część 6 (napisy w haku, stan z gałęzi `tekst`):
   - `src/tekst.py`: `PRESETY` (`szeryf`, `blok`), `POZYCJE`, `STREFA_BEZPIECZNA`, `znaki_czcionki`, `oczysc`, `wybierz_czcionke`, `obraz_tekstu(tekst, szerokosc, wysokosc, styl, dolna_granica=None)`, `okna_tekstow(liczba_linii, plan, koniec_haka_klatka)`;
@@ -118,6 +126,7 @@ Numery linii z `57ba8fe`, więc szukaj po nazwach.
 - `render.renderuj` usuwa `praca/` na starcie, jeśli istnieje, bo to pozostałość przerwanego przebiegu.
 
 **Biblioteka wzorów (9.2):**
+- Stan serwera od 2026-09-26: 5 wzorów z plikiem `nazwa.txt` (`20260914_000000` = `0914`, `20260921_000000` = `0921`, `20260922_000000` = `0922`, `20260923_000000` = `0923`, `20260923_143107` = `0915`). Dziś aktywny jest `0915`, bo ma najwyższą nazwę katalogu. Tylko `0915` ma własną nakładkę (pierścień) i planszę. Pozostałe biorą `dane/nakladki/domyslna.mp4` (flaga) i nie mają planszy.
 - `dane/ustawienia.json`: `{"aktywny_wzor": "<id>" | null}`, zapis atomowy.
 - `magazyn.aktywny_wzor(katalog_danych) -> Path | None` zwraca `wzor.json` aktywnego wzoru, jeśli istnieje, inaczej `najnowszy_wzor`. `magazyn.ustaw_aktywny_wzor(katalog_danych, wzor_id | None)`.
 - Nowo przeanalizowany wzór staje się aktywny, bo dziś też używany jest najnowszy.
@@ -277,7 +286,8 @@ Katalog: C:\Dev\edity-bot. Wykonaj zadanie 9.3 z Pomiary/PLAN_EDITY_9_FABRYKA.md
     - warianty się różnią: dla 12 materiałów i wariantów od 1 do 5 liczymy średni udział ujęć planu z innym materiałem niż w wariancie 0, na wzorze syntetycznym z 32 ujęciami.
   - **Sekcja B:**
     - czas renderu 3 wariantów syntetycznego projektu 1080x1920, 20 s, lokalnie, w sekundach renderu na sekundę wyniku;
-    - szacunek na serwerze z proporcji do danych z `ROZWOJ.md` (141 s na edit 32 s przy 2 CPU).
+    - tylko raport, bez szacunku na serwer. Lokalnie pełny render z kolorem, nakładką i napisami trwa 107 do 133 s na edit 32 s (dziennik 2026-09-25 i 2026-09-26).
+  - W całym pomiarze `render.uruchom_ffmpeg` podmieniony na wersję z limitem 900 s, jak w `Pomiary/measure_rytm.py`.
   - **Sekcja C:** arkusze porównawcze wariantów 0, 1 i 2 dla jednego prawdziwego wzoru: `outputs/porownanie_fabryka_<wzor>_<wariant>.png`.
 - **Constraints:** progi:
   - A: pełna powtarzalność, a średni udział innych materiałów co najmniej 50%;
