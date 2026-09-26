@@ -47,6 +47,7 @@ TEMPO_KLIPU_MIN_S = 2.0
 TEMPO_KLIPU_MAX_S = 3.2
 DLUGOSC_WSTAWKI_S = 3.5
 DLUGOSC_NAKLADKI_KRYCIE_S = 2.5
+ZDJEC_MIEDZY_KLIPAMI = 3
 SILA_UDERZENIA_ZOOM = 0.12
 KLATEK_UDERZENIA_ZOOM = 5
 SILA_NAJAZDU = 0.35
@@ -514,6 +515,31 @@ def wstawki(materialy: list[dict], dlugosc_wstawki_s: float, minimum_s: float = 
         for kolejka in kolejki:
             if i < len(kolejka):
                 wynik.append(kolejka[i])
+    return wynik
+
+
+def przeplot(kawalki: list[dict], zdjec_miedzy_klipami: int = ZDJEC_MIEDZY_KLIPAMI) -> list[dict]:
+    if not kawalki:
+        return list(kawalki)
+    hak, *reszta = kawalki
+    zdjecia = [m for m in reszta if m["typ"] != "klip"]
+    klipy = [m for m in reszta if m["typ"] == "klip"]
+    if not zdjecia or not klipy:
+        return list(kawalki)
+
+    wynik = [hak]
+    uzyte = set()
+    indeks = 0
+    for klip in klipy:
+        for _ in range(zdjec_miedzy_klipami):
+            pozycja = indeks % len(zdjecia)
+            wynik.append(zdjecia[pozycja])
+            uzyte.add(pozycja)
+            indeks += 1
+        wynik.append(klip)
+    for pozycja, zdjecie in enumerate(zdjecia):
+        if pozycja not in uzyte:
+            wynik.append(zdjecie)
     return wynik
 
 
@@ -1275,7 +1301,7 @@ def renderuj(
         uderzenia_wyn = []
     else:
         zwykle, wycinki = rozdziel_wycinki(dobre)
-        kawalki = wstawki(zwykle, DLUGOSC_WSTAWKI_S)
+        kawalki = przeplot(wstawki(zwykle, DLUGOSC_WSTAWKI_S))
         plan_bazowy = plan_ujec(
             wzor, uderzenia_utworu, kawalki, fps,
             start_uderzenie=start_uderzenie, przesuniecie_s=przesuniecie_s,

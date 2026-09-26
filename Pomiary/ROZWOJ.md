@@ -73,6 +73,14 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-26 (zadanie 10.6: przeplot zdjęć i klipów, gałąź `dynamika`, Sonnet)
+- `src/render.py`: nowa stała `ZDJEC_MIEDZY_KLIPAMI = 3`, nowa `przeplot(kawalki, zdjec_miedzy_klipami=ZDJEC_MIEDZY_KLIPAMI)`: pierwszy element (hak) zostaje pierwszy i się nie powtarza, reszta dzieli się na zdjęcia i kawałki klipów (kolejność z `kawalki` zachowana), wynik to hak, potem na każdy kawałek klipu seria zdjęć (cyklicznie z reszty) i ten kawałek; zdjęcie, które nie wystąpiło w cyklu, dopisuje się na koniec; bez zdjęć albo bez klipów w reszcie lista bez zmian.
+- `renderuj` bez `--bez-dynamiki`: `kawalki = przeplot(wstawki(zwykle, DLUGOSC_WSTAWKI_S))` zamiast samego `wstawki(...)`. Z `--bez-dynamiki` bez zmian.
+- Testy w `tests/test_dynamika.py` (+5): `przeplot` z 8 zdjęciami i dwoma klipami po 3 kawałki (hak pierwszy, dokładnie 3 zdjęcia między kawałkami klipów, wszystko występuje), hak będący klipem (zostaje pierwszy, jego dalsze kawałki traktowane jak inne klipy), same zdjęcia/same klipy bez zmian, 2 zdjęcia i 3 kawałki (zdjęcia powtarzają się po kolei, zweryfikowane dokładną listą wynikową), pełny render 270×480 na wzorze z dropem (6 zdjęć, 2 klipy po 8 s): po dropie, przed planszą, żadne dwa ujęcia typu klip nie stoją obok siebie, a zdjęcia to co najmniej połowa ujęć (plan przechwycony przez podmianę `render.rozloz_tempo`).
+- `python -m pytest -q`: 355 z 355 w 248 s (350 wcześniej + 5 nowych).
+- Uwaga o środowisku: w tej sesji chmurowej brakowało `ffmpeg`/`ffprobe` i pasującego Pythona (repo wymaga 3.12 dla `librosa==1.0.0`, obraz miał domyślnie 3.11) — doinstalowane (`apt-get install ffmpeg`, wirtualne środowisko na `python3.12` poza repo w `/tmp`), nie dotyczy kodu produkcyjnego.
+- Commit `render: przeplot zdjęć i klipów`.
+
 ### 2026-09-26 (odbiór 10.1 do 10.5, Opus)
 - **Odbiór: kod zgodny z kontraktami, ale przed scaleniem trzy poprawki, zadania 10.6 do 10.8 w `PLAN_EDITY_10_DYNAMIKA.md` (sekcja „Poprawki po odbiorze”).** Wszystkie trzy wynikają z planu, a nie z wykonania.
 - Testy: 350 z 350 w 230 s.

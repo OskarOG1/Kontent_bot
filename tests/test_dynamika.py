@@ -225,6 +225,69 @@ def test_rozdziel_wycinki_gdy_same_wycinki_wszystkie_do_kolejki(tmp_path):
     assert wycinki == []
 
 
+def kawalki_mieszane(zdjecia, klipy):
+    return [{"plik": nazwa, "typ": "zdjecie", "message_id": nazwa} for nazwa in zdjecia] + \
+        [{"plik": nazwa, "typ": "klip", "message_id": nazwa} for nazwa in klipy]
+
+
+def test_przeplot_trzy_zdjecia_miedzy_kazdymi_dwoma_kawalkami_klipow():
+    hak = {"plik": "z0", "typ": "zdjecie", "message_id": "z0"}
+    zdjecia = [{"plik": f"z{i}", "typ": "zdjecie", "message_id": f"z{i}"} for i in range(1, 8)]
+    klip0 = [{"plik": "k0", "typ": "klip", "message_id": "k0"} for _ in range(3)]
+    klip1 = [{"plik": "k1", "typ": "klip", "message_id": "k1"} for _ in range(3)]
+    kawalki = [hak] + zdjecia + [klip0[0], klip1[0], klip0[1], klip1[1], klip0[2], klip1[2]]
+
+    wynik = render.przeplot(kawalki)
+
+    assert wynik[0] is hak
+    indeksy_klipow = [i for i, m in enumerate(wynik) if m["typ"] == "klip"]
+    assert len(indeksy_klipow) == 6
+    for poprzedni, nastepny in zip(indeksy_klipow, indeksy_klipow[1:]):
+        assert nastepny - poprzedni == 4
+    assert indeksy_klipow[0] - 0 == 4
+    for kawalek in klip0 + klip1:
+        assert wynik.count(kawalek) >= 1
+    for zdjecie in zdjecia:
+        assert zdjecie in wynik
+
+
+def test_przeplot_hak_klip_zostaje_pierwszy_jego_kawalki_ida_z_reszta():
+    hak = {"plik": "k0", "typ": "klip", "message_id": "k0", "od_s": 0.0}
+    kawalek_haka = {"plik": "k0", "typ": "klip", "message_id": "k0", "od_s": 1.0}
+    inny_klip = {"plik": "k1", "typ": "klip", "message_id": "k1", "od_s": 0.0}
+    zdjecia = [{"plik": f"z{i}", "typ": "zdjecie", "message_id": f"z{i}"} for i in range(1, 3)]
+    kawalki = [hak] + zdjecia + [kawalek_haka, inny_klip]
+
+    wynik = render.przeplot(kawalki, zdjec_miedzy_klipami=1)
+
+    assert wynik[0] is hak
+    assert sum(1 for m in wynik if m is kawalek_haka) == 1
+    assert sum(1 for m in wynik if m is inny_klip) == 1
+    assert [m["typ"] for m in wynik].count("klip") == 3
+
+
+def test_przeplot_bez_zdjec_albo_bez_klipow_bez_zmian():
+    same_zdjecia = kawalki_mieszane(["z0", "z1", "z2"], [])
+    assert render.przeplot(same_zdjecia) == same_zdjecia
+
+    same_klipy = kawalki_mieszane([], ["k0", "k1"])
+    assert render.przeplot(same_klipy) == same_klipy
+
+
+def test_przeplot_dwa_zdjecia_powtarzaja_sie_po_kolei():
+    hak = {"plik": "z0", "typ": "zdjecie", "message_id": "z0"}
+    z1 = {"plik": "z1", "typ": "zdjecie", "message_id": "z1"}
+    z2 = {"plik": "z2", "typ": "zdjecie", "message_id": "z2"}
+    k0 = {"plik": "k0", "typ": "klip", "message_id": "k0"}
+    k1 = {"plik": "k1", "typ": "klip", "message_id": "k1"}
+    k2 = {"plik": "k2", "typ": "klip", "message_id": "k2"}
+    kawalki = [hak, z1, z2, k0, k1, k2]
+
+    wynik = render.przeplot(kawalki, zdjec_miedzy_klipami=1)
+
+    assert wynik == [hak, z1, k0, z2, k1, z1, k2]
+
+
 def zbuduj_projekt(tmp_path, dodaj_materialy):
     projekt = tmp_path / "projekt"
     katalog_materialow = projekt / "materialy"
@@ -270,6 +333,60 @@ def test_renderuj_pelny_z_dynamika_ma_wiecej_ujec_niz_wzor(tmp_path):
         wzor_json, projekt, utwor, wyjscie_bez, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50, bez_dynamiki=True,
     )
     assert podsumowanie_bez["liczba_ujec"] == len(plan_wzoru["ujecia"])
+
+
+def wzor_dynamika_z_dropem():
+    return {
+        "ciecia_uderzenia": [],
+        "koniec_uderzenia": None,
+        "ciecia_s": [0.0, 3.0, 9.0],
+        "zrodlo": {"czas_s": 12.0},
+        "sekcje": {"drop_s": None, "drop_ujecie": 1, "koniec_haka_uderzenia": None},
+    }
+
+
+def test_renderuj_przeplot_po_dropie_zdjecia_przynajmniej_polowa_i_zaden_dwa_klipy_pod_rzad(tmp_path, monkeypatch):
+    def dodaj(katalog):
+        for i in range(6):
+            generuj.zdjecie_testowe(katalog / f"000000000{i}_m.jpg", rozmiar=(800, 600), kolor=generuj.kolor_ujecia(i))
+        generuj.klip_testowy(katalog / "0000000006_d.mp4", czas_s=8.0, rozmiar=(270, 480))
+        generuj.klip_testowy(katalog / "0000000007_e.mp4", czas_s=8.0, rozmiar=(270, 480))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    wzor = wzor_dynamika_z_dropem()
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=180, czas_s=13.0, pierwsze_uderzenie_s=0.1)
+    fps = 30
+
+    przechwycone = {}
+    oryginalny = render.rozloz_tempo
+
+    def podmieniony(plan, wzor_arg, uderzenia, kawalki, fps_arg):
+        wynik = oryginalny(plan, wzor_arg, uderzenia, kawalki, fps_arg)
+        przechwycone["plan_bazowy"] = plan
+        przechwycone["plan"] = wynik
+        return wynik
+
+    monkeypatch.setattr(render, "rozloz_tempo", podmieniony)
+
+    wyjscie = tmp_path / "wynik.mp4"
+    render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50)
+
+    plan_bazowy = przechwycone["plan_bazowy"]
+    plan_koncowy = przechwycone["plan"]
+    klatka_dropu = render.koniec_haka(plan_bazowy, wzor["sekcje"])
+    plansza_start = plan_bazowy["ujecia"][-1]["klatka_od"]
+
+    montaz = [u for u in plan_koncowy["ujecia"] if klatka_dropu <= u["klatka_od"] < plansza_start]
+    assert montaz
+
+    for poprzednie, nastepne in zip(montaz, montaz[1:]):
+        assert not (poprzednie["typ"] == "klip" and nastepne["typ"] == "klip")
+
+    zdjecia = sum(1 for u in montaz if u["typ"] == "zdjecie")
+    assert zdjecia * 2 >= len(montaz)
 
 
 def test_efekt_ujecia_uderzenie_zoom_pulsuje_i_zanika(tmp_path):
