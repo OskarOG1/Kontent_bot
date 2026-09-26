@@ -8,10 +8,13 @@
 - Bez klucza, po błędzie API, po odmowie albo przy nieprawidłowym scenariuszu montaż idzie automatycznie jak w części 10. Podpis mówi wtedy, dlaczego.
 
 **Dlaczego:** Twój pomysł z 2026-09-26: „dodać AI żeby ulepszało na końcu edity albo wymyślało scenariusz z tymi edycjami”. Automat z części 10 układa materiały w kolejności wysłania i bierze klipy od początku. Nie widzi, co jest na zdjęciu ani która scena w klipie jest dobra.
-**Model:** `claude-opus-5` (Claude Opus 5, 5 $ za milion tokenów wejścia i 25 $ za milion wyjścia; cennik z 2026-06-24 według narzędzia `claude-api`). Widzi obrazy, odpowiada w zadanym schemacie JSON i dobrze planuje. Zmiana modelu idzie przez `MODEL_AI` w `.env`, bez zmian w kodzie.
+**Model:** `claude-opus-5-5` (Claude Opus 5.5, rekomendacja z 2026-09-26; właściciel ustawia `MODEL_AI` w `.env`). Kosztuje 4 $ za milion tokenów wejścia i 20 $ za milion wyjścia, czyli mniej niż Opus 5 (5 i 25 $), a daje ten sam kontekst, obrazy i schemat JSON.
+- Opus 5.5 myśli zawsze: nie wysyłaj `thinking.type` `disabled` ani `budget_tokens`, bo to błąd 400.
+- Domyślny `effort` tego modelu to `medium`, więc żądanie ustawia `high` jawnie.
+- Model zmienia się przez `MODEL_AI` w `.env`, bez zmian w kodzie. Zapasowo działa `claude-opus-5`.
 **Szacunek kosztu:**
-- reżyser: około 15 tys. tokenów wejścia (3 do 4 arkusze obrazów i opis wzoru) i 4 do 8 tys. wyjścia, czyli 0,15 do 0,30 $;
-- krytyk: około 8 tys. wejścia i 2 do 4 tys. wyjścia, czyli 0,05 do 0,15 $;
+- reżyser: około 15 tys. tokenów wejścia (3 do 4 arkusze obrazów i opis wzoru) i 4 do 8 tys. wyjścia, czyli 0,14 do 0,22 $;
+- krytyk: około 8 tys. wejścia i 2 do 4 tys. wyjścia, czyli 0,07 do 0,11 $;
 - razem z jedną poprawką poniżej 0,50 $ za edit.
 
 Pomiar 11.4 sprawdza to na prawdziwych wywołaniach.
@@ -91,23 +94,23 @@ Szukaj po nazwach, bo numery linii przesuną się po części 10.
 **Konfiguracja (11.1):**
 - `.env` i `Konfiguracja`:
   - `ANTHROPIC_API_KEY`: pusta albo brak oznacza AI wyłączone. Klucz czyta SDK ze środowiska. Nie trafia do logów, podsumowań, komunikatów ani wyjątków;
-  - `MODEL_AI` (domyślnie `claude-opus-5`);
+  - `MODEL_AI` (domyślnie `claude-opus-5-5`);
   - `AI_REZYSER` i `AI_KRYTYK` (`tak` albo `nie`, domyślnie `tak`);
   - `PROG_OCENY_AI` (domyślnie 7, od 1 do 10).
 - Bot przekazuje do renderu `--ai` tylko wtedy, gdy klucz jest ustawiony i choć jeden z kroków jest włączony. Do tego `--model-ai`, `--bez-rezysera`, `--bez-krytyka` i `--prog-oceny-ai`. Render bierze klucz ze środowiska procesu, które dziedziczy po bocie (kontener dostaje `.env`).
 - `LIMIT_RENDERU_S` rośnie z 900 do 1800 s, bo krytyk może zlecić drugi montaż (limity podnosimy, gdy praca się do nich zbliża, decyzja 18).
-- `/status` pokazuje linię „AI: włączone (claude-opus-5)” albo „AI: wyłączone (brak klucza)”.
+- `/status` pokazuje linię „AI: włączone (claude-opus-5-5)” albo „AI: wyłączone (brak klucza)”.
 - `requirements.txt`: `anthropic` przypięty do aktualnej wersji (sprawdź `pip index versions anthropic`).
 
 **Wywołanie modelu (`src/rezyser.py`, 11.1):**
 - Jedna funkcja `wywolaj_model(klient, model, tresc, schemat) -> tuple[dict | None, dict]` zwraca (odpowiedź zgodną ze schematem albo `None`, zużycie `{"wejscie": int, "wyjscie": int, "powod": str | None}`). Testy podmieniają `klient`, więc bez sieci.
 - Żądanie:
-  - `thinking={"type": "adaptive"}`, `output_config={"effort": "high", "format": {"type": "json_schema", "schema": ...}}`;
+  - `thinking={"type": "adaptive"}`, `output_config={"effort": "high", "format": {"type": "json_schema", "schema": ...}}`. `effort` zawsze jawnie, bo domyślny na Opus 5.5 to `medium`;
   - odmowy przez parametr `fallbacks="default"` z nagłówkiem beta `server-side-fallback-2026-07-01` (ścieżka `client.beta.messages`). Kształt żądania sprawdź w skillu `claude-api` przed napisaniem kodu;
   - obrazy jako bloki `image` w base64 (JPEG), tekst po obrazach;
   - `max_tokens` 16000.
 - `stop_reason` różny od `end_turn` (w tym `refusal` i `max_tokens`), wyjątek SDK, JSON niezgodny ze schematem albo brak klucza: wynik `None` i powód w zużyciu. Montaż idzie wtedy automatycznie.
-- Koszt: `koszt_usd(model, wejscie, wyjscie)` z tabeli cen w module (`claude-opus-5`: 5 i 25 $ za milion tokenów). Nieznany model daje `None`.
+- Koszt: `koszt_usd(model, wejscie, wyjscie)` z tabeli cen w module (`claude-opus-5-5`: 4 i 20 $ za milion tokenów, `claude-opus-5`: 5 i 25 $). Nieznany model daje `None`.
 
 **Materiały dla reżysera (11.1):**
 - `arkusze_materialow(materialy, wycinki, katalog_pracy) -> list[Path]`, obrazy JPEG, dłuższy bok najwyżej 1568 px:
@@ -154,7 +157,7 @@ Szukaj po nazwach, bo numery linii przesuną się po części 10.
 - **Constraints:** testy bez sieci (klient podmieniony obiektem testowym):
   1. poprawna odpowiedź JSON daje słownik i zużycie z `usage`, a odpowiedź z `stop_reason` `refusal` albo `max_tokens`, wyjątek klienta lub JSON niezgodny ze schematem dają `None` z powodem;
   2. żądanie ma `thinking` adaptive, `output_config` z `effort` i schematem, `fallbacks` `default` z nagłówkiem beta, obrazy przed tekstem;
-  3. `koszt_usd("claude-opus-5", 15000, 6000)` daje 0,225;
+  3. `koszt_usd("claude-opus-5-5", 15000, 6000)` daje 0,18, a `koszt_usd("claude-opus-5", 15000, 6000)` daje 0,225;
   4. arkusze: żaden obraz nie ma boku ponad 1568 px, numerów na arkuszach jest tyle, ile materiałów, a klip ma 6 klatek;
   5. brak `ANTHROPIC_API_KEY`: bot nie przekazuje `--ai`, a `/status` mówi „wyłączone (brak klucza)”. Z kluczem testowym `--ai` i `--model-ai` są w poleceniu. Wartość klucza nie pojawia się w żadnym komunikacie ani w poleceniu renderu;
   6. `AI_REZYSER=moze` daje `ValueError`.

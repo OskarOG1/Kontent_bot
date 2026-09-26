@@ -32,7 +32,7 @@ Prawdziwe wzory (`0914`, `0915`, `0921`, `0922`, `0923`, wszystkie 4K, w `dane/w
 | 6 | PLAN_EDITY_6_TEKST | Twoje napisy w haku, styl jak we wzorach, strefy bezpieczne TikToka | wykonana, PR #15, wdrożona 2026-09-25, czcionka szeryfowa zaakceptowana, test lokalny OK | test ręczny | Sonnet |
 | 9 | PLAN_EDITY_9_FABRYKA | restart bez strat, biblioteka wzorów z wyborem, warianty, partie, `/ponow`; nakładka z kryciem (flaga, 9.5, zaraz po części 8); słowa w rytmie i napis pionowy jak w `0923` (9.6 do 9.8, po części 6) | 9.5 do 9.10 scalone (PR #14, #17, #18); 9.1 do 9.4 w toku na gałęzi `fabryka` (2026-09-26) | klip flagi jako nakładka, akceptacja czcionki pisanej | Sonnet |
 | 10 | PLAN_EDITY_10_DYNAMIKA | zdjęcia co uderzenie, klipy 2 do 3,2 s, przejścia na cięciach (uderzenie zoomem, błysk, wstrząs, smuga, najazd), kolaż wycinków w rytmie, flaga cała w kadrze i krótsza | do zrobienia po części 9 (plan 2026-09-26, prototyp Opusa) | ocena arkuszy i próbnego editu | Sonnet |
-| 11 | PLAN_EDITY_11_REZYSER | AI (Claude Opus 5) układa scenariusz z Twoich materiałów przed montażem i ocenia wynik, z jedną poprawką | do zrobienia po części 10 (plan 2026-09-26) | klucz `ANTHROPIC_API_KEY` w `.env`, zgoda na koszt pomiaru | Sonnet |
+| 11 | PLAN_EDITY_11_REZYSER | AI (Claude Opus 5.5) układa scenariusz z Twoich materiałów przed montażem i ocenia wynik, z jedną poprawką | do zrobienia po części 10 (plan 2026-09-26) | klucz `ANTHROPIC_API_KEY` w `.env`, zgoda na koszt pomiaru | Sonnet |
 
 ## Kolejność (poprawiona 2026-09-23)
 1. Zrobione: części 1, 2, 7, 3, 4, 8, 5 i 6.
@@ -88,7 +88,7 @@ Po każdej części: odbiór, scalenie, `wdroz.ps1` i, gdy trzeba, `analyze.py -
     - wycinki (zdjęcia z przezroczystością) idą do kolaży zamiast osobnych ujęć na czarnym tle;
     - szczegóły w części 10.
 24. Reżyser i krytyk AI (Twoja decyzja z 2026-09-26):
-    - model `claude-opus-5` z `MODEL_AI` w `.env`, klucz tylko w `.env`;
+    - model `claude-opus-5-5` (Opus 5.5) z `MODEL_AI` w `.env`, klucz tylko w `.env`;
     - gdy AI zawiedzie, montaż idzie automatycznie;
     - szacunek kosztu poniżej 0,50 $ za edit, sprawdzany pomiarem 11.4;
     - miniatury materiałów trafiają do API Anthropic.
