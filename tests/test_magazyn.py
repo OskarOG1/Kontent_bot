@@ -154,3 +154,71 @@ def test_plik_zasobu_uzywa_domyslna_gdy_brak_pliku_wzoru(tmp_path):
     domyslna = katalog / "domyslna.jpg"
     domyslna.write_bytes(b"d")
     assert magazyn.plik_zasobu(tmp_path, "plansze", "w1") == domyslna
+
+
+def zapisz_wzor(katalog_danych: Path, wzor_id: str) -> Path:
+    katalog_wzoru = katalog_danych / "wzory" / wzor_id
+    katalog_wzoru.mkdir(parents=True)
+    wzor_json = katalog_wzoru / "wzor.json"
+    wzor_json.write_text("{}", encoding="utf-8")
+    return wzor_json
+
+
+def test_ustawienia_zapisywane_atomowo(tmp_path):
+    magazyn.zapisz_ustawienia(tmp_path, {"aktywny_wzor": "w1"})
+    assert not (tmp_path / "ustawienia.json.tmp").exists()
+    assert magazyn.wczytaj_ustawienia(tmp_path) == {"aktywny_wzor": "w1"}
+
+
+def test_aktywny_wzor_bez_ustawienia_zwraca_najnowszy(tmp_path):
+    zapisz_wzor(tmp_path, "20260921_100000")
+    najnowszy = zapisz_wzor(tmp_path, "20260921_110000")
+    assert magazyn.aktywny_wzor(tmp_path) == najnowszy
+
+
+def test_aktywny_wzor_po_ustawieniu_zwraca_wskazany(tmp_path):
+    starszy = zapisz_wzor(tmp_path, "20260921_100000")
+    zapisz_wzor(tmp_path, "20260921_110000")
+    magazyn.ustaw_aktywny_wzor(tmp_path, "20260921_100000")
+    assert magazyn.aktywny_wzor(tmp_path) == starszy
+
+
+def test_aktywny_wzor_po_usunieciu_aktywnego_wraca_do_najnowszego(tmp_path):
+    zapisz_wzor(tmp_path, "20260921_100000")
+    najnowszy = zapisz_wzor(tmp_path, "20260921_110000")
+    magazyn.ustaw_aktywny_wzor(tmp_path, "20260921_100000")
+    magazyn.ustaw_aktywny_wzor(tmp_path, None)
+    assert magazyn.aktywny_wzor(tmp_path) == najnowszy
+
+
+def test_nazwa_wzoru_z_pliku_nazwa_txt(tmp_path):
+    wzor_json = zapisz_wzor(tmp_path, "w1")
+    magazyn.zapisz_nazwe_wzoru(wzor_json.parent, "Podpis wideo wzoru")
+    assert magazyn.nazwa_wzoru(wzor_json.parent) == "Podpis wideo wzoru"
+
+
+def test_nazwa_wzoru_obcina_do_60_znakow(tmp_path):
+    wzor_json = zapisz_wzor(tmp_path, "w1")
+    magazyn.zapisz_nazwe_wzoru(wzor_json.parent, "x" * 100)
+    assert len(magazyn.nazwa_wzoru(wzor_json.parent)) == 60
+
+
+def test_nazwa_wzoru_bez_podpisu_to_id(tmp_path):
+    wzor_json = zapisz_wzor(tmp_path, "w1")
+    assert magazyn.nazwa_wzoru(wzor_json.parent) == "w1"
+
+
+def test_zapisz_nazwe_wzoru_bez_podpisu_nie_tworzy_pliku(tmp_path):
+    wzor_json = zapisz_wzor(tmp_path, "w1")
+    magazyn.zapisz_nazwe_wzoru(wzor_json.parent, None)
+    assert not (wzor_json.parent / "nazwa.txt").exists()
+
+
+def test_lista_wzorow_sortuje_od_najnowszego(tmp_path):
+    zapisz_wzor(tmp_path, "20260921_100000")
+    zapisz_wzor(tmp_path, "20260921_120000")
+    zapisz_wzor(tmp_path, "20260921_110000")
+    wyniki = magazyn.lista_wzorow(tmp_path)
+    assert [sciezka.parent.name for sciezka in wyniki] == [
+        "20260921_120000", "20260921_110000", "20260921_100000",
+    ]

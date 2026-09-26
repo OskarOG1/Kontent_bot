@@ -5,9 +5,10 @@ from datetime import datetime, timezone
 from aiogram import Bot
 from aiogram.client.session.base import BaseSession
 from aiogram.exceptions import TelegramEntityTooLarge
-from aiogram.methods import GetFile, SendDocument, SendMessage
+from aiogram.methods import AnswerCallbackQuery, EditMessageText, GetFile, SendDocument, SendMessage
 from aiogram.types import (
     Animation,
+    CallbackQuery,
     Chat,
     Document,
     File,
@@ -49,6 +50,22 @@ def zbuduj_wiadomosc(od_id: int = WLASCICIEL_ID, message_id: int | None = None, 
 def zbuduj_update(wiadomosc: Message, edytowana: bool = False) -> Update:
     pole = "edited_message" if edytowana else "message"
     return Update(update_id=next(_licznik_update_id), **{pole: wiadomosc})
+
+
+def zbuduj_callback(dane: str, od_id: int = WLASCICIEL_ID, wiadomosc: Message | None = None) -> CallbackQuery:
+    if wiadomosc is None:
+        wiadomosc = zbuduj_wiadomosc(od_id=WLASCICIEL_ID, text="wzory")
+    return CallbackQuery(
+        id=str(nastepny_message_id()),
+        from_user=zbuduj_uzytkownika(od_id),
+        chat_instance="test",
+        data=dane,
+        message=wiadomosc,
+    )
+
+
+def zbuduj_update_callback(callback: CallbackQuery) -> Update:
+    return Update(update_id=next(_licznik_update_id), callback_query=callback)
 
 
 def zdjecie(file_id: str, file_unique_id: str, file_size: int | None = None) -> list[PhotoSize]:
@@ -128,6 +145,15 @@ class SesjaTestowa(BaseSession):
                 chat=Chat(id=method.chat_id, type="private"),
                 document=Document(file_id="wynik", file_unique_id="wynik_unikalny", file_name="wynik.mp4"),
                 caption=method.caption,
+            )
+        if isinstance(method, AnswerCallbackQuery):
+            return True
+        if isinstance(method, EditMessageText):
+            return Message(
+                message_id=method.message_id or nastepny_message_id(),
+                date=datetime.now(timezone.utc),
+                chat=Chat(id=method.chat_id, type="private"),
+                text=method.text,
             )
         return True
 

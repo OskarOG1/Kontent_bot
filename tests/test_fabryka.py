@@ -119,7 +119,7 @@ async def test_nieudana_analiza_zapisuje_blad_txt(konf, monkeypatch):
     monkeypatch.setattr(bot.kolejka_modul, "uruchom", uruchom_podmienione)
     zapowiedz = asyncio.Event()
     zapowiedz.set()
-    await bot.analizuj_wzor_w_tle(bot_obiekt, CZAT_ID, zrodlo, wzor_json, zapowiedz)
+    await bot.analizuj_wzor_w_tle(bot_obiekt, CZAT_ID, zrodlo, wzor_json, konf, zapowiedz)
 
     assert (katalog_wzoru / "blad.txt").read_text(encoding="utf-8").strip() == "Plik uszkodzony"
     assert not wzor_json.exists()

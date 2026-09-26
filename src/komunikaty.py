@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from pathlib import Path
 
 POMOC = (
@@ -7,6 +8,7 @@ POMOC = (
     "/nakladka, żeby ustawić nakładkę graficzną od dropu (/nakladka usun, żeby ją usunąć).\n"
     "/plansza, żeby ustawić planszę końcową (/plansza usun, żeby ją usunąć).\n"
     "/znak, żeby ustawić znak wodny marki (/znak usun, żeby go usunąć).\n"
+    "/wzory, żeby zobaczyć zapisane wzory i wybrać aktywny.\n"
     "/nowy, żeby zacząć zbierać materiały do nowego editu.\n"
     "Zwykła wiadomość tekstowa w trakcie zbierania to linia napisu w haku editu.\n"
     "/slowa, żeby ustawić słowa w rytmie na dropie (/slowa bez tekstu, żeby je wyczyścić).\n"
@@ -22,6 +24,7 @@ KOMENDY = (
     ("nakladka", "Ustaw nakładkę graficzną wzoru"),
     ("plansza", "Ustaw planszę końcową wzoru"),
     ("znak", "Ustaw znak wodny marki"),
+    ("wzory", "Zobacz zapisane wzory"),
     ("nowy", "Zacznij nowy projekt"),
     ("slowa", "Ustaw słowa w rytmie na dropie"),
     ("pionowo", "Ustaw pionowy napis pisany literami"),
@@ -112,6 +115,42 @@ def status_zasobow_wzoru(wzor_id: str, ma_nakladke: bool, ma_plansze: bool) -> s
     nakladka = "tak" if ma_nakladke else "nie"
     plansza = "tak" if ma_plansze else "nie"
     return f"Wzór {wzor_id}: nakładka {nakladka}, plansza {plansza}."
+
+
+BRAK_WZOROW = "Nie masz jeszcze żadnego zapisanego wzoru. Wyślij wzór przez /wzor."
+
+
+def data_z_id(wzor_id: str) -> str:
+    czesc = wzor_id.split("_")[0]
+    if len(czesc) == 8 and czesc.isdigit():
+        try:
+            return datetime.strptime(czesc, "%Y%m%d").strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    return wzor_id
+
+
+def linia_wzoru(nazwa: str, wzor_id: str, dane: dict, aktywny: bool) -> str:
+    zrodlo = dane["zrodlo"]
+    tempo_bpm = dane.get("tempo_bpm")
+    rytm = f"tempo {formatuj_liczbe(tempo_bpm, 1)} BPM" if tempo_bpm is not None else "brak tempa"
+    znacznik = " (aktywny)" if aktywny else ""
+    return (
+        f"{nazwa}{znacznik}: {data_z_id(wzor_id)}, {formatuj_liczbe(zrodlo['czas_s'], 1)} s, "
+        f"{rytm}, {linia_dropu(dane.get('sekcje'))}."
+    )
+
+
+def wzor_wybrany(nazwa: str) -> str:
+    return f"Aktywny wzór: {nazwa}."
+
+
+def wzor_usun_potwierdzenie(nazwa: str) -> str:
+    return f"Na pewno usunąć wzór {nazwa}? Razem z nim znikną jego nakładka i plansza."
+
+
+def wzor_usuniety(nazwa: str) -> str:
+    return f"Wzór {nazwa} usunięty."
 
 
 def formatuj_mb(wartosc: float) -> str:

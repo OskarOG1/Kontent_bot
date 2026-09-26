@@ -102,6 +102,68 @@ def lista_materialow(katalog_projektu: Path) -> list[dict]:
     return wpisy
 
 
+def zapisz_nazwe_wzoru(katalog_wzoru: Path, podpis: str | None) -> None:
+    if not podpis:
+        return
+    (Path(katalog_wzoru) / "nazwa.txt").write_text(podpis[:60], encoding="utf-8")
+
+
+def nazwa_wzoru(katalog_wzoru: Path) -> str:
+    katalog_wzoru = Path(katalog_wzoru)
+    sciezka = katalog_wzoru / "nazwa.txt"
+    if sciezka.is_file():
+        nazwa = sciezka.read_text(encoding="utf-8").strip()
+        if nazwa:
+            return nazwa
+    return katalog_wzoru.name
+
+
+def lista_wzorow(katalog_danych: Path) -> list[Path]:
+    katalog_wzorow = Path(katalog_danych) / "wzory"
+    if not katalog_wzorow.is_dir():
+        return []
+    wyniki = []
+    for katalog in sorted(katalog_wzorow.iterdir(), key=lambda k: k.name, reverse=True):
+        sciezka = katalog / "wzor.json"
+        if katalog.is_dir() and sciezka.is_file():
+            wyniki.append(sciezka)
+    return wyniki
+
+
+def wczytaj_ustawienia(katalog_danych: Path) -> dict:
+    sciezka = Path(katalog_danych) / "ustawienia.json"
+    if not sciezka.is_file():
+        return {"aktywny_wzor": None}
+    with open(sciezka, "r", encoding="utf-8") as plik:
+        return json.load(plik)
+
+
+def zapisz_ustawienia(katalog_danych: Path, dane: dict) -> None:
+    katalog_danych = Path(katalog_danych)
+    katalog_danych.mkdir(parents=True, exist_ok=True)
+    sciezka = katalog_danych / "ustawienia.json"
+    sciezka_tymczasowa = katalog_danych / "ustawienia.json.tmp"
+    with open(sciezka_tymczasowa, "w", encoding="utf-8") as plik:
+        json.dump(dane, plik, ensure_ascii=False, indent=2)
+    os.replace(sciezka_tymczasowa, sciezka)
+
+
+def ustaw_aktywny_wzor(katalog_danych: Path, wzor_id: str | None) -> None:
+    dane = wczytaj_ustawienia(katalog_danych)
+    dane["aktywny_wzor"] = wzor_id
+    zapisz_ustawienia(katalog_danych, dane)
+
+
+def aktywny_wzor(katalog_danych: Path) -> Path | None:
+    katalog_danych = Path(katalog_danych)
+    wzor_id = wczytaj_ustawienia(katalog_danych).get("aktywny_wzor")
+    if wzor_id:
+        sciezka = katalog_danych / "wzory" / wzor_id / "wzor.json"
+        if sciezka.is_file():
+            return sciezka
+    return najnowszy_wzor(katalog_danych)
+
+
 def plik_zasobu(katalog_danych: Path, rodzaj: str, wzor_id: str) -> Path | None:
     katalog = Path(katalog_danych) / rodzaj
     if not katalog.is_dir():

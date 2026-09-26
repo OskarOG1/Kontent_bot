@@ -16,7 +16,15 @@ from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand, FSInputFile, Message, ReactionTypeEmoji
+from aiogram.types import (
+    BotCommand,
+    CallbackQuery,
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    ReactionTypeEmoji,
+)
 
 import komunikaty
 import konfiguracja as konfiguracja_modul
@@ -250,7 +258,7 @@ async def obsluz_cmd_gotowe(
         await message.answer(komunikaty.BRAK_MATERIALOW)
         return
 
-    wzor_json = magazyn.najnowszy_wzor(konf.katalog_danych)
+    wzor_json = magazyn.aktywny_wzor(konf.katalog_danych)
     if wzor_json is None:
         await message.answer(komunikaty.BRAK_WZORU)
         return
@@ -329,14 +337,70 @@ async def obsluz_cmd_status(
         liczba_wzorow = sum(1 for katalog in katalog_wzorow.iterdir() if katalog.is_dir() and (katalog / "wzor.json").is_file())
     linie.append(komunikaty.status_kolejki(kolejka_obiekt.dlugosc(), liczba_wzorow))
     linie.append(komunikaty.status_muzyki(len(music.pliki_muzyki(konf.katalog_danych / "muzyka"))))
-    aktywny_wzor = magazyn.najnowszy_wzor(konf.katalog_danych)
-    if aktywny_wzor is not None:
-        wzor_id = aktywny_wzor.parent.name
+    wzor_aktywny = magazyn.aktywny_wzor(konf.katalog_danych)
+    if wzor_aktywny is not None:
+        wzor_id = wzor_aktywny.parent.name
         ma_nakladke = magazyn.plik_zasobu(konf.katalog_danych, "nakladki", wzor_id) is not None
         ma_plansze = magazyn.plik_zasobu(konf.katalog_danych, "plansze", wzor_id) is not None
         linie.append(komunikaty.status_zasobow_wzoru(wzor_id, ma_nakladke, ma_plansze))
     linie.append(komunikaty.status_znaku((konf.katalog_danych / "znak_wodny.png").is_file()))
     await message.answer("\n".join(linie))
+
+
+def klawiatura_wzoru(wzor_id: str, nazwa: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[
+            InlineKeyboardButton(text=f"Wybierz {nazwa}", callback_data=f"wzor_wybierz:{wzor_id}"),
+            InlineKeyboardButton(text=f"Usuń {nazwa}", callback_data=f"wzor_usun:{wzor_id}"),
+        ]]
+    )
+
+
+async def obsluz_cmd_wzory(message: Message, konf: Konfiguracja) -> None:
+    wzory = magazyn.lista_wzorow(konf.katalog_danych)[:20]
+    if not wzory:
+        await message.answer(komunikaty.BRAK_WZOROW)
+        return
+    wzor_aktywny = magazyn.aktywny_wzor(konf.katalog_danych)
+    id_aktywnego = wzor_aktywny.parent.name if wzor_aktywny is not None else None
+    for wzor_json in wzory:
+        wzor_id = wzor_json.parent.name
+        dane = json.loads(wzor_json.read_text(encoding="utf-8"))
+        nazwa = magazyn.nazwa_wzoru(wzor_json.parent)
+        linia = komunikaty.linia_wzoru(nazwa, wzor_id, dane, aktywny=(wzor_id == id_aktywnego))
+        await message.answer(linia, reply_markup=klawiatura_wzoru(wzor_id, nazwa))
+
+
+async def obsluz_wzor_wybierz(callback: CallbackQuery, konf: Konfiguracja) -> None:
+    wzor_id = callback.data.split(":", 1)[1]
+    magazyn.ustaw_aktywny_wzor(konf.katalog_danych, wzor_id)
+    nazwa = magazyn.nazwa_wzoru(konf.katalog_danych / "wzory" / wzor_id)
+    await callback.answer()
+    await callback.message.edit_text(komunikaty.wzor_wybrany(nazwa))
+
+
+async def obsluz_wzor_usun_pytanie(callback: CallbackQuery, konf: Konfiguracja) -> None:
+    wzor_id = callback.data.split(":", 1)[1]
+    nazwa = magazyn.nazwa_wzoru(konf.katalog_danych / "wzory" / wzor_id)
+    klawiatura = InlineKeyboardMarkup(
+        inline_keyboard=[[
+            InlineKeyboardButton(text=f"Tak, usuń {nazwa}", callback_data=f"wzor_usun_potwierdz:{wzor_id}"),
+        ]]
+    )
+    await callback.answer()
+    await callback.message.edit_text(komunikaty.wzor_usun_potwierdzenie(nazwa), reply_markup=klawiatura)
+
+
+async def obsluz_wzor_usun_potwierdz(callback: CallbackQuery, konf: Konfiguracja) -> None:
+    wzor_id = callback.data.split(":", 1)[1]
+    nazwa = magazyn.nazwa_wzoru(konf.katalog_danych / "wzory" / wzor_id)
+    shutil.rmtree(konf.katalog_danych / "wzory" / wzor_id, ignore_errors=True)
+    usun_pliki_zasobu(konf.katalog_danych, "nakladki", wzor_id)
+    usun_pliki_zasobu(konf.katalog_danych, "plansze", wzor_id)
+    if magazyn.wczytaj_ustawienia(konf.katalog_danych).get("aktywny_wzor") == wzor_id:
+        magazyn.ustaw_aktywny_wzor(konf.katalog_danych, None)
+    await callback.answer()
+    await callback.message.edit_text(komunikaty.wzor_usuniety(nazwa))
 
 
 async def bezpiecznie_wyslij(bot: Bot, chat_id: int, tekst: str) -> None:
@@ -370,7 +434,9 @@ def zapisz_blad_wzoru(katalog_wzoru: Path, opis: str) -> None:
     (Path(katalog_wzoru) / "blad.txt").write_text(opis + "\n", encoding="utf-8")
 
 
-async def analizuj_wzor_w_tle(bot: Bot, chat_id: int, zrodlo: Path, wzor_json: Path, zapowiedz: asyncio.Event) -> None:
+async def analizuj_wzor_w_tle(
+    bot: Bot, chat_id: int, zrodlo: Path, wzor_json: Path, konf: Konfiguracja, zapowiedz: asyncio.Event,
+) -> None:
     await zapowiedz.wait()
     wynik = await kolejka_modul.uruchom(
         [sys.executable, str(SKRYPT_ANALIZY), str(zrodlo), str(wzor_json)],
@@ -392,6 +458,7 @@ async def analizuj_wzor_w_tle(bot: Bot, chat_id: int, zrodlo: Path, wzor_json: P
         log.exception("nie udalo sie odczytac wyniku analizy, wzor=%s", wzor_json)
         await bezpiecznie_wyslij(bot, chat_id, komunikaty.blad_analizy("nie udało się odczytać wyniku"))
         return
+    magazyn.ustaw_aktywny_wzor(konf.katalog_danych, wzor_json.parent.name)
     await bezpiecznie_wyslij(bot, chat_id, tekst)
 
 
@@ -425,11 +492,12 @@ async def obsluz_wzor_plik(
         await message.answer(komunikaty.BLAD_POBIERANIA)
         return
 
+    magazyn.zapisz_nazwe_wzoru(katalog_wzoru, message.caption)
     await wroc_po_zapisie(state)
     zapowiedz = asyncio.Event()
 
     async def zadanie() -> None:
-        await analizuj_wzor_w_tle(message.bot, message.chat.id, cel, katalog_wzoru / "wzor.json", zapowiedz)
+        await analizuj_wzor_w_tle(message.bot, message.chat.id, cel, katalog_wzoru / "wzor.json", konf, zapowiedz)
 
     pozycja = await kolejka_obiekt.dodaj(zadanie)
     try:
@@ -462,7 +530,7 @@ async def wroc_po_zapisie(state: FSMContext) -> None:
 
 
 async def obsluz_cmd_nakladka(message: Message, state: FSMContext, konf: Konfiguracja, command: CommandObject) -> None:
-    wzor_json = magazyn.najnowszy_wzor(konf.katalog_danych)
+    wzor_json = magazyn.aktywny_wzor(konf.katalog_danych)
     if wzor_json is None:
         await message.answer(komunikaty.BRAK_WZORU)
         return
@@ -507,7 +575,7 @@ async def obsluz_nakladka_dokument(message: Message, state: FSMContext, konf: Ko
 
 
 async def obsluz_cmd_plansza(message: Message, state: FSMContext, konf: Konfiguracja, command: CommandObject) -> None:
-    wzor_json = magazyn.najnowszy_wzor(konf.katalog_danych)
+    wzor_json = magazyn.aktywny_wzor(konf.katalog_danych)
     if wzor_json is None:
         await message.answer(komunikaty.BRAK_WZORU)
         return
@@ -743,6 +811,10 @@ def zbuduj_router() -> Router:
     router.message.register(obsluz_cmd_status, Command("status"))
     router.message.register(obsluz_cmd_slowa, Command("slowa"))
     router.message.register(obsluz_cmd_pionowo, Command("pionowo"))
+    router.message.register(obsluz_cmd_wzory, Command("wzory"))
+    router.callback_query.register(obsluz_wzor_wybierz, F.data.startswith("wzor_wybierz:"))
+    router.callback_query.register(obsluz_wzor_usun_potwierdz, F.data.startswith("wzor_usun_potwierdz:"))
+    router.callback_query.register(obsluz_wzor_usun_pytanie, F.data.startswith("wzor_usun:"))
     router.message.register(obsluz_wzor_plik, StateFilter(Stany.czekam_na_wzor), to_wideo)
     router.message.register(obsluz_wzor_niepoprawny, StateFilter(Stany.czekam_na_wzor))
     router.message.register(obsluz_nakladka_dokument, StateFilter(Stany.czekam_na_nakladke), F.document)
@@ -761,6 +833,7 @@ def utworz_dispatcher(konf: Konfiguracja, kolejka_obiekt: kolejka_modul.Kolejka)
     dyspozytor = Dispatcher(storage=MemoryStorage())
     dyspozytor.message.filter(wlasciciel(konf.wlasciciel_id))
     dyspozytor.edited_message.filter(wlasciciel(konf.wlasciciel_id))
+    dyspozytor.callback_query.filter(wlasciciel(konf.wlasciciel_id))
     dyspozytor.include_router(zbuduj_router())
     dyspozytor["konf"] = konf
     dyspozytor["kolejka_obiekt"] = kolejka_obiekt
@@ -826,7 +899,7 @@ async def wznow_po_starcie(bot: Bot, konf: Konfiguracja, kolejka_obiekt: kolejka
             zapowiedz = asyncio.Event()
 
             async def zadanie(zrodlo=zrodlo, wzor_json=wzor_json, zapowiedz=zapowiedz) -> None:
-                await analizuj_wzor_w_tle(bot, konf.wlasciciel_id, zrodlo, wzor_json, zapowiedz)
+                await analizuj_wzor_w_tle(bot, konf.wlasciciel_id, zrodlo, wzor_json, konf, zapowiedz)
 
             await kolejka_obiekt.dodaj(zadanie)
             try:

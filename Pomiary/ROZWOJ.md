@@ -62,6 +62,20 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-26 (zadanie 9.2: biblioteka wzorów, gałąź `fabryka`, Sonnet)
+- `magazyn.py`: `dane/ustawienia.json` (`{"aktywny_wzor": "<id>" | null}`, zapis atomowy jak `zapisz_projekt`) przez `wczytaj_ustawienia`/`zapisz_ustawienia`. `aktywny_wzor(katalog_danych)` zwraca `wzor.json` ze `ustawienia.json`, jeśli plik istnieje, inaczej `najnowszy_wzor`. `ustaw_aktywny_wzor(katalog_danych, wzor_id | None)`. `nazwa_wzoru(katalog_wzoru)` czyta `nazwa.txt` (obcięte do 60 znaków przy zapisie przez `zapisz_nazwe_wzoru`), bez pliku zwraca `id`. `lista_wzorow(katalog_danych)` zwraca wszystkie `wzor.json` od najnowszego (do obcięcia limitu 20 w bocie).
+- `bot.py`:
+  - `/wzory` (`obsluz_cmd_wzory`) wysyła osobną wiadomość na każdy z do 20 najnowszych wzorów: linia `komunikaty.linia_wzoru` (nazwa, data z id, długość, tempo, drop, znacznik „(aktywny)”) plus klawiatura inline „Wybierz <nazwa>” / „Usuń <nazwa>” (`callback_data` = `wzor_wybierz:<id>` / `wzor_usun:<id>`);
+  - „Usuń” pokazuje drugi krok z przyciskiem „Tak, usuń <nazwa>” (`wzor_usun_potwierdz:<id>`), dopiero on kasuje `dane/wzory/<id>/` (`shutil.rmtree`) razem z plikami w `dane/nakladki/` i `dane/plansze/` (`usun_pliki_zasobu`) i, jeśli usunięty wzór był aktywny, czyści `aktywny_wzor` (spada na `najnowszy_wzor`);
+  - `dyspozytor.callback_query.filter(wlasciciel(...))` w `utworz_dispatcher`, tak jak dla `message`/`edited_message`: przycisk od obcego nie dociera do handlera, `sesja.wywolania` zostaje puste;
+  - `obsluz_wzor_plik` zapisuje `message.caption` do `nazwa.txt` przez `magazyn.zapisz_nazwe_wzoru` zaraz po pobraniu pliku źródłowego, przed zleceniem analizy;
+  - `analizuj_wzor_w_tle` dostał parametr `konf` i po udanej analizie woła `magazyn.ustaw_aktywny_wzor` z nowym id (nowo przeanalizowany wzór staje się aktywny, tak jak dziś najnowszy). Zmiana sygnatury dotyczy obu wywołań: `obsluz_wzor_plik` i `wznow_po_starcie` z zadania 9.1;
+  - `obsluz_cmd_gotowe`, `obsluz_cmd_status`, `obsluz_cmd_nakladka`, `obsluz_cmd_plansza` używają `magazyn.aktywny_wzor` zamiast `magazyn.najnowszy_wzor`.
+- `komunikaty.py`: wpis `/wzory` w `POMOC` i `KOMENDY`, `BRAK_WZOROW`, `data_z_id`, `linia_wzoru`, `wzor_wybrany`, `wzor_usun_potwierdzenie`, `wzor_usuniety`.
+- `tests/pomocnicze.py`: `SesjaTestowa.make_request` obsługuje `AnswerCallbackQuery` (zwraca `True`) i `EditMessageText` (zwraca `Message` jak przy `SendMessage`). Nowe `zbuduj_callback(dane, od_id=WLASCICIEL_ID, wiadomosc=None)` i `zbuduj_update_callback(callback)`.
+- Testy: `tests/test_magazyn.py` +10 (ustawienia atomowe, aktywny wzór bez/z ustawieniem i po usunięciu aktywnego, nazwa z pliku/obcięta/bez podpisu, lista wzorów od najnowszego). `tests/test_bot.py` +8 (podpis wideo trafia do `nazwa.txt`, `/wzory` z klawiaturą i bez wzorów, przycisk „Wybierz” ustawia aktywny, „Usuń” bez potwierdzenia nic nie rusza, po potwierdzeniu kasuje katalog i nakładkę, przycisk od obcego nic nie zmienia, `/gotowe` bierze aktywny wzór a nie najnowszy). `python -m pytest -q`: 307 z 307 w 266 s (290 wcześniej + 17 nowych).
+- Commit `bot: biblioteka wzorów`.
+
 ### 2026-09-26 (zadanie 9.1: wznowienie po restarcie, gałąź `fabryka`, Sonnet)
 - Stan wejściowy sprawdzony: `main` miał tylko 9.5 do 9.9, brakowało commita `tekst: akcent na całą szerokość i wjazd poza kadr` (9.10) wymaganego przez „Stan wejściowy” w planie. PR #18 (`akcent`) scalony do `main` (merge commit) przed rozpoczęciem, zgodnie z decyzją właściciela w tej sesji. Gałąź `fabryka` utworzona od zaktualizowanego `main`.
 - `bot.wznow_po_starcie(bot, konf, kolejka_obiekt)`, wołane w `uruchom_bota` po `set_my_commands`, przed `start_polling`:
