@@ -930,6 +930,8 @@ def renderuj(
         raise RuntimeError("Brak materiałów w projekcie")
 
     katalog_pracy = katalog_projektu / "praca"
+    if katalog_pracy.exists():
+        shutil.rmtree(katalog_pracy)
     katalog_pracy.mkdir(parents=True, exist_ok=True)
 
     materialy_pominiete = []

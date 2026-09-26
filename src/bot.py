@@ -159,7 +159,8 @@ async def obsluz_cmd_nowy(message: Message, state: FSMContext, konf: Konfiguracj
 
 
 async def renderuj_w_tle(
-    message: Message,
+    bot: Bot,
+    chat_id: int,
     katalog_projektu: Path,
     wzor_json: Path,
     katalog_muzyki: Path,
@@ -173,7 +174,7 @@ async def renderuj_w_tle(
     dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
     dane_projektu["stan"] = "renderowanie"
     magazyn.zapisz_projekt(katalog_projektu, dane_projektu)
-    await bezpiecznie_odpisz(message, komunikaty.MONTUJE)
+    await bezpiecznie_wyslij(bot, chat_id, komunikaty.MONTUJE)
 
     limit_mb = efektywny_limit_wysylki_mb(konf)
     wynik_mp4 = katalog_projektu / "wynik.mp4"
@@ -197,7 +198,7 @@ async def renderuj_w_tle(
         dane_projektu["stan"] = "blad"
         dane_projektu["blad"] = opis
         magazyn.zapisz_projekt(katalog_projektu, dane_projektu)
-        await bezpiecznie_odpisz(message, komunikaty.blad_renderu(opis))
+        await bezpiecznie_wyslij(bot, chat_id, komunikaty.blad_renderu(opis))
         return
 
     try:
@@ -208,14 +209,14 @@ async def renderuj_w_tle(
         podpis = None
 
     try:
-        await message.answer_document(FSInputFile(wynik_mp4), caption=podpis)
+        await bot.send_document(chat_id, FSInputFile(wynik_mp4), caption=podpis)
     except TelegramEntityTooLarge:
         rozmiar = wynik_mp4.stat().st_size if wynik_mp4.exists() else None
-        await bezpiecznie_odpisz(message, komunikaty.limit_rozmiaru(rozmiar, limit_mb))
+        await bezpiecznie_wyslij(bot, chat_id, komunikaty.limit_rozmiaru(rozmiar, limit_mb))
         return
     except Exception:
         log.exception("wysylka wyniku nie powiodla sie")
-        await bezpiecznie_odpisz(message, komunikaty.BLAD_WYSYLKI)
+        await bezpiecznie_wyslij(bot, chat_id, komunikaty.BLAD_WYSYLKI)
         return
 
     dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
@@ -280,7 +281,10 @@ async def obsluz_cmd_gotowe(
     zapowiedz = asyncio.Event()
 
     async def zadanie() -> None:
-        await renderuj_w_tle(message, katalog_projektu, wzor_json, katalog_muzyki, konf, zapowiedz, nakladka, plansza, znak)
+        await renderuj_w_tle(
+            message.bot, message.chat.id, katalog_projektu, wzor_json, katalog_muzyki, konf, zapowiedz,
+            nakladka, plansza, znak,
+        )
 
     pozycja = await kolejka_obiekt.dodaj(zadanie)
     try:
@@ -335,9 +339,9 @@ async def obsluz_cmd_status(
     await message.answer("\n".join(linie))
 
 
-async def bezpiecznie_odpisz(message: Message, tekst: str) -> None:
+async def bezpiecznie_wyslij(bot: Bot, chat_id: int, tekst: str) -> None:
     try:
-        await message.answer(tekst)
+        await bot.send_message(chat_id, tekst)
     except TelegramAPIError:
         log.exception("nie udalo sie wyslac odpowiedzi")
 
@@ -362,27 +366,33 @@ def podsumuj_wzor(dane: dict) -> str:
     )
 
 
-async def analizuj_wzor_w_tle(message: Message, zrodlo: Path, wzor_json: Path, zapowiedz: asyncio.Event) -> None:
+def zapisz_blad_wzoru(katalog_wzoru: Path, opis: str) -> None:
+    (Path(katalog_wzoru) / "blad.txt").write_text(opis + "\n", encoding="utf-8")
+
+
+async def analizuj_wzor_w_tle(bot: Bot, chat_id: int, zrodlo: Path, wzor_json: Path, zapowiedz: asyncio.Event) -> None:
     await zapowiedz.wait()
     wynik = await kolejka_modul.uruchom(
         [sys.executable, str(SKRYPT_ANALIZY), str(zrodlo), str(wzor_json)],
         limit_s=LIMIT_ANALIZY_S,
     )
     if wynik.przekroczono_czas:
-        await bezpiecznie_odpisz(message, komunikaty.ANALIZA_PRZEKROCZONO_CZAS)
+        zapisz_blad_wzoru(wzor_json.parent, "przekroczono limit czasu")
+        await bezpiecznie_wyslij(bot, chat_id, komunikaty.ANALIZA_PRZEKROCZONO_CZAS)
         return
     if wynik.kod != 0:
         opis = pierwsza_linia(wynik.stderr) or f"kod {wynik.kod}"
-        await bezpiecznie_odpisz(message, komunikaty.blad_analizy(opis))
+        zapisz_blad_wzoru(wzor_json.parent, opis)
+        await bezpiecznie_wyslij(bot, chat_id, komunikaty.blad_analizy(opis))
         return
     try:
         dane = json.loads(wzor_json.read_text(encoding="utf-8"))
         tekst = podsumuj_wzor(dane)
     except (OSError, ValueError, KeyError, ZeroDivisionError):
         log.exception("nie udalo sie odczytac wyniku analizy, wzor=%s", wzor_json)
-        await bezpiecznie_odpisz(message, komunikaty.blad_analizy("nie udało się odczytać wyniku"))
+        await bezpiecznie_wyslij(bot, chat_id, komunikaty.blad_analizy("nie udało się odczytać wyniku"))
         return
-    await bezpiecznie_odpisz(message, tekst)
+    await bezpiecznie_wyslij(bot, chat_id, tekst)
 
 
 async def obsluz_wzor_plik(
@@ -419,7 +429,7 @@ async def obsluz_wzor_plik(
     zapowiedz = asyncio.Event()
 
     async def zadanie() -> None:
-        await analizuj_wzor_w_tle(message, cel, katalog_wzoru / "wzor.json", zapowiedz)
+        await analizuj_wzor_w_tle(message.bot, message.chat.id, cel, katalog_wzoru / "wzor.json", zapowiedz)
 
     pozycja = await kolejka_obiekt.dodaj(zadanie)
     try:
@@ -761,6 +771,72 @@ def utworz_dispatcher(konf: Konfiguracja, kolejka_obiekt: kolejka_modul.Kolejka)
     return dyspozytor
 
 
+async def wznow_po_starcie(bot: Bot, konf: Konfiguracja, kolejka_obiekt: kolejka_modul.Kolejka) -> None:
+    katalog_projektow = konf.katalog_danych / "projekty"
+    if katalog_projektow.is_dir():
+        for katalog_projektu in sorted(katalog for katalog in katalog_projektow.iterdir() if katalog.is_dir()):
+            try:
+                dane_projektu = magazyn.wczytaj_projekt(katalog_projektu)
+            except (OSError, ValueError):
+                continue
+            if dane_projektu.get("stan") not in ("w_kolejce", "renderowanie"):
+                continue
+            wzor_id = dane_projektu.get("wzor_id")
+            wzor_json = konf.katalog_danych / "wzory" / wzor_id / "wzor.json" if wzor_id else None
+            if wzor_json is None or not wzor_json.is_file():
+                continue
+
+            dane_projektu["stan"] = "w_kolejce"
+            magazyn.zapisz_projekt(katalog_projektu, dane_projektu)
+
+            katalog_muzyki = konf.katalog_danych / "muzyka"
+            nakladka = magazyn.plik_zasobu(konf.katalog_danych, "nakladki", wzor_id)
+            plansza = magazyn.plik_zasobu(konf.katalog_danych, "plansze", wzor_id)
+            znak = konf.katalog_danych / "znak_wodny.png"
+            znak = znak if znak.is_file() else None
+            zapowiedz = asyncio.Event()
+
+            async def zadanie(
+                katalog_projektu=katalog_projektu, wzor_json=wzor_json, katalog_muzyki=katalog_muzyki,
+                nakladka=nakladka, plansza=plansza, znak=znak, zapowiedz=zapowiedz,
+            ) -> None:
+                await renderuj_w_tle(
+                    bot, konf.wlasciciel_id, katalog_projektu, wzor_json, katalog_muzyki, konf, zapowiedz,
+                    nakladka, plansza, znak,
+                )
+
+            await kolejka_obiekt.dodaj(zadanie)
+            try:
+                await bezpiecznie_wyslij(
+                    bot, konf.wlasciciel_id, f"Wznawiam montaż projektu {katalog_projektu.name} po restarcie.",
+                )
+            finally:
+                zapowiedz.set()
+
+    katalog_wzorow = konf.katalog_danych / "wzory"
+    if katalog_wzorow.is_dir():
+        for katalog_wzoru in sorted(katalog for katalog in katalog_wzorow.iterdir() if katalog.is_dir()):
+            if (katalog_wzoru / "wzor.json").is_file() or (katalog_wzoru / "blad.txt").is_file():
+                continue
+            zrodla = sorted(katalog_wzoru.glob("zrodlo.*"))
+            if not zrodla:
+                continue
+            zrodlo = zrodla[0]
+            wzor_json = katalog_wzoru / "wzor.json"
+            zapowiedz = asyncio.Event()
+
+            async def zadanie(zrodlo=zrodlo, wzor_json=wzor_json, zapowiedz=zapowiedz) -> None:
+                await analizuj_wzor_w_tle(bot, konf.wlasciciel_id, zrodlo, wzor_json, zapowiedz)
+
+            await kolejka_obiekt.dodaj(zadanie)
+            try:
+                await bezpiecznie_wyslij(
+                    bot, konf.wlasciciel_id, f"Wznawiam analizę wzoru {katalog_wzoru.name} po restarcie.",
+                )
+            finally:
+                zapowiedz.set()
+
+
 def zbuduj_sesje(konf: Konfiguracja) -> AiohttpSession | None:
     if not konf.telegram_api_url:
         return None
@@ -773,6 +849,7 @@ async def uruchom_bota(konf: Konfiguracja) -> None:
     kolejka_obiekt.start()
     dyspozytor = utworz_dispatcher(konf, kolejka_obiekt)
     await bot.set_my_commands([BotCommand(command=nazwa, description=opis) for nazwa, opis in komunikaty.KOMENDY])
+    await wznow_po_starcie(bot, konf, kolejka_obiekt)
     await dyspozytor.start_polling(bot)
 
 

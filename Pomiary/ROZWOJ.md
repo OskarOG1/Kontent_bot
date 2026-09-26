@@ -62,6 +62,18 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-26 (zadanie 9.1: wznowienie po restarcie, gałąź `fabryka`, Sonnet)
+- Stan wejściowy sprawdzony: `main` miał tylko 9.5 do 9.9, brakowało commita `tekst: akcent na całą szerokość i wjazd poza kadr` (9.10) wymaganego przez „Stan wejściowy” w planie. PR #18 (`akcent`) scalony do `main` (merge commit) przed rozpoczęciem, zgodnie z decyzją właściciela w tej sesji. Gałąź `fabryka` utworzona od zaktualizowanego `main`.
+- `bot.wznow_po_starcie(bot, konf, kolejka_obiekt)`, wołane w `uruchom_bota` po `set_my_commands`, przed `start_polling`:
+  - projekty w `dane/projekty/*` ze stanem `w_kolejce` albo `renderowanie` (posortowane po nazwie katalogu) wracają do stanu `w_kolejce`, dostają jedno zadanie w kolejce (ten sam `renderuj_w_tle` co `/gotowe`, z nakładką/planszą/znakiem odczytanymi na nowo z `magazyn.plik_zasobu` i pliku znaku) i wiadomość „Wznawiam montaż projektu <id> po restarcie.” na czat `konf.wlasciciel_id`. Projekt bez `wzor_id` albo z brakującym `wzor.json` jest pomijany (nie ma jak go domontować);
+  - katalogi wzorów z `zrodlo.*`, bez `wzor.json` i bez `blad.txt` wracają do analizy z wiadomością „Wznawiam analizę wzoru <id> po restarcie.”.
+- `renderuj_w_tle(bot, chat_id, ...)` i `analizuj_wzor_w_tle(bot, chat_id, ...)` zamiast `message`: wysyłka przez `bot.send_message`/`bot.send_document`. Nowy `bezpiecznie_wyslij(bot, chat_id, tekst)` zastępuje `bezpiecznie_odpisz(message, tekst)`. Wywołania z `obsluz_cmd_gotowe` i `obsluz_wzor_plik` przekazują `message.bot, message.chat.id`.
+- Nieudana analiza (timeout albo kod różny od 0) zapisuje `blad.txt` w katalogu wzoru przez nowy `zapisz_blad_wzoru(katalog_wzoru, opis)`, żeby `wznow_po_starcie` nie próbował jej w kółko.
+- `render.renderuj`: `katalog_pracy` jest usuwany (`shutil.rmtree`) na starcie, jeśli już istnieje, zanim powstanie na nowo. Pozostałość przerwanego przebiegu (np. plik pod nazwą, którą render chce nadać segmentowi) już nie psuje kolejnego montażu.
+- Nowy plik `tests/test_fabryka.py` (7 testów): projekt `renderowanie`/`w_kolejce` wraca do kolejki z jedną wiadomością, projekt `gotowy` nietknięty, wzór bez `wzor.json` wraca do analizy a z `blad.txt` nie, nieudana analiza zapisuje `blad.txt`, render z katalogiem `praca/segment_000000.mp4` (celowo zrobionym jako katalog, nie plik, żeby wymusić kolizję bez czyszczenia) kończy się sukcesem. Reszta zestawu (dostosowana do `bot`/`chat_id` pośrednio, bo testy w `test_bot.py` wołają przez dyspozytor, nie bezpośrednio funkcje) bez zmian w treści.
+- `python -m pytest -q`: 290 z 290 w 297 s.
+- Commit `bot: wznowienie po restarcie`.
+
 ### 2026-09-26 (edit pokazowy na wzór `0923` dla właściciela, Opus)
 - Prośba właściciela: edit na wzór najnowszego wzoru z efektami, z dużą liczbą materiałów, inny niż wzór i niż poprzednie testy. Montaż lokalny kodem z gałęzi `akcent`, CLI jak w bocie.
 - Materiały: 17 z biblioteki `dane/`, bez tych z poprzednich testów. Wzór `0923` ma 18 ujęć, więc więcej się nie zmieści. Na otwarcie czapka przed Koloseum, przed dropem czapka przed wieżą Eiffla. Klipy przycięte ręcznie do 6 s dobrych fragmentów (Ferrari w Dolomitach, „Kingdom of Heaven”, „The King”, F1, Kraków). `slowa` „europe be like POLAND”, `pionowo` „1993 supply made in poland”, flaga jako nakładka, plansza `06164aa4…` (czapka), znak wodny, siła koloru 0,6.
