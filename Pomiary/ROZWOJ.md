@@ -62,6 +62,15 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-26 (edit pokazowy na wzór `0923` dla właściciela, Opus)
+- Prośba właściciela: edit na wzór najnowszego wzoru z efektami, z dużą liczbą materiałów, inny niż wzór i niż poprzednie testy. Montaż lokalny kodem z gałęzi `akcent`, CLI jak w bocie.
+- Materiały: 17 z biblioteki `dane/`, bez tych z poprzednich testów. Wzór `0923` ma 18 ujęć, więc więcej się nie zmieści. Na otwarcie czapka przed Koloseum, przed dropem czapka przed wieżą Eiffla. Klipy przycięte ręcznie do 6 s dobrych fragmentów (Ferrari w Dolomitach, „Kingdom of Heaven”, „The King”, F1, Kraków). `slowa` „europe be like POLAND”, `pionowo` „1993 supply made in poland”, flaga jako nakładka, plansza `06164aa4…` (czapka), znak wodny, siła koloru 0,6.
+- Wynik: kod 0, render 105 s, film 26,2 s, 18 ujęć, 17 materiałów, muzyka dobrana po tempie 130,8 BPM.
+- Wnioski na później:
+  - klipy z filmów mają czarne pasy kinowe, które zostają w kadrze 9:16 (tu przycięte ręcznie `cropdetect`). Bot mógłby sam wykrywać i ucinać pasy w klipach;
+  - flaga z kryciem 50% leży na całym montażu, więc wszystko po dropie jest niebieskie. We wzorze `0923` flaga trwa około 2 s po dropie. Długość nakładki brana ze wzoru albo ustawiana osobno byłaby mocno widoczną poprawką;
+  - pierwsze ujęcie z klipu zaczyna się od początku nagrania, więc długie filmy trzeba przycinać przed wysłaniem.
+
 ### 2026-09-26 (odbiór 9.10, materiały na serwerze, plan 9.1 do 9.4, Opus)
 - **Odbiór 9.10: OK.**
   - Testy: 284 z 284 w 172 s.
@@ -812,4 +821,4 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 2. Gałąź `akcent` (9.10 i plan 9.1 do 9.4): PR, scalenie, `wdroz.ps1`. Potem 9.1 do 9.4 na gałęzi `fabryka` z promptem z nagłówka `PLAN_EDITY_9_FABRYKA.md`.
 3. Przy okazji wdrożenia: `docker stats` w trakcie montażu. Gdy szczyt zostaje poniżej 2 GB, limit pamięci wraca z 5g do 3g.
 4. Właściciel: własny znak wodny przez `/znak` (PNG z przezroczystością), jeśli ma być inny niż plik z `dane/promocyjne/`; pliki `scratch_*` z katalogu głównego repo do usunięcia.
-5. Pomysły na później, bez planu: długość nakładki brana ze wzoru (w `0923` flaga trwa około 2 s po dropie); krycie flagi niżej niż 50%, jeśli na telefonie wyjdzie za ciężko.
+5. Pomysły na później, bez planu: długość nakładki brana ze wzoru (w `0923` flaga trwa około 2 s po dropie, a dziś leży na całym montażu i zabarwia go na niebiesko); automatyczne ucinanie czarnych pasów kinowych w klipach (`cropdetect`); krycie flagi niżej niż 50%, jeśli na telefonie wyjdzie za ciężko.
