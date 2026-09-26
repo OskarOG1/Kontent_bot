@@ -13,7 +13,9 @@ Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym
 | 4 muzyka | kod gotowy na gałęzi `muzyka`, 2026-09-23. Testy 144 z 144, pomiar A/B/C w progach, arkusze D powstały. Tryb `dzwiek_wzoru` wyłączony decyzją właściciela (dziennik zadania 4.2 i 4.4): `wybierz_utwor` zawsze idzie po tempie. Scalona w PR #7 (`dc46f0b`) bez odbioru oceniającego. Zadanie 4.5 (pamięć analizy utworu) wykonane 2026-09-24 na gałęzi `pamiec`: testy 189 z 189, pomiar A i B w progach (szczyt analizy najdłuższego utworu 727,9 MB, szczyt renderu 737,5 MB). Wdrożona 2026-09-24. Test na serwerze: montaż z pustym indeksem (6 utworów do przeliczenia) kończy się kodem 0 w 190 s, szczyt renderu 981 MB, szczyt kontenera 1567 MB przy limicie 5 GB (wcześniej kod -9 przy 2,96 GB) |
 | 8 nakładka | scalona w PR #9 i #10 (2026-09-24), wdrożona. Testy 187 z 187 (190 s). Odbiór ponowny 2026-09-24 (Opus): OK. Pomiar A 5 z 5 wzorów w granicy 0,5 s (maks 0,1 s), arkusze C poprawne (hak czysty, nakładka od dropu, plansza bez nakładki i bez znaku, znak wodny jak w `0914`). Pomiar B niewiarygodny (narzut ujemny), zasada czasu procesora dopisana do bloku WSPÓLNE. Test ręczny: kod -9 przez brak pamięci w analizie utworów z części 4, nie przez nakładkę (znany problem 9) |
 | 5 kolor | kod gotowy na gałęzi `kolor`, 2026-09-24. Testy 214 z 214 (225 s). Pomiar A i B w progach (ΔE przy sile 0,6 mniejsze niż przy 0 w każdej sekcji wszystkich 5 prawdziwych wzorów), arkusze C (15) powstały. Narzut renderu 44 do 112% (bez ustalonego progu, do decyzji właściciela). Czas próbkowania „niepewny" (rozrzut przebiegów bazowych nad progiem 20%, na jednym, największym wzorze). Odbiór 2026-09-24 (Opus): poprawki w zadaniu 5.5 (klip krótszy od ujęcia wywraca montaż, wzór z jednym ujęciem, ciche nieudane próbkowanie). Siła domyślna 0,6 potwierdzona na arkuszach. Bez wdrożenia. Scalona w PR #12, wdrożona 2026-09-24. Zadanie 5.6 (niebo bez przebarwienia) scalone w PR #13 i wdrożone 2026-09-25, pełny pomiar po nim zaliczony |
-| 9 fabryka | zadania 9.5 do 9.9 scalone (PR #14, #17) i wdrożone. Zadanie 9.10 (akcent na całą szerokość) na gałęzi `akcent`: testy 284 z 284, odbiór OK 2026-09-26. 9.1 do 9.4 do zrobienia (plan poprawiony 2026-09-26) |
+| 9 fabryka | 9.5 do 9.10 scalone (PR #14, #17, #18) i wdrożone. 9.1 do 9.4 (restart, `/wzory`, warianty, `/ponow`, pomiar) w PR #20: testy 323 z 323, odbiór OK 2026-09-26. Bez wdrożenia |
+| 10 dynamika | plan w PR #19 (2026-09-26), prototyp Opusa zrobiony poza repo. Do zrobienia po scaleniu #20 |
+| 11 reżyser AI | plan w PR #19 (OpenRouter, Claude Opus 5.5). Do zrobienia po części 10. Od właściciela: `OPENROUTER_API_KEY` i `MODEL_AI` w `.env` |
 | 6 tekst | kod gotowy na gałęzi `tekst`, 2026-09-25. Testy 251 z 251 (311 s). Pomiar: najwyżej 20 do 27 linii w haku prawdziwych wzorów, narzut procesora 24% (bez progu), arkusze dla 5 wzorów. Odbiór 2026-09-25 (Opus): OK z trzema drobnymi poprawkami, czcionka do akceptacji właściciela. Bez PR i bez wdrożenia. Czcionka szeryfowa zaakceptowana, scalona w PR #15 i wdrożona 2026-09-25. Test lokalny w warunkach produkcji OK (2026-09-25) |
 
 Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`). Wdrożenie na serwer nadal przez `wdroz.ps1` (część 7).
@@ -61,6 +63,28 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 - Wyniki (`outputs/`), dane (`dane/`) i `.env` są poza gitem. Katalog `Pomiary/` od 2026-09-23 jest w repozytorium (decyzja właściciela), więc zmiany planów i dziennika trzeba commitować.
 
 ## Dziennik
+
+### 2026-09-26 (odbiór 9.1 do 9.4, prototyp dynamiki, plany części 10 i 11, Opus)
+- **Odbiór 9.1 do 9.4: OK.** Testy: 323 z 323 w 307 s.
+- Pomiar `measure_fabryka.py`:
+  - A: `uloz_wariant` powtarzalny w 100 z 100 prób, średni udział innych materiałów niż w wariancie 0 wynosi 83% (próg 50%);
+  - B: 2,0 do 2,3 s renderu na sekundę wyniku, tylko raport;
+  - C: trzy arkusze na `0914` mają ten sam hak, a resztę materiałów w innej kolejności.
+- **Zgodność ze starymi projektami:** `projekt.json` ma teraz listę `zadania` zamiast pojedynczych pól. Na serwerze są 4 stare projekty, wszystkie zakończone (2 `gotowy`, 2 `blad`). Wznowienie czyta tylko `zadania` (`get("zadania") or []`), więc ich nie ruszy. `/ponow` buduje zadania od nowa, więc działa także na starym projekcie.
+- Sonnet przed startem 9.1 scalił PR #18 (`akcent`) sam, powołując się na decyzję właściciela w swojej sesji. Zapisuję do wiadomości.
+- **Prototyp dynamiki** (kopia kodu poza repo, ten sam edit na `0923`, 32 materiały w projekcie):
+  - wynik: 25 ujęć zamiast 18, 22 materiały zamiast 17, render 146 s;
+  - zmiany: zdjęcia co uderzenie, klipy od 2 do 3,2 s, uderzenie zoomem na cięciach, błysk na klipach, błysk i wstrząs na dropie, kolaż wycinków wskakujących w rytmie na co drugim klipie, flaga (`krycie`) cała w kadrze i przez 2,5 s;
+  - uwagi właściciela, które do tego prowadziły:
+    - „zbyt wolno się zmieniają klatki, te edity muszą być mocno dopaminowe”;
+    - „nie ma w tym przejść żadnych”;
+    - „gwiazdki wylatują poza ekran”;
+    - „powinno być kilka zdjęć naraz” (jak w `0923`, gdzie wycinki wskakują na tło);
+  - w prototypie wycinki nachodziły na słowa w rytmie, co plan 10 wyklucza.
+- **Plany części 10 (dynamika) i 11 (reżyser i krytyk AI) w PR #19.**
+  - Część 11 idzie przez OpenRouter (decyzja właściciela), a zalecany model to Claude Opus 5.5.
+  - Właściciel dopisuje do `.env` `OPENROUTER_API_KEY` i `MODEL_AI` z nazwą modelu z OpenRoutera.
+  - W mapie decyzje 23 (efekty na cięciach w zakresie) i 24 (reżyser AI).
 
 ### 2026-09-26 (zadanie 9.4: pomiar fabryki, gałąź `fabryka`, Sonnet)
 - Nowy `Pomiary/measure_fabryka.py`, wynik w `outputs/pomiar_fabryka.json`, wzorowany na `measure_muzyka.py` (sekcje, zapis po każdej, cache `outputs/wzor_<id>.json`). `render.uruchom_ffmpeg` podmieniony w całym pomiarze na wersję z `subprocess.run(..., timeout=900)`, jak w `measure_rytm.py`.
@@ -865,8 +889,13 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Następne kroki
 
-1. Część 6 wdrożona i sprawdzona lokalnie. Przy pierwszym prawdziwym editcie z napisami: czytelność na telefonie i zbieranie linii w `/nowy`.
-2. Gałąź `akcent` (9.10 i plan 9.1 do 9.4): PR, scalenie, `wdroz.ps1`. Potem 9.1 do 9.4 na gałęzi `fabryka` z promptem z nagłówka `PLAN_EDITY_9_FABRYKA.md`.
-3. Przy okazji wdrożenia: `docker stats` w trakcie montażu. Gdy szczyt zostaje poniżej 2 GB, limit pamięci wraca z 5g do 3g.
-4. Właściciel: własny znak wodny przez `/znak` (PNG z przezroczystością), jeśli ma być inny niż plik z `dane/promocyjne/`; pliki `scratch_*` z katalogu głównego repo do usunięcia.
-5. Pomysły na później, bez planu: długość nakładki brana ze wzoru (w `0923` flaga trwa około 2 s po dropie, a dziś leży na całym montażu i zabarwia go na niebiesko); automatyczne ucinanie czarnych pasów kinowych w klipach (`cropdetect`); krycie flagi niżej niż 50%, jeśli na telefonie wyjdzie za ciężko.
+1. Scalić PR #20 (`fabryka`) i #19 (plany 10 i 11), potem `wdroz.ps1`. Test na Telegramie:
+   - `/wzory`: 5 wzorów z nazwami, a aktywny `0915`;
+   - `/gotowe 3`;
+   - `/ponow wszystkie`;
+   - restart kontenera w trakcie montażu (`docker compose restart bot`).
+2. Część 10 (dynamika) na gałęzi `dynamika`, prompt z nagłówka `PLAN_EDITY_10_DYNAMIKA.md`.
+3. Część 11 (reżyser AI) po części 10. Właściciel: `OPENROUTER_API_KEY` i `MODEL_AI` w `.env` na serwerze i lokalnie.
+4. Przy okazji wdrożenia: `docker stats` w trakcie montażu. Gdy szczyt zostaje poniżej 2 GB, limit pamięci wraca z 5g do 3g.
+5. Właściciel: własny znak wodny przez `/znak` (PNG z przezroczystością), jeśli ma być inny niż plik z `dane/promocyjne/`.
+6. Pomysły na później, bez planu: automatyczne ucinanie czarnych pasów kinowych w klipach (`cropdetect`); fragment klipu wybierany z jego środka zamiast od początku (w części 11 zrobi to reżyser).
