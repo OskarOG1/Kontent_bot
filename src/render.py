@@ -46,6 +46,13 @@ TEMPO_ZDJECIA_MIN_S = 0.30
 TEMPO_KLIPU_MIN_S = 2.0
 TEMPO_KLIPU_MAX_S = 3.2
 DLUGOSC_WSTAWKI_S = 3.5
+SILA_UDERZENIA_ZOOM = 0.12
+KLATEK_UDERZENIA_ZOOM = 5
+SILA_NAJAZDU = 0.35
+KLATEK_NAJAZDU = 6
+KLATEK_WSTRZASU = 15
+FILTR_SMUGI = "gblur=sigma=1:sigmaV=60:enable='lt(n,4)'"
+KOTWICA_ZOOM = "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
 
 
 def uruchom_ffmpeg(argumenty: list[str], katalog: Path | None = None) -> None:
@@ -86,31 +93,71 @@ def przygotuj_zdjecie(sciezka, katalog_pracy: Path, indeks: int, szerokosc: int,
     return wyjscie
 
 
-def wyrazenie_zoom(numer_ujecia: int, liczba_klatek: int) -> str:
+def wyrazenie_zoom(numer_ujecia: int, liczba_klatek: int, uderzenie: bool = False) -> str:
     if liczba_klatek <= 1:
         krok = 0.0
     else:
         krok = (ZOOM_MAKSYMALNY - 1.0) / (liczba_klatek - 1)
+    if not uderzenie:
+        if numer_ujecia % 2 == 0:
+            return f"min(zoom+{krok:.8f},{ZOOM_MAKSYMALNY})"
+        return f"if(eq(on,0),{ZOOM_MAKSYMALNY},max(zoom-{krok:.8f},1.0))"
     if numer_ujecia % 2 == 0:
-        return f"min(zoom+{krok:.8f},{ZOOM_MAKSYMALNY})"
-    return f"if(eq(on,0),{ZOOM_MAKSYMALNY},max(zoom-{krok:.8f},1.0))"
+        baza = f"(1+{krok:.8f}*on)"
+    else:
+        baza = f"({ZOOM_MAKSYMALNY}-{krok:.8f}*on)"
+    return f"{baza}*(1+{SILA_UDERZENIA_ZOOM}*pow(max(0,1-on/{KLATEK_UDERZENIA_ZOOM}),2))"
+
+
+def filtr_wstrzasu(szerokosc: int, wysokosc: int) -> str:
+    return (
+        f"scale=trunc(iw*1.08/2)*2:trunc(ih*1.08/2)*2,"
+        f"crop={szerokosc}:{wysokosc}:"
+        f"x='(iw-ow)/2+((iw-ow)/2)*sin(n*2.1)*max(0,1-n/{KLATEK_WSTRZASU})':"
+        f"y='(ih-oh)/2+((ih-oh)/2)*cos(n*1.7)*max(0,1-n/{KLATEK_WSTRZASU})'"
+    )
+
+
+def efekt_ujecia(ujecie: dict, indeks: int, klatka_dropu: int | None, licznik_zdjec_montazu: int) -> dict:
+    if indeks < 0:
+        return {"uderzenie": False, "blysk_s": 0.0, "wstrzas": False, "przejscie": "najazd"}
+    na_dropie = klatka_dropu is not None and ujecie["klatka_od"] == klatka_dropu
+    if na_dropie:
+        blysk_s, wstrzas = 0.30, True
+    elif ujecie["typ"] == "klip":
+        blysk_s, wstrzas = 0.10, False
+    else:
+        blysk_s, wstrzas = 0.0, False
+    przejscie = "brak"
+    po_dropie = klatka_dropu is not None and ujecie["klatka_od"] > klatka_dropu
+    if not na_dropie and ujecie["typ"] == "zdjecie" and po_dropie and licznik_zdjec_montazu % 3 == 0:
+        przejscie = "smuga"
+    return {"uderzenie": True, "blysk_s": blysk_s, "wstrzas": wstrzas, "przejscie": przejscie}
 
 
 def segment_zdjecia(
     sciezka_przygotowana: Path, wyjscie: Path, numer_ujecia: int, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int,
     lut_sciezka: str | None = None, katalog: Path | None = None,
+    uderzenie: bool = False, blysk_s: float = 0.0, wstrzas: bool = False, przejscie: str = "brak",
 ) -> None:
     szerokosc_robocza = szerokosc * MNOZNIK_ROBOCZY_ZOOM
     wysokosc_robocza = wysokosc * MNOZNIK_ROBOCZY_ZOOM
-    wyrazenie = wyrazenie_zoom(numer_ujecia, liczba_klatek)
+    wyrazenie = wyrazenie_zoom(numer_ujecia, liczba_klatek, uderzenie=uderzenie)
+    kotwica = f":{KOTWICA_ZOOM}" if uderzenie else ""
     filtr = (
         f"scale={szerokosc_robocza}:{wysokosc_robocza}:force_original_aspect_ratio=increase,"
         f"crop={szerokosc_robocza}:{wysokosc_robocza},"
-        f"zoompan=z='{wyrazenie}':d=1:s={szerokosc_robocza}x{wysokosc_robocza}:fps={fps},"
+        f"zoompan=z='{wyrazenie}'{kotwica}:d=1:s={szerokosc_robocza}x{wysokosc_robocza}:fps={fps},"
         f"scale={szerokosc}:{wysokosc}:flags=lanczos"
     )
     if lut_sciezka is not None:
         filtr += f",lut3d={lut_sciezka}"
+    if wstrzas:
+        filtr += f",{filtr_wstrzasu(szerokosc, wysokosc)}"
+    if przejscie == "smuga":
+        filtr += f",{FILTR_SMUGI}"
+    if blysk_s > 0:
+        filtr += f",fade=t=in:st=0:d={blysk_s}:color=white"
     filtr += ",setsar=1"
     uruchom_ffmpeg([
         "-loop", "1", "-i", str(sciezka_przygotowana),
@@ -125,6 +172,7 @@ def segment_zdjecia(
 def segment_klipu(
     sciezka_zrodlowa, wyjscie: Path, start_s: float, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int,
     lut_sciezka: str | None = None, katalog: Path | None = None,
+    uderzenie: bool = False, blysk_s: float = 0.0, wstrzas: bool = False, przejscie: str = "brak",
 ) -> None:
     filtr = (
         f"scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,"
@@ -132,8 +180,17 @@ def segment_klipu(
         f"fps={fps},"
         f"tpad=stop_mode=clone:stop=-1"
     )
+    if uderzenie:
+        wyrazenie = f"(1+{SILA_UDERZENIA_ZOOM}*pow(max(0,1-on/{KLATEK_UDERZENIA_ZOOM}),2))"
+        filtr += f",zoompan=z='{wyrazenie}':{KOTWICA_ZOOM}:d=1:s={szerokosc}x{wysokosc}:fps={fps}"
     if lut_sciezka is not None:
         filtr += f",lut3d={lut_sciezka}"
+    if wstrzas:
+        filtr += f",{filtr_wstrzasu(szerokosc, wysokosc)}"
+    if przejscie == "smuga":
+        filtr += f",{FILTR_SMUGI}"
+    if blysk_s > 0:
+        filtr += f",fade=t=in:st=0:d={blysk_s}:color=white"
     filtr += ",setsar=1"
     uruchom_ffmpeg([
         "-ss", f"{start_s:.6f}", "-i", str(sciezka_zrodlowa),
@@ -193,7 +250,9 @@ def statystyki_klipu(sciezka_zrodlowa, start_s: float, dlugosc_s: float, czas_kl
     return kolor.statystyki_obrazu(numpy.stack(klatki))
 
 
-def segment_planszy(sciezka, wyjscie: Path, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int) -> None:
+def segment_planszy(
+    sciezka, wyjscie: Path, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int, przejscie: str = "brak",
+) -> None:
     sciezka = Path(sciezka)
     wyjscie = Path(wyjscie)
     jest_zdjeciem = magazyn.typ_pliku(sciezka.name, None) == "zdjecie"
@@ -201,6 +260,12 @@ def segment_planszy(sciezka, wyjscie: Path, liczba_klatek: int, fps: float, szer
     tlo = f"scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,crop={szerokosc}:{wysokosc},boxblur={PROMIEN_ROZMYCIA_PLANSZY}:2"
     pierwszy_plan = f"scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=decrease,setsar=1"
     ogon = f",fps={fps}"
+    if przejscie == "najazd":
+        wyrazenie = f"(1+{SILA_NAJAZDU}*pow(max(0,1-on/{KLATEK_NAJAZDU}),2))"
+        ogon += (
+            f",zoompan=z='{wyrazenie}':{KOTWICA_ZOOM}:d=1:s={szerokosc}x{wysokosc}:fps={fps},"
+            f"gblur=sigma=18:enable='lt(n,3)'"
+        )
     if not jest_zdjeciem:
         ogon += ",tpad=stop_mode=clone:stop=-1"
     ogon += ",setsar=1[out]"
@@ -1121,12 +1186,19 @@ def renderuj(
     plansza_uzyta = plansza is not None and len(plan["ujecia"]) > 1
     kolorystyka = wzor.get("kolorystyka")
     uzyc_kolor = sila_koloru > 0 and kolorystyka is not None
+    sekcje = wzor.get("sekcje")
+    klatka_dropu = koniec_haka(plan, sekcje) if sekcje and sekcje.get("drop_ujecie") is not None else None
+    licznik_zdjec_montazu = 0
 
     sciezki_segmentow = []
     for indeks, ujecie in enumerate(plan["ujecia"]):
         sciezka_segmentu = katalog_pracy / f"segment_{indeks:06d}.mp4"
         if plansza_uzyta and indeks == len(plan["ujecia"]) - 1:
-            segment_planszy(plansza, sciezka_segmentu, ujecie["liczba_klatek"], fps, szerokosc, wysokosc)
+            efekt = None if bez_dynamiki else efekt_ujecia(ujecie, -1, klatka_dropu, licznik_zdjec_montazu)
+            segment_planszy(
+                plansza, sciezka_segmentu, ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
+                przejscie=efekt["przejscie"] if efekt else "brak",
+            )
         else:
             lut_nazwa = None
             if uzyc_kolor and ujecie["typ"] == "zdjecie" and ma_alfa_z_pil(Path(ujecie["material"])):
@@ -1146,15 +1218,26 @@ def renderuj(
                 lut_nazwa = f"lut_{indeks:06d}.cube"
                 kolor.zapisz_cube(lut, katalog_pracy / lut_nazwa)
             katalog_ffmpeg = katalog_pracy if lut_nazwa is not None else None
+            if not bez_dynamiki and ujecie["typ"] == "zdjecie" and klatka_dropu is not None and ujecie["klatka_od"] > klatka_dropu:
+                licznik_zdjec_montazu += 1
+            efekt = None if bez_dynamiki else efekt_ujecia(ujecie, indeks, klatka_dropu, licznik_zdjec_montazu)
             if ujecie["typ"] == "zdjecie":
                 segment_zdjecia(
                     sciezki_robocze[ujecie["material"]], sciezka_segmentu, indeks, ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
                     lut_sciezka=lut_nazwa, katalog=katalog_ffmpeg,
+                    uderzenie=efekt["uderzenie"] if efekt else False,
+                    blysk_s=efekt["blysk_s"] if efekt else 0.0,
+                    wstrzas=efekt["wstrzas"] if efekt else False,
+                    przejscie=efekt["przejscie"] if efekt else "brak",
                 )
             else:
                 segment_klipu(
                     ujecie["material"], sciezka_segmentu, ujecie["start_w_klipie_s"], ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
                     lut_sciezka=lut_nazwa, katalog=katalog_ffmpeg,
+                    uderzenie=efekt["uderzenie"] if efekt else False,
+                    blysk_s=efekt["blysk_s"] if efekt else 0.0,
+                    wstrzas=efekt["wstrzas"] if efekt else False,
+                    przejscie=efekt["przejscie"] if efekt else "brak",
                 )
         sciezki_segmentow.append(sciezka_segmentu)
 

@@ -50,7 +50,7 @@ def zrenderuj(tmp_path, projekt, wzor, nakladka=None, plansza=None, znak=None, s
     podsumowanie = render.renderuj(
         wzor_json, projekt, utwor, wyjscie,
         szerokosc=szerokosc, wysokosc=wysokosc, fps=fps, limit_mb=50,
-        nakladka=nakladka, plansza=plansza, znak=znak,
+        nakladka=nakladka, plansza=plansza, znak=znak, bez_dynamiki=True,
     )
     return wyjscie, podsumowanie
 
