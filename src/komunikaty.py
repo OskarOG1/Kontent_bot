@@ -13,7 +13,9 @@ POMOC = (
     "Zwykła wiadomość tekstowa w trakcie zbierania to linia napisu w haku editu.\n"
     "/slowa, żeby ustawić słowa w rytmie na dropie (/slowa bez tekstu, żeby je wyczyścić).\n"
     "/pionowo, żeby ustawić pionowy napis pisany literami (/pionowo bez tekstu, żeby go wyczyścić).\n"
-    "/gotowe, żeby zamknąć zbieranie i wysłać projekt do kolejki.\n"
+    "/gotowe, żeby zamknąć zbieranie i wysłać projekt do kolejki (/gotowe 2 do 5 dla kilku wariantów, "
+    "/gotowe wszystkie po jednym na każdy wzór).\n"
+    "/ponow, żeby zmontować ostatni projekt jeszcze raz bez ponownego wysyłania materiałów.\n"
     "/anuluj, żeby porzucić bieżący projekt.\n"
     "/status, żeby sprawdzić stan bota."
 )
@@ -29,6 +31,7 @@ KOMENDY = (
     ("slowa", "Ustaw słowa w rytmie na dropie"),
     ("pionowo", "Ustaw pionowy napis pisany literami"),
     ("gotowe", "Zamknij zbieranie i wyślij do kolejki"),
+    ("ponow", "Zmontuj ostatni projekt jeszcze raz"),
     ("anuluj", "Porzuć bieżący projekt"),
     ("status", "Sprawdź stan bota"),
 )
@@ -208,6 +211,22 @@ def projekt_w_kolejce(zdjecia: int, klipy: int, linie: int, pozycja: int) -> str
 
 def blad_renderu(opis: str) -> str:
     return f"Montaż nie powiódł się: {opis}"
+
+
+GOTOWE_UZYCIE = "Użycie: /gotowe, /gotowe <liczba wariantów od 2 do 5>, albo /gotowe wszystkie."
+
+PONOW_BRAK_PROJEKTU = "Nie ma ostatniego projektu do ponowienia. Użyj /nowy, żeby zacząć nowy."
+
+
+def ponowiony_w_kolejce(liczba_zadan: int, pozycja: int) -> str:
+    baza = f"Montaż wznowiony: {liczba_zadan} zadań w kolejce."
+    if pozycja > 1:
+        return f"{baza} Pozycja w kolejce: {pozycja}."
+    return baza
+
+
+def podsumowanie_wariantu(nazwa: str, wariant: int, dane: dict) -> str:
+    return f"Wzór {nazwa}, wariant {wariant}.\n{podsumowanie_renderu(dane)}"
 
 
 def linia_muzyki(dane_utworu: dict) -> str:

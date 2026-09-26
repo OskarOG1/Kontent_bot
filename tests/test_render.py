@@ -276,6 +276,31 @@ def test_wstawki_kolejnosc_rundami_po_materialach():
     ]
 
 
+def test_uloz_wariant_zero_to_tozsamosc():
+    materialy = [{"plik": f"m{i}.jpg"} for i in range(6)]
+    assert render.uloz_wariant(materialy, 0) == materialy
+
+
+def test_uloz_wariant_pierwszy_material_zawsze_pierwszy():
+    materialy = [{"plik": f"m{i}.jpg"} for i in range(6)]
+    for wariant in range(1, 6):
+        wynik = render.uloz_wariant(materialy, wariant)
+        assert wynik[0] == materialy[0]
+        assert sorted(m["plik"] for m in wynik) == sorted(m["plik"] for m in materialy)
+
+
+def test_uloz_wariant_ten_sam_wariant_daje_te_sama_kolejnosc():
+    materialy = [{"plik": f"m{i}.jpg"} for i in range(8)]
+    assert render.uloz_wariant(materialy, 3) == render.uloz_wariant(materialy, 3)
+
+
+def test_uloz_wariant_rozne_warianty_daja_rozne_kolejnosci():
+    materialy = [{"plik": f"m{i}.jpg"} for i in range(8)]
+    wynik1 = render.uloz_wariant(materialy, 1)
+    wynik2 = render.uloz_wariant(materialy, 2)
+    assert wynik1 != wynik2
+
+
 def test_plan_ujec_start_w_klipie_niezalezny_od_dlugosci_ujecia():
     materialy = [{"plik": "a.mp4", "typ": "klip", "message_id": 1, "od_s": 3.0}]
     wzor = {"ciecia_uderzenia": [], "ciecia_s": [0.0], "zrodlo": {"czas_s": 5.0}}
@@ -577,6 +602,27 @@ def test_cli_sukces(tmp_path):
     assert wynik.returncode == 0
     assert wyjscie.exists()
     assert wyjscie.with_suffix(".json").exists()
+
+
+def test_cli_wariant_trafia_do_podsumowania(tmp_path):
+    def dodaj(katalog):
+        for i in range(4):
+            generuj.zdjecie_testowe(katalog / f"000000000{i}_m.jpg", rozmiar=(800, 600), kolor=generuj.kolor_ujecia(i))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_syntetyczny_4_ciecia()), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=128, czas_s=6.0, pierwsze_uderzenie_s=0.3)
+    wyjscie = tmp_path / "wynik.mp4"
+
+    kod = render.glowna([
+        "--wzor", str(wzor_json), "--projekt", str(projekt), "--utwor", str(utwor), "--wyjscie", str(wyjscie),
+        "--szerokosc", "270", "--wysokosc", "480", "--fps", "30", "--wariant", "2",
+    ])
+    assert kod == 0
+    podsumowanie = json.loads(wyjscie.with_suffix(".json").read_text(encoding="utf-8"))
+    assert podsumowanie["wariant"] == 2
 
 
 def test_cli_blad_jedna_linia_na_stderr(tmp_path, capsys):

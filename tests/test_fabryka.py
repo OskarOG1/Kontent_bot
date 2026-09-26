@@ -35,9 +35,10 @@ def zapisz_wzor(konf, wzor_id: str) -> None:
 
 def zapisz_projekt(konf, projekt_id: str, stan: str, wzor_id: str | None = None) -> None:
     katalog_projektu = konf.katalog_danych / "projekty" / projekt_id
+    zadania = [{"wzor_id": wzor_id, "wariant": 0, "plik": "wynik.mp4", "stan": stan, "wynik": None, "blad": None}]
     magazyn.zapisz_projekt(
         katalog_projektu,
-        {"id": projekt_id, "stan": stan, "teksty": [], "wzor_id": wzor_id, "wynik": None, "blad": None},
+        {"id": projekt_id, "stan": stan, "teksty": [], "zadania": zadania},
     )
 
 
@@ -54,7 +55,8 @@ async def test_projekt_renderowanie_wraca_do_kolejki_z_jedna_wiadomoscia(konf):
     assert kolejka_obiekt.dlugosc() == 1
     assert teksty_wyslane(sesja) == ["Wznawiam montaż projektu p1 po restarcie."]
     dane = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / "p1")
-    assert dane["stan"] == "w_kolejce"
+    assert dane["stan"] == "renderowanie"
+    assert dane["zadania"][0]["stan"] == "w_kolejce"
 
 
 async def test_projekt_w_kolejce_tez_wraca(konf):
@@ -83,6 +85,28 @@ async def test_projekt_gotowy_pozostaje_nietkniety(konf):
     assert teksty_wyslane(sesja) == []
     dane = magazyn.wczytaj_projekt(konf.katalog_danych / "projekty" / "p1")
     assert dane["stan"] == "gotowy"
+
+
+async def test_wznowienie_ponawia_tylko_niedokonczone_zadania(konf):
+    zapisz_wzor(konf, "w1")
+    katalog_projektu = konf.katalog_danych / "projekty" / "p1"
+    zadania = [
+        {"wzor_id": "w1", "wariant": 0, "plik": "wynik_w1_0.mp4", "stan": "gotowy", "wynik": "wynik_w1_0.mp4", "blad": None},
+        {"wzor_id": "w1", "wariant": 1, "plik": "wynik_w1_1.mp4", "stan": "blad", "wynik": None, "blad": "coś nie wyszło"},
+        {"wzor_id": "w1", "wariant": 2, "plik": "wynik_w1_2.mp4", "stan": "w_kolejce", "wynik": None, "blad": None},
+    ]
+    magazyn.zapisz_projekt(katalog_projektu, {"id": "p1", "stan": "renderowanie", "teksty": [], "zadania": zadania})
+
+    kolejka_obiekt = kolejka.Kolejka()
+    bot_obiekt = zbuduj_bota()
+
+    await bot.wznow_po_starcie(bot_obiekt, konf, kolejka_obiekt)
+
+    assert kolejka_obiekt.dlugosc() == 1
+    dane = magazyn.wczytaj_projekt(katalog_projektu)
+    assert dane["zadania"][0]["stan"] == "gotowy"
+    assert dane["zadania"][1]["stan"] == "blad"
+    assert dane["zadania"][2]["stan"] == "w_kolejce"
 
 
 async def test_wzor_bez_wzor_json_wraca_do_analizy_a_z_blad_txt_nie(konf):

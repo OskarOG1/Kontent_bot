@@ -1,5 +1,6 @@
 import argparse
 import json
+import random
 import statistics
 import shutil
 import subprocess
@@ -340,6 +341,14 @@ def znajdz_start_uderzenia(c0: float, uderzenia: list[float]) -> int:
     while analyze.czas_z_pozycji(s + c0, uderzenia) < 0:
         s += 1
     return s
+
+
+def uloz_wariant(materialy: list, wariant: int) -> list:
+    if wariant == 0 or len(materialy) <= 1:
+        return list(materialy)
+    hak, *reszta = materialy
+    random.Random(wariant).shuffle(reszta)
+    return [hak] + reszta
 
 
 def wstawki(materialy: list[dict], dlugosc_wstawki_s: float, minimum_s: float = 0.3) -> list[dict]:
@@ -909,6 +918,7 @@ def renderuj(
     sila_koloru: float = 0.6,
     styl_tekstu: str = "szeryf",
     pozycja_tekstu: str = "dol",
+    wariant: int = 0,
 ) -> dict:
     czas_startu = time.time()
     wzor_json = Path(wzor_json).resolve()
@@ -949,6 +959,7 @@ def renderuj(
     materialy_pominiete += pominiete_z_przygotowania
     if not dobre:
         raise RuntimeError("Brak dobrego materiału do renderu")
+    dobre = uloz_wariant(dobre, wariant)
 
     material_zastepczy = [{"plik": "zastepczy", "typ": "zdjecie", "message_id": 0}]
     plan_wstepny = plan_ujec(
@@ -1056,6 +1067,7 @@ def renderuj(
     rozmiar_mb = wyjscie.stat().st_size / (1024 * 1024)
 
     podsumowanie = {
+        "wariant": wariant,
         "czas_s": round(plan["liczba_klatek"] / fps, 3),
         "liczba_ujec": len(plan["ujecia"]),
         "materialy_uzyte": materialy_uzyte,
@@ -1108,6 +1120,7 @@ def glowna(argumenty: list[str] | None = None) -> int:
     parser.add_argument("--sila-koloru", type=float, default=0.6)
     parser.add_argument("--styl-tekstu", choices=sorted(tekst.PRESETY), default="szeryf")
     parser.add_argument("--pozycja-tekstu", choices=sorted(tekst.POZYCJE), default="dol")
+    parser.add_argument("--wariant", type=int, default=0)
     ustalone = parser.parse_args(argumenty)
     try:
         renderuj(
@@ -1121,6 +1134,7 @@ def glowna(argumenty: list[str] | None = None) -> int:
             sila_koloru=ustalone.sila_koloru,
             styl_tekstu=ustalone.styl_tekstu,
             pozycja_tekstu=ustalone.pozycja_tekstu,
+            wariant=ustalone.wariant,
         )
     except Exception as blad:
         print(str(blad), file=sys.stderr)

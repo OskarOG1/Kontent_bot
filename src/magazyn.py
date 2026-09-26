@@ -34,12 +34,18 @@ def nowy_projekt(katalog_danych: Path) -> Path:
         "utworzony": teraz().isoformat(timespec="seconds"),
         "stan": "zbieranie",
         "teksty": [],
-        "wzor_id": None,
-        "wynik": None,
-        "blad": None,
+        "zadania": [],
     }
     zapisz_projekt(katalog_projektu, dane)
     return katalog_projektu
+
+
+def stan_z_zadan(zadania: list[dict]) -> str:
+    if any(zadanie["stan"] in ("w_kolejce", "renderowanie") for zadanie in zadania):
+        return "renderowanie"
+    if any(zadanie["stan"] == "gotowy" for zadanie in zadania):
+        return "gotowy"
+    return "blad"
 
 
 def nowy_wzor(katalog_danych: Path) -> Path:

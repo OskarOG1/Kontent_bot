@@ -13,10 +13,25 @@ def test_nowy_projekt_tworzy_projekt_json(tmp_path):
     dane = magazyn.wczytaj_projekt(katalog_projektu)
     assert dane["stan"] == "zbieranie"
     assert dane["teksty"] == []
-    assert dane["wzor_id"] is None
-    assert dane["wynik"] is None
-    assert dane["blad"] is None
+    assert dane["zadania"] == []
     assert (katalog_projektu / "materialy").is_dir()
+
+
+def test_stan_z_zadan_w_kolejce_lub_renderowanie_daje_renderowanie():
+    zadania = [{"stan": "gotowy"}, {"stan": "w_kolejce"}]
+    assert magazyn.stan_z_zadan(zadania) == "renderowanie"
+    zadania = [{"stan": "blad"}, {"stan": "renderowanie"}]
+    assert magazyn.stan_z_zadan(zadania) == "renderowanie"
+
+
+def test_stan_z_zadan_bez_w_toku_z_jednym_gotowym_daje_gotowy():
+    zadania = [{"stan": "blad"}, {"stan": "gotowy"}]
+    assert magazyn.stan_z_zadan(zadania) == "gotowy"
+
+
+def test_stan_z_zadan_wszystkie_zawiodly_daje_blad():
+    zadania = [{"stan": "blad"}, {"stan": "blad"}]
+    assert magazyn.stan_z_zadan(zadania) == "blad"
 
 
 def test_nowy_wzor_tworzy_katalog(tmp_path):
