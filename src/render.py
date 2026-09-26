@@ -53,6 +53,12 @@ KLATEK_NAJAZDU = 6
 KLATEK_WSTRZASU = 15
 FILTR_SMUGI = "gblur=sigma=1:sigmaV=60:enable='lt(n,4)'"
 KOTWICA_ZOOM = "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+UDZIAL_SZEROKOSCI_KOLAZU = 0.55
+UDZIAL_WYSOKOSCI_KOLAZU = 0.36
+POLA_KOLAZU = ((0.30, 0.30), (0.70, 0.47), (0.38, 0.66))
+WSKOK_SKALE_KOLAZU = (0.45, 0.85, 1.12, 1.05)
+LICZBA_WYCINKOW_KOLAZU = 3
+MINIMUM_KLIPU_KOLAZU_S = 1.5
 
 
 def uruchom_ffmpeg(argumenty: list[str], katalog: Path | None = None) -> None:
@@ -173,6 +179,7 @@ def segment_klipu(
     sciezka_zrodlowa, wyjscie: Path, start_s: float, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int,
     lut_sciezka: str | None = None, katalog: Path | None = None,
     uderzenie: bool = False, blysk_s: float = 0.0, wstrzas: bool = False, przejscie: str = "brak",
+    kolaz: Path | None = None,
 ) -> None:
     filtr = (
         f"scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,"
@@ -192,14 +199,27 @@ def segment_klipu(
     if blysk_s > 0:
         filtr += f",fade=t=in:st=0:d={blysk_s}:color=white"
     filtr += ",setsar=1"
-    uruchom_ffmpeg([
-        "-ss", f"{start_s:.6f}", "-i", str(sciezka_zrodlowa),
-        "-vf", filtr,
-        "-frames:v", str(liczba_klatek),
-        "-an",
-        *PARAMETRY_KODOWANIA_SEGMENTU,
-        str(wyjscie),
-    ], katalog=katalog)
+    if kolaz is None:
+        uruchom_ffmpeg([
+            "-ss", f"{start_s:.6f}", "-i", str(sciezka_zrodlowa),
+            "-vf", filtr,
+            "-frames:v", str(liczba_klatek),
+            "-an",
+            *PARAMETRY_KODOWANIA_SEGMENTU,
+            str(wyjscie),
+        ], katalog=katalog)
+    else:
+        filtr_complex = f"[0:v]{filtr}[baza];[1:v]format=rgba[nak];[baza][nak]overlay=format=auto[out]"
+        uruchom_ffmpeg([
+            "-ss", f"{start_s:.6f}", "-i", str(sciezka_zrodlowa),
+            "-i", str(kolaz),
+            "-filter_complex", filtr_complex,
+            "-map", "[out]",
+            "-frames:v", str(liczba_klatek),
+            "-an",
+            *PARAMETRY_KODOWANIA_SEGMENTU,
+            str(wyjscie),
+        ], katalog=katalog)
 
 
 def obraz_do_statystyk(sciezka_przygotowana: Path, szerokosc: int = 270, wysokosc: int = 480) -> numpy.ndarray:
@@ -935,6 +955,68 @@ def materializuj_warstwe(generator_klatek, liczba_klatek: int, fps: float, szero
         raise RuntimeError(f"ffmpeg zakonczyl sie kodem {kod}: {blad}")
 
 
+def kolaz_kwalifikuje(ujecie: dict, numer_klipu: int, klatka_dropu: int | None, okna_slow: list, fps: float) -> bool:
+    if numer_klipu % 2 != 1:
+        return False
+    if ujecie["liczba_klatek"] / fps < MINIMUM_KLIPU_KOLAZU_S:
+        return False
+    if klatka_dropu is not None and ujecie["klatka_od"] == klatka_dropu:
+        return False
+    poczatek = ujecie["klatka_od"]
+    koniec = poczatek + ujecie["liczba_klatek"]
+    for od, do in okna_slow:
+        if poczatek < do and od < koniec:
+            return False
+    return True
+
+
+def wytnij_do_alfa(sciezka: Path):
+    obraz = Image.open(sciezka).convert("RGBA")
+    bbox = obraz.getchannel("A").getbbox()
+    if bbox is not None:
+        obraz = obraz.crop(bbox)
+    return obraz
+
+
+def dopasuj_do_pola_kolazu(obraz, szerokosc: int, wysokosc: int):
+    pole_szerokosc = szerokosc * UDZIAL_SZEROKOSCI_KOLAZU
+    pole_wysokosc = wysokosc * UDZIAL_WYSOKOSCI_KOLAZU
+    skala = min(pole_szerokosc / obraz.width, pole_wysokosc / obraz.height)
+    nowy_rozmiar = (max(1, round(obraz.width * skala)), max(1, round(obraz.height * skala)))
+    return obraz.resize(nowy_rozmiar, Image.LANCZOS)
+
+
+def wybierz_wycinki_kolazu(wycinki_posortowane: list[dict], indeks_puli: int) -> tuple[list[dict], int]:
+    ile = LICZBA_WYCINKOW_KOLAZU
+    wybrane = [wycinki_posortowane[(indeks_puli + i) % len(wycinki_posortowane)] for i in range(ile)]
+    return wybrane, indeks_puli + ile
+
+
+def przygotuj_kolaz(
+    wycinki_kolazu: list[dict], uderzenia_lokalne: list[int], liczba_klatek: int, fps: float,
+    szerokosc: int, wysokosc: int, wyjscie: Path,
+) -> None:
+    obrazy = [dopasuj_do_pola_kolazu(wytnij_do_alfa(Path(w["plik"])), szerokosc, wysokosc) for w in wycinki_kolazu]
+    poczatki = [uderzenia_lokalne[i] if i < len(uderzenia_lokalne) else liczba_klatek for i in range(len(obrazy))]
+    srodki = [(round(POLA_KOLAZU[i][0] * szerokosc), round(POLA_KOLAZU[i][1] * wysokosc)) for i in range(len(obrazy))]
+
+    def klatka_dla(indeks_lokalny: int):
+        platno = Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
+        for i, obraz in enumerate(obrazy):
+            if indeks_lokalny < poczatki[i]:
+                continue
+            przesuniecie = indeks_lokalny - poczatki[i]
+            skala = WSKOK_SKALE_KOLAZU[przesuniecie] if przesuniecie < len(WSKOK_SKALE_KOLAZU) else 1.0
+            szerokosc_klatki = max(1, round(obraz.width * skala))
+            wysokosc_klatki = max(1, round(obraz.height * skala))
+            wersja = obraz.resize((szerokosc_klatki, wysokosc_klatki), Image.LANCZOS)
+            srodek_x, srodek_y = srodki[i]
+            platno.alpha_composite(wersja, (srodek_x - szerokosc_klatki // 2, srodek_y - wysokosc_klatki // 2))
+        return platno
+
+    materializuj_warstwe(klatka_dla, liczba_klatek, fps, szerokosc, wysokosc, wyjscie)
+
+
 def uderzenia_wyniku(uderzenia_utworu: list[float], start_audio_s: float, liczba_klatek: int, fps: float) -> list[int]:
     if uderzenia_utworu:
         wynik = []
@@ -1151,6 +1233,8 @@ def renderuj(
             start_uderzenie=start_uderzenie, przesuniecie_s=przesuniecie_s,
         )
         liczba_wycinkow = 0
+        wycinki = []
+        uderzenia_wyn = []
     else:
         zwykle, wycinki = rozdziel_wycinki(dobre)
         kawalki = wstawki(zwykle, DLUGOSC_WSTAWKI_S)
@@ -1189,6 +1273,11 @@ def renderuj(
     sekcje = wzor.get("sekcje")
     klatka_dropu = koniec_haka(plan, sekcje) if sekcje and sekcje.get("drop_ujecie") is not None else None
     licznik_zdjec_montazu = 0
+    licznik_klipow = 0
+    wycinki_posortowane = sorted(wycinki, key=lambda material: material["message_id"])
+    indeks_puli_kolazu = 0
+    okna_slow = podsumowanie_slow.get("okna", []) if podsumowanie_slow else []
+    podsumowanie_kolazy = []
 
     sciezki_segmentow = []
     for indeks, ujecie in enumerate(plan["ujecia"]):
@@ -1231,6 +1320,17 @@ def renderuj(
                     przejscie=efekt["przejscie"] if efekt else "brak",
                 )
             else:
+                licznik_klipow += 1
+                sciezka_kolazu = None
+                if not bez_dynamiki and wycinki_posortowane and kolaz_kwalifikuje(ujecie, licznik_klipow, klatka_dropu, okna_slow, fps):
+                    wybrane, indeks_puli_kolazu = wybierz_wycinki_kolazu(wycinki_posortowane, indeks_puli_kolazu)
+                    uderzenia_lokalne = [
+                        k - ujecie["klatka_od"] for k in uderzenia_wyn
+                        if ujecie["klatka_od"] < k < ujecie["klatka_od"] + ujecie["liczba_klatek"]
+                    ]
+                    sciezka_kolazu = katalog_pracy / f"kolaz_{indeks:06d}.mov"
+                    przygotuj_kolaz(wybrane, uderzenia_lokalne, ujecie["liczba_klatek"], fps, szerokosc, wysokosc, sciezka_kolazu)
+                    podsumowanie_kolazy.append({"ujecie": indeks, "wycinki": [Path(w["plik"]).name for w in wybrane]})
                 segment_klipu(
                     ujecie["material"], sciezka_segmentu, ujecie["start_w_klipie_s"], ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
                     lut_sciezka=lut_nazwa, katalog=katalog_ffmpeg,
@@ -1238,6 +1338,7 @@ def renderuj(
                     blysk_s=efekt["blysk_s"] if efekt else 0.0,
                     wstrzas=efekt["wstrzas"] if efekt else False,
                     przejscie=efekt["przejscie"] if efekt else "brak",
+                    kolaz=sciezka_kolazu,
                 )
         sciezki_segmentow.append(sciezka_segmentu)
 
@@ -1308,6 +1409,7 @@ def renderuj(
         "slowa": podsumowanie_slow,
         "pionowo": podsumowanie_pionowo,
         "dynamika": podsumowanie_dynamiki,
+        "kolaze": podsumowanie_kolazy,
     }
 
     sciezka_podsumowania = wyjscie.with_suffix(".json")

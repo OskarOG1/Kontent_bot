@@ -418,3 +418,131 @@ def test_renderuj_bez_dynamiki_polecenia_bez_nowych_filtrow(tmp_path, monkeypatc
         assert "fade=t=in" not in polecenie_tekst
         assert "sin(n" not in polecenie_tekst
         assert "on/5" not in polecenie_tekst and "on/6" not in polecenie_tekst
+
+
+def zbuduj_kolaz_na_klipie(tmp_path, uderzenia_lokalne, liczba_klatek=90, fps=30, rozmiar=(270, 480)):
+    szerokosc, wysokosc = rozmiar
+    klip = tmp_path / "klip.mp4"
+    generuj.klip_testowy(klip, czas_s=liczba_klatek / fps, rozmiar=rozmiar, kolor=(0, 255, 0))
+
+    wycinki = []
+    for i in range(3):
+        sciezka = tmp_path / f"wycinek_{i}.png"
+        generuj.zdjecie_kwadrat_na_przezroczystym(sciezka)
+        wycinki.append({"plik": sciezka, "message_id": i})
+
+    kolaz = tmp_path / "kolaz.mov"
+    render.przygotuj_kolaz(wycinki, uderzenia_lokalne, liczba_klatek, fps, szerokosc, wysokosc, kolaz)
+
+    wyjscie = tmp_path / "segment.mp4"
+    render.segment_klipu(klip, wyjscie, start_s=0.0, liczba_klatek=liczba_klatek, fps=fps, szerokosc=szerokosc, wysokosc=wysokosc, kolaz=kolaz)
+    return dekoduj_klatki(wyjscie, tmp_path, "kolaz_seg.raw")
+
+
+def punkt_pola(indeks, rozmiar=(270, 480)):
+    szerokosc, wysokosc = rozmiar
+    udzial_x, udzial_y = render.POLA_KOLAZU[indeks]
+    return round(udzial_y * wysokosc), round(udzial_x * szerokosc)
+
+
+def czy_czerwony(piksel):
+    piksel = piksel.astype(int)
+    return piksel[0] - piksel[1] > 20
+
+
+def test_kolaz_wskakuje_na_uderzeniach_i_zostaje(tmp_path):
+    klatki = zbuduj_kolaz_na_klipie(tmp_path, uderzenia_lokalne=[15, 30, 45, 60, 75])
+
+    y1, x1 = punkt_pola(0)
+    assert not czy_czerwony(klatki[10, y1, x1])
+    assert czy_czerwony(klatki[20, y1, x1])
+
+    for indeks in range(3):
+        y, x = punkt_pola(indeks)
+        assert czy_czerwony(klatki[80, y, x])
+
+
+def test_kolaz_wskok_wieksze_na_szczycie_niz_pozniej(tmp_path):
+    klatki = zbuduj_kolaz_na_klipie(tmp_path, uderzenia_lokalne=[15, 30, 45, 60, 75])
+    y1, x1 = punkt_pola(0)
+    pas = 100
+
+    def liczba_czerwonych(klatka):
+        wycinek = klatka[max(0, y1 - pas):y1 + pas, max(0, x1 - pas):x1 + pas].astype(np.int32)
+        return int(np.count_nonzero((wycinek[..., 0] - wycinek[..., 1]) > 20))
+
+    n2 = liczba_czerwonych(klatki[17])
+    n5 = liczba_czerwonych(klatki[20])
+    assert n2 > n5
+
+
+def test_kolaz_kwalifikuje_co_drugi_klip_bez_dropu_planszy_i_slow():
+    fps = 30
+    ujecie = {"klatka_od": 100, "liczba_klatek": 60}
+
+    assert render.kolaz_kwalifikuje(ujecie, 1, None, [], fps) is True
+    assert render.kolaz_kwalifikuje(ujecie, 2, None, [], fps) is False
+
+    ujecie_krotkie = {"klatka_od": 100, "liczba_klatek": 30}
+    assert render.kolaz_kwalifikuje(ujecie_krotkie, 1, None, [], fps) is False
+
+    assert render.kolaz_kwalifikuje(ujecie, 1, 100, [], fps) is False
+
+    okna_slow = [(90, 130)]
+    assert render.kolaz_kwalifikuje(ujecie, 1, None, okna_slow, fps) is False
+
+    okna_slow_bez_nachodzenia = [(0, 50)]
+    assert render.kolaz_kwalifikuje(ujecie, 1, None, okna_slow_bez_nachodzenia, fps) is True
+
+
+def wzor_dynamika_z_klipami():
+    return {
+        "ciecia_uderzenia": [],
+        "koniec_uderzenia": None,
+        "ciecia_s": [0.0, 6.0],
+        "zrodlo": {"czas_s": 6.5},
+    }
+
+
+def test_renderuj_bez_wycinkow_daje_puste_kolaze(tmp_path):
+    def dodaj(katalog):
+        for i in range(3):
+            generuj.zdjecie_testowe(katalog / f"000000000{i}_m.jpg", rozmiar=(800, 600), kolor=generuj.kolor_ujecia(i))
+        generuj.klip_testowy(katalog / "0000000003_d.mp4", czas_s=3.0, rozmiar=(270, 480))
+        generuj.klip_testowy(katalog / "0000000004_e.mp4", czas_s=3.0, rozmiar=(270, 480))
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_dynamika_z_klipami()), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=180, czas_s=8.0, pierwsze_uderzenie_s=0.1)
+    fps = 30
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50)
+
+    assert podsumowanie["kolaze"] == []
+
+
+def test_renderuj_z_wycinkami_dodaje_kolaz_i_wycinek_nie_jest_osobnym_ujeciem(tmp_path):
+    def dodaj(katalog):
+        for i in range(3):
+            generuj.zdjecie_testowe(katalog / f"000000000{i}_m.jpg", rozmiar=(800, 600), kolor=generuj.kolor_ujecia(i))
+        generuj.klip_testowy(katalog / "0000000003_d.mp4", czas_s=3.0, rozmiar=(270, 480))
+        generuj.klip_testowy(katalog / "0000000004_e.mp4", czas_s=3.0, rozmiar=(270, 480))
+        generuj.zdjecie_kwadrat_na_przezroczystym(katalog / "0000000005_w.png")
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_dynamika_z_klipami()), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=180, czas_s=8.0, pierwsze_uderzenie_s=0.1)
+    fps = 30
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50)
+
+    if podsumowanie["kolaze"]:
+        for wpis in podsumowanie["kolaze"]:
+            assert "0000000005_w.png" in wpis["wycinki"]
+    assert podsumowanie["dynamika"]["wycinki"] == 1
