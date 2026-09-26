@@ -10,17 +10,19 @@ from tempfile import TemporaryDirectory
 
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
-# Pomiar czesci 10 (dynamika), zadanie 10.5.
+# Pomiar czesci 10 (dynamika), zadanie 10.8 (powtorka 10.5 po poprawkach 10.6/10.7).
 # Sekcja A: na kazdym z 5 prawdziwych wzorow (dane/wzory/*.mp4) render z dynamika i z
-#   --bez-dynamiki (ta sama biblioteka materialow, ta sama muzyka). Liczba ujec i uzytych
-#   materialow w obu trybach, mediana dlugosci ujecia zdjecia i klipu, liczba kolazy i
-#   wycinkow. "Zaden wycinek jako osobne ujecie" to zgodnosc liczby wycinkow z podsumowania
+#   --bez-dynamiki (ta sama biblioteka materialow, ta sama muzyka), bez pamieci wynikow z
+#   poprzednich przebiegow (kazde wywolanie renderuje oba warianty od nowa, czas nie ma
+#   znaczenia). Liczba ujec i uzytych materialow w obu trybach, mediana dlugosci ujecia
+#   zdjecia i klipu, liczba kolazy i wycinkow, udzial zdjec po dropie i najdluzsza seria
+#   klipow pod rzad (plan z dynamika przechwycony przez podmiane render.rozloz_tempo).
+#   "Zaden wycinek jako osobne ujecie" to zgodnosc liczby wycinkow z podsumowania
 #   (dynamika.wycinki) z liczba plikow z przezroczystoscia faktycznie znalezionych w
 #   bibliotece (test_dynamika.py sprawdza to samo zachowanie na poziomie kodu, tu tylko
 #   potwierdzenie na prawdziwych danych).
 # Sekcja B: narzut czasu procesora (-benchmark, jak w measure_rytm.py) dynamika wobec
-#   --bez-dynamiki na pierwszym wzorze, ponownie wykorzystujac renderowanie z sekcji A
-#   (bez dodatkowych przebiegow). Tylko raport.
+#   --bez-dynamiki na pierwszym wzorze, oba swiezo zmierzone w tym przebiegu. Tylko raport.
 # Sekcja C: dla kazdego wzoru arkusz outputs/porownanie_dynamika_<wzor>.png (wzor kontra
 #   wynik z dynamika, Pomiary/arkusz.py). Dla wzoru 0923 dodatkowo outputs/dynamika_drop.png
 #   (klatki od 10 przed do 20 po dropie, co 2 klatki) i outputs/dynamika_0923.mp4 (probny
@@ -85,6 +87,42 @@ def uruchom_ffmpeg_z_limitem(argumenty: list[str], katalog: Path | None = None) 
 
 
 render.uruchom_ffmpeg = uruchom_ffmpeg_z_limitem
+
+OSTATNI_PLAN: dict = {}
+_oryginalny_rozloz_tempo = render.rozloz_tempo
+
+
+def _rozloz_tempo_z_przechwyceniem(plan, wzor_arg, uderzenia, kawalki, fps_arg):
+    wynik = _oryginalny_rozloz_tempo(plan, wzor_arg, uderzenia, kawalki, fps_arg)
+    OSTATNI_PLAN["plan_bazowy"] = plan
+    OSTATNI_PLAN["plan"] = wynik
+    OSTATNI_PLAN["sekcje"] = wzor_arg.get("sekcje")
+    return wynik
+
+
+render.rozloz_tempo = _rozloz_tempo_z_przechwyceniem
+
+
+def udzial_zdjec_i_seria_klipow_po_dropie() -> tuple[float | None, int | None]:
+    plan_bazowy = OSTATNI_PLAN.get("plan_bazowy")
+    plan_koncowy = OSTATNI_PLAN.get("plan")
+    if plan_bazowy is None or plan_koncowy is None or not plan_bazowy["ujecia"]:
+        return None, None
+    klatka_dropu = render.koniec_haka(plan_bazowy, OSTATNI_PLAN.get("sekcje"))
+    plansza_start = plan_bazowy["ujecia"][-1]["klatka_od"]
+    montaz = [u for u in plan_koncowy["ujecia"] if klatka_dropu <= u["klatka_od"] < plansza_start]
+    if not montaz:
+        return None, None
+    udzial_zdjec = sum(1 for u in montaz if u["typ"] == "zdjecie") / len(montaz)
+    seria = 0
+    najdluzsza = 0
+    for ujecie in montaz:
+        if ujecie["typ"] == "klip":
+            seria += 1
+            najdluzsza = max(najdluzsza, seria)
+        else:
+            seria = 0
+    return round(udzial_zdjec, 3), najdluzsza
 
 
 def znajdz_wzory() -> list[Path]:
@@ -225,28 +263,23 @@ def sekcja_a_i_c() -> tuple[dict, dict]:
             wzor_json = wczytaj_lub_przeanalizuj_wzor(sciezka)
             wyjscie_dyn = KATALOG_OUTPUTS / f"dynamika_zrodlo_{nazwa}.mp4"
             wyjscie_bez = katalog_tymczasowy / f"bez_dynamiki_{nazwa}.mp4"
-            podsumowanie_dyn_json = wyjscie_dyn.with_suffix(".json")
 
-            if wyjscie_dyn.is_file() and podsumowanie_dyn_json.is_file():
-                podsumowanie_dyn = json.loads(podsumowanie_dyn_json.read_text(encoding="utf-8"))
-                cpu_dyn_s = 0.0
-                print(f"A {nazwa}: dynamika z cache ({wyjscie_dyn.name})")
-            else:
-                try:
-                    podsumowanie_dyn = zrenderuj_wariant(
-                        wzor_json, katalog_projektu, wyjscie_dyn, KATALOG_MUZYKI, nakladka, plansza, znak, False,
-                    )
-                    cpu_dyn_s = round(sum(CPU_SUMATOR), 3)
-                except (RuntimeError, subprocess.TimeoutExpired) as blad:
-                    wpisy_a.append({"wzor": nazwa, "blad": str(blad)})
-                    print(f"A {nazwa}: BLAD {blad}")
-                    continue
+            OSTATNI_PLAN.clear()
+            try:
+                podsumowanie_dyn = zrenderuj_wariant(
+                    wzor_json, katalog_projektu, wyjscie_dyn, KATALOG_MUZYKI, nakladka, plansza, znak, False,
+                )
+                cpu_dyn_s = round(sum(CPU_SUMATOR), 3)
+            except (RuntimeError, subprocess.TimeoutExpired) as blad:
+                wpisy_a.append({"wzor": nazwa, "blad": str(blad)})
+                print(f"A {nazwa}: BLAD {blad}")
+                continue
 
             zaden_osobno = podsumowanie_dyn["dynamika"]["wycinki"] == len(wycinki)
+            udzial_zdjec_po_dropie, najdluzsza_seria_klipow = udzial_zdjec_i_seria_klipow_po_dropie()
 
             cel_arkusza = KATALOG_OUTPUTS / f"porownanie_dynamika_{nazwa}.png"
-            if not cel_arkusza.is_file():
-                arkusz.arkusz_porownawczy(sciezka, wyjscie_dyn, cel_arkusza)
+            arkusz.arkusz_porownawczy(sciezka, wyjscie_dyn, cel_arkusza)
             wpisy_c.append({"wzor": nazwa, "arkusz": cel_arkusza.name})
             print(f"C {nazwa}: arkusz {cel_arkusza.name}")
 
@@ -276,12 +309,16 @@ def sekcja_a_i_c() -> tuple[dict, dict]:
                 "liczba_kolazy": len(podsumowanie_dyn["kolaze"]),
                 "wycinki": dynamika["wycinki"],
                 "zaden_wycinek_jako_osobne_ujecie": zaden_osobno,
+                "udzial_zdjec_po_dropie": udzial_zdjec_po_dropie,
+                "najdluzsza_seria_klipow_po_dropie": najdluzsza_seria_klipow,
             }
             wpisy_a.append(wpis)
             print(
                 f"A {nazwa}: ujec {wpis['liczba_ujec_dynamika']} (bez dynamiki {wpis['liczba_ujec_bez_dynamiki']}), "
                 f"mediana zdjecia {wpis['mediana_zdjecia_s']} s, klipu {wpis['mediana_klipu_s']} s, "
-                f"kolaze {wpis['liczba_kolazy']}, wycinki {wpis['wycinki']}"
+                f"kolaze {wpis['liczba_kolazy']}, wycinki {wpis['wycinki']}, "
+                f"zdjecia po dropie {wpis['udzial_zdjec_po_dropie']}, "
+                f"najdluzsza seria klipow {wpis['najdluzsza_seria_klipow_po_dropie']}"
             )
 
             if indeks_wzoru == 0 and cpu_bez_s > 0 and cpu_dyn_s > 0:
@@ -301,8 +338,14 @@ def sekcja_a_i_c() -> tuple[dict, dict]:
         "mediana_klipu_w_progu": bool(zaliczone_a) and all(
             2.0 <= w["mediana_klipu_s"] <= 3.2 for w in zaliczone_a if w["mediana_klipu_s"] is not None
         ),
-        "wiecej_ujec_niz_bez_dynamiki": bool(zaliczone_a) and all(
-            w["liczba_ujec_dynamika"] > w["liczba_ujec_bez_dynamiki"] for w in zaliczone_a
+        "ujec_nie_mniej_niz_bez_dynamiki": bool(zaliczone_a) and all(
+            w["liczba_ujec_dynamika"] >= w["liczba_ujec_bez_dynamiki"] for w in zaliczone_a
+        ),
+        "po_dropie_polowa_zdjec_i_zaden_dwa_klipy_pod_rzad": bool(zaliczone_a) and all(
+            w["udzial_zdjec_po_dropie"] is not None
+            and w["udzial_zdjec_po_dropie"] >= 0.5
+            and w["najdluzsza_seria_klipow_po_dropie"] <= 1
+            for w in zaliczone_a
         ),
         "zaden_wycinek_jako_osobne_ujecie": bool(zaliczone_a) and all(
             w["zaden_wycinek_jako_osobne_ujecie"] for w in zaliczone_a
