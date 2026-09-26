@@ -74,6 +74,11 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-27 (zadanie 10.9: kolejka bez dwóch klipów pod rząd)
+- `src/render.py`, `rozloz_tempo`: gdy hak i ostatni element `kawalki` są kawałkami klipów, po wyczerpaniu kolejki materiały idą od drugiego elementu (funkcja wewnętrzna `kawalek`). W pozostałych przypadkach zawinięcie jak dotąd, więc hak zdjęcie dalej wraca.
+- Testy w `tests/test_dynamika.py` (+3): hak klip przy krótkiej kolejce (bez poprawki test pada na dwóch klipach pod rząd), hak zdjęcie wraca po zawinięciu, `przeplot` dopisuje nieużyte zdjęcia na koniec w kolejności. Plik: 28 z 28.
+- Symulacja z oceny po poprawce: hak klip przy kolejce 9 i 13 elementów daje 78% zdjęć po dropie i serię klipów 1 (wcześniej 67% i seria 2). Próbka jak w pomiarze bez zmian (78%, seria 1).
+
 ### 2026-09-27 (ocena 10.6 do 10.8)
 - **Kod 10.6 i 10.7 zgodny z kontraktami, testy 357 z 357 (270 s, ffmpeg 6.1.1, Python 3.12), ale część 10 nie jest skończona.** Pomiar 10.8 nie był uruchomiony na prawdziwym `dane/` (bez biblioteki skrypt kończy się kodem 0 i pomija sekcje A, B i C), więc naprawa problemu 13 jest niepotwierdzona. Poprawki to zadania 10.9 do 10.11 (sekcja „Poprawki po ocenie 10.6 do 10.8” w planie).
 - Testy mutacyjne: bez `przeplot` pada test pełnego renderu z 10.6, a przy `SKALA_NAKLADKI_KRYCIE = 1.0` test skali z 10.7. Po usunięciu dopisywania nieużytych zdjęć w `przeplot` 5 z 5 testów przeplotu dalej przechodzi, bo ta część nie ma testu (10.9).

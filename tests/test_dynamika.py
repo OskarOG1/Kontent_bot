@@ -663,3 +663,59 @@ def test_renderuj_z_wycinkami_dodaje_kolaz_i_wycinek_nie_jest_osobnym_ujeciem(tm
         for wpis in podsumowanie["kolaze"]:
             assert "0000000005_w.png" in wpis["wycinki"]
     assert podsumowanie["dynamika"]["wycinki"] == 1
+
+
+def wzor_28_s_z_dropem():
+    krok = 27.0 / 17
+    return {
+        "ciecia_uderzenia": [],
+        "koniec_uderzenia": None,
+        "ciecia_s": [round(i * krok, 3) for i in range(17)] + [27.0],
+        "zrodlo": {"czas_s": 28.0},
+        "sekcje": {"drop_s": None, "drop_ujecie": 6, "koniec_haka_uderzenia": None},
+    }
+
+
+def test_rozloz_tempo_hak_klip_po_zawinieciu_bez_dwoch_klipow_pod_rzad():
+    fps = 30
+    materialy = [
+        {"plik": "k0.mp4", "typ": "klip", "message_id": 0, "czas_s": 7.0},
+        {"plik": "z1.jpg", "typ": "zdjecie", "message_id": 1},
+        {"plik": "z2.jpg", "typ": "zdjecie", "message_id": 2},
+        {"plik": "z3.jpg", "typ": "zdjecie", "message_id": 3},
+        {"plik": "k1.mp4", "typ": "klip", "message_id": 4, "czas_s": 7.0},
+    ]
+    kawalki = render.przeplot(render.wstawki(materialy, render.DLUGOSC_WSTAWKI_S))
+    wzor = wzor_28_s_z_dropem()
+    plan = render.plan_ujec(wzor, [], kawalki, fps)
+    uderzenia = list(range(11, plan["liczba_klatek"], 11))
+
+    wynik = render.rozloz_tempo(plan, wzor, uderzenia, kawalki, fps)
+    ujecia = wynik["ujecia"][:-1]
+
+    assert len(ujecia) > len(kawalki)
+    for poprzednie, nastepne in zip(ujecia, ujecia[1:]):
+        assert not (poprzednie["typ"] == "klip" and nastepne["typ"] == "klip")
+    hak = [u for u in ujecia if u["material"] == "k0.mp4" and u["start_w_klipie_s"] == 0.0]
+    assert len(hak) == 1
+
+
+def test_rozloz_tempo_hak_zdjecie_wraca_po_zawinieciu():
+    fps = 30
+    plan = plan_dwa_segmenty(300, 290, fps)
+    uderzenia = list(range(0, 300, 15))
+
+    wynik = render.rozloz_tempo(plan, {"sekcje": None}, uderzenia, kawalki_zdjec(3), fps)
+
+    materialy = [u["material"] for u in wynik["ujecia"][:4]]
+    assert materialy == ["z0.jpg", "z1.jpg", "z2.jpg", "z0.jpg"]
+
+
+def test_przeplot_nieuzyte_zdjecia_na_koncu_w_kolejnosci():
+    hak = {"plik": "z0", "typ": "zdjecie", "message_id": "z0"}
+    zdjecia = [{"plik": f"z{i}", "typ": "zdjecie", "message_id": f"z{i}"} for i in range(1, 8)]
+    klip = {"plik": "k0", "typ": "klip", "message_id": "k0", "od_s": 0.0}
+
+    wynik = render.przeplot([hak] + zdjecia + [klip])
+
+    assert wynik == [hak] + zdjecia[:3] + [klip] + zdjecia[3:]

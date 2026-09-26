@@ -622,6 +622,13 @@ def rozloz_tempo(plan: dict, wzor: dict, uderzenia: list[int], kawalki: list[dic
                 return wartosc
         return None
 
+    zawijaj_bez_haka = len(kawalki) > 1 and kawalki[0]["typ"] == "klip" and kawalki[-1]["typ"] == "klip"
+
+    def kawalek(numer: int) -> dict:
+        if numer < len(kawalki) or not zawijaj_bez_haka:
+            return kawalki[numer % len(kawalki)]
+        return kawalki[1 + (numer - 1) % (len(kawalki) - 1)]
+
     ciecia_wzoru = [u["klatka_od"] for u in plan_ujecia]
     min_klatek_zdjecia = round(TEMPO_ZDJECIA_MIN_S * fps)
     min_klatek_klipu = round(TEMPO_KLIPU_MIN_S * fps)
@@ -637,7 +644,7 @@ def rozloz_tempo(plan: dict, wzor: dict, uderzenia: list[int], kawalki: list[dic
             continue
 
         if plan_ujecia and poczatek_segmentu == plan_ujecia[-1]["klatka_od"]:
-            material = kawalki[k % len(kawalki)]
+            material = kawalek(k)
             ujecia.append({
                 "material": str(material["plik"]),
                 "typ": material["typ"],
@@ -651,7 +658,7 @@ def rozloz_tempo(plan: dict, wzor: dict, uderzenia: list[int], kawalki: list[dic
 
         pozycja = poczatek_segmentu
         while pozycja < koniec_segmentu:
-            material = kawalki[k % len(kawalki)]
+            material = kawalek(k)
             if material["typ"] == "zdjecie":
                 cel = pierwsze_w_oknie(uderzenia, pozycja + min_klatek_zdjecia, koniec_segmentu)
                 koniec_ujecia = cel if cel is not None else koniec_segmentu
