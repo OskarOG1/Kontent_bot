@@ -264,6 +264,28 @@ def znak_testowy(sciezka: Path, rozmiar: tuple[int, int] = (200, 50)) -> None:
     obraz.save(sciezka)
 
 
+def nakladka_vp9_alfa_testowa(
+    sciezka: Path, czas_s: float, rozmiar: tuple[int, int] = (270, 480), fps: float = 30,
+) -> None:
+    sciezka = Path(sciezka)
+    szerokosc, wysokosc = rozmiar
+    polowa = wysokosc // 2
+    liczba_klatek = max(1, int(round(czas_s * fps)))
+    obraz = Image.new("RGBA", rozmiar, (0, 0, 0, 0))
+    obraz.paste(Image.new("RGBA", (szerokosc, polowa), (220, 30, 30, 255)), (0, 0))
+    with tempfile.TemporaryDirectory() as katalog_tymczasowy:
+        tymczasowy_png = Path(katalog_tymczasowy) / "klatka.png"
+        obraz.save(tymczasowy_png)
+        argumenty = [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-loop", "1", "-i", str(tymczasowy_png),
+            "-frames:v", str(liczba_klatek), "-r", str(fps),
+            "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-auto-alt-ref", "0",
+            str(sciezka),
+        ]
+        subprocess.run(argumenty, stdin=subprocess.DEVNULL, check=True)
+
+
 def pierscien_testowy(sciezka: Path, rozmiar: tuple[int, int] = (600, 600)) -> None:
     szerokosc, wysokosc = rozmiar
     obraz = Image.new("RGBA", rozmiar, (0, 0, 0, 0))

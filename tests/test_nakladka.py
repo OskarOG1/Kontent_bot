@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -63,8 +64,7 @@ def zrenderuj(
     return wyjscie, podsumowanie
 
 
-def nakladka_krycie_16_9_ze_znacznikami(sciezka, czas_s=1.0, fps=30, rozmiar=(640, 360)):
-    import subprocess
+def nakladka_krycie_16_9_ze_znacznikami(sciezka, czas_s=1.0, fps=30, rozmiar=(640, 360), pozycje_x=(176, 464)):
     import tempfile
 
     szerokosc, wysokosc = rozmiar
@@ -72,7 +72,7 @@ def nakladka_krycie_16_9_ze_znacznikami(sciezka, czas_s=1.0, fps=30, rozmiar=(64
     tlo[:] = (100, 100, 180)
     bok = 24
     y0 = wysokosc // 2 - bok // 2
-    for x0 in (176, 464):
+    for x0 in pozycje_x:
         tlo[y0:y0 + bok, x0:x0 + bok] = (220, 30, 30)
     dane_klatki = tlo.tobytes()
     liczba_klatek = max(1, round(czas_s * fps))
@@ -559,3 +559,136 @@ def test_nakladka_krycie_zero_trwa_do_konca_i_alfa_bez_zmian(tmp_path):
     wyjscie_alfa, podsumowanie_alfa = zrenderuj(tmp_path, projekt, wzor, nakladka=nakladka_alfa)
     assert podsumowanie_alfa["nakladka"]["tryb"] == "alfa"
     assert podsumowanie_alfa["nakladka"]["do_s"] == pytest.approx(oczekiwany_koniec_s, abs=1e-3)
+
+
+def opcje_wejsc(polecenie):
+    wynik = []
+    opcje = []
+    i = 0
+    while i < len(polecenie):
+        token = polecenie[i]
+        if token == "-filter_complex":
+            break
+        opcje.append(token)
+        if token == "-i":
+            wynik.append((opcje[:-1], polecenie[i + 1]))
+            opcje = []
+            i += 2
+            continue
+        i += 1
+    return wynik
+
+
+def klatki_pliku(sciezka):
+    wynik = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
+            "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", str(sciezka),
+        ],
+        stdin=subprocess.DEVNULL, capture_output=True,
+    )
+    return int(wynik.stdout.decode("utf-8", errors="replace").strip())
+
+
+def test_warstwy_przebiegu_koncowego_jako_klipy_bez_t_loop_stream_loop(tmp_path, monkeypatch):
+    fps = 30
+    material_zastepczy = [{"plik": "x", "typ": "zdjecie", "message_id": 0}]
+
+    alfa_png = tmp_path / "alfa.png"
+    generuj.nakladka_testowa(alfa_png, 1.0, "png")
+    alfa_vp9 = tmp_path / "alfa_vp9.webm"
+    generuj.nakladka_vp9_alfa_testowa(alfa_vp9, 1.0)
+    zielen = tmp_path / "zielen.mp4"
+    generuj.nakladka_testowa(zielen, 1.0, "zielen")
+    ekran = tmp_path / "ekran.mp4"
+    generuj.nakladka_testowa(ekran, 1.0, "ekran")
+    krycie = tmp_path / "krycie.mp4"
+    generuj.nakladka_testowa(krycie, 1.0, "krycie")
+
+    warianty = [
+        ("alfa", alfa_png),
+        ("alfa", alfa_vp9),
+        ("zielen", zielen),
+        ("ekran", ekran),
+        ("krycie", krycie),
+    ]
+
+    oryginalny = render.uruchom_ffmpeg
+
+    for indeks, (tryb_oczekiwany, nakladka) in enumerate(warianty):
+        katalog_wariantu = tmp_path / f"wariant_{indeks}"
+        katalog_wariantu.mkdir()
+        projekt = zbuduj_projekt_czarny(katalog_wariantu)
+        wzor = wzor_4_ciecia_z_dropem(2)
+        znak = katalog_wariantu / "znak.png"
+        generuj.znak_testowy(znak, rozmiar=(200, 50))
+
+        wywolania = []
+        klatki_zmierzone = {}
+
+        def podmieniony(argumenty, katalog=None):
+            wywolania.append(argumenty)
+            oryginalny(argumenty, katalog=katalog)
+            # katalog_pracy jest kasowany po zakończeniu renderuj, więc plik trzeba
+            # policzyć od razu, zanim zniknie
+            nazwa = Path(argumenty[-1]).name
+            if nazwa in ("nakladka.mov", "nakladka.mp4", "znak.mov"):
+                klatki_zmierzone[nazwa] = klatki_pliku(argumenty[-1])
+
+        monkeypatch.setattr(render, "uruchom_ffmpeg", podmieniony)
+
+        wyjscie, podsumowanie = zrenderuj(katalog_wariantu, projekt, wzor, nakladka=nakladka, znak=znak)
+        assert podsumowanie["nakladka"]["tryb"] == tryb_oczekiwany
+
+        przebiegi_koncowe = [a for a in wywolania if "-x264-params" in a]
+        assert len(przebiegi_koncowe) == 1
+        polecenie = przebiegi_koncowe[0]
+
+        wejscia_info = opcje_wejsc(polecenie)
+        assert len(wejscia_info) == 4  # polaczone, utwor, nakladka, znak
+
+        for opcje, _plik in wejscia_info[2:]:
+            assert "-t" not in opcje
+            assert "-loop" not in opcje
+            assert "-stream_loop" not in opcje
+
+        _, plik_nakladki = wejscia_info[2]
+        _, plik_znaku = wejscia_info[3]
+        assert Path(plik_nakladki).name in klatki_zmierzone
+        assert Path(plik_znaku).name in klatki_zmierzone
+
+        od_s = podsumowanie["nakladka"]["od_s"]
+        do_s = podsumowanie["nakladka"]["do_s"]
+        oczekiwane_klatki_nakladki = round((do_s - od_s) * fps)
+        assert klatki_zmierzone[Path(plik_nakladki).name] == oczekiwane_klatki_nakladki
+
+        _, uderzenia = analyze.analizuj_rytm(katalog_wariantu / "klik.wav")
+        plan = render.plan_ujec(wzor, uderzenia, material_zastepczy, fps)
+        assert klatki_zmierzone[Path(plik_znaku).name] == plan["liczba_klatek"]
+
+
+def test_nakladka_krycie_skala_miesci_znaczniki_blisko_krawedzi_zrodla(tmp_path):
+    projekt = zbuduj_projekt_czarny(tmp_path)
+    wzor = wzor_4_ciecia_z_dropem(2)
+    nakladka = tmp_path / "krycie_szeroka.mp4"
+    nakladka_krycie_16_9_ze_znacznikami(nakladka, czas_s=1.0, rozmiar=(1000, 500), pozycje_x=(215, 755))
+
+    wyjscie, podsumowanie = zrenderuj(tmp_path, projekt, wzor, nakladka=nakladka)
+    assert podsumowanie["nakladka"]["tryb"] == "krycie"
+
+    fps = 30
+    od_s = podsumowanie["nakladka"]["od_s"]
+    do_s = podsumowanie["nakladka"]["do_s"]
+    klatki = dekoduj_klatki(wyjscie, tmp_path, "dek.raw")
+    srodek = min(round((od_s + do_s) / 2 * fps), klatki.shape[0] - 1)
+    klatka = klatki[srodek].astype(np.int32)
+    wysokosc, szerokosc = klatka.shape[:2]
+
+    lewa_strefa = klatka[:, :round(szerokosc * 0.2)]
+    prawa_strefa = klatka[:, round(szerokosc * 0.8):]
+
+    def ma_czerwony(strefa):
+        return bool(np.any((strefa[..., 0] - strefa[..., 1] > 30) & (strefa[..., 0] - strefa[..., 2] > 30)))
+
+    assert ma_czerwony(lewa_strefa)
+    assert ma_czerwony(prawa_strefa)

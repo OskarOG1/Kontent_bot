@@ -48,6 +48,7 @@ TEMPO_KLIPU_MAX_S = 3.2
 DLUGOSC_WSTAWKI_S = 3.5
 DLUGOSC_NAKLADKI_KRYCIE_S = 2.5
 ZDJEC_MIEDZY_KLIPAMI = 3
+SKALA_NAKLADKI_KRYCIE = 0.85
 SILA_UDERZENIA_ZOOM = 0.12
 KLATEK_UDERZENIA_ZOOM = 5
 SILA_NAJAZDU = 0.35
@@ -709,6 +710,54 @@ def sklej_segmenty(sciezki_segmentow: list[Path], wyjscie: Path) -> None:
         uruchom_ffmpeg(["-f", "concat", "-safe", "0", "-i", str(lista), "-c", "copy", str(wyjscie)])
 
 
+def materializuj_nakladke(
+    nakladka: Path, tryb: str, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int, katalog: Path,
+) -> Path:
+    nakladka = Path(nakladka)
+    wejscie_opcje = []
+    strumien = strumien_wideo_nakladki(nakladka)
+    if strumien is not None and wymaga_dekodera_vp9_alfa(strumien):
+        wejscie_opcje += ["-c:v", "libvpx-vp9"]
+    wejscie_opcje += ["-stream_loop", "-1", "-i", str(nakladka)]
+
+    if tryb in ("alfa", "zielen"):
+        if tryb == "alfa":
+            filtr = (
+                f"scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=decrease,"
+                f"format=rgba,pad={szerokosc}:{wysokosc}:(ow-iw)/2:(oh-ih)/2:color=0x00000000,fps={fps}"
+            )
+        else:
+            filtr = (
+                f"scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,"
+                f"crop={szerokosc}:{wysokosc},fps={fps},format=rgba,colorkey=0x00FF00:0.3:0.1"
+            )
+        wyjscie = katalog / "nakladka.mov"
+        uruchom_ffmpeg([
+            *wejscie_opcje, "-frames:v", str(liczba_klatek), "-vf", filtr,
+            "-c:v", "png", "-pix_fmt", "rgba", str(wyjscie),
+        ])
+        return wyjscie
+
+    if tryb == "krycie":
+        krotszy_bok = round(szerokosc * SKALA_NAKLADKI_KRYCIE)
+        r, g, b = kolor_brzegu(nakladka)
+        kolor_hex = f"0x{r:02x}{g:02x}{b:02x}"
+        filtr = (
+            f"scale='if(gt(iw,ih),-2,{szerokosc})':'if(gt(iw,ih),{krotszy_bok},-2)',"
+            f"crop='min(iw,{szerokosc})':'min(ih,{wysokosc})',"
+            f"pad={szerokosc}:{wysokosc}:(ow-iw)/2:(oh-ih)/2:color={kolor_hex},fps={fps}"
+        )
+    else:
+        filtr = f"scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,crop={szerokosc}:{wysokosc},fps={fps}"
+
+    wyjscie = katalog / "nakladka.mp4"
+    uruchom_ffmpeg([
+        *wejscie_opcje, "-frames:v", str(liczba_klatek), "-vf", filtr,
+        "-c:v", "libx264", "-crf", "12", "-pix_fmt", "yuv420p", str(wyjscie),
+    ])
+    return wyjscie
+
+
 def przebieg_koncowy(
     polaczone_wideo: Path,
     utwor: Path,
@@ -729,6 +778,7 @@ def przebieg_koncowy(
     slowa: dict | None = None,
     pionowo: dict | None = None,
 ) -> None:
+    polaczone_wideo = Path(polaczone_wideo)
     czas_trwania_s = liczba_klatek / fps
     wyciszenie_s = min(0.5, czas_trwania_s)
     poczatek_wyciszenia = max(0.0, czas_trwania_s - wyciszenie_s)
@@ -749,49 +799,28 @@ def przebieg_koncowy(
     else:
         okno_s = round(nakladka_do_s - nakladka_od_s, 6)
         nakladka = Path(nakladka)
-        if nakladka.suffix.lower() == ".png":
-            wejscia += ["-loop", "1", "-t", f"{okno_s:.6f}", "-i", str(nakladka)]
-        else:
-            strumien = strumien_wideo_nakladki(nakladka)
-            if strumien is not None and wymaga_dekodera_vp9_alfa(strumien):
-                wejscia += ["-c:v", "libvpx-vp9"]
-            wejscia += ["-stream_loop", "-1", "-t", f"{okno_s:.6f}", "-i", str(nakladka)]
+        liczba_klatek_nakladki = round(okno_s * fps)
+        sciezka_nakladki = materializuj_nakladke(
+            nakladka, tryb_nakladki_wartosc, liczba_klatek_nakladki, fps, szerokosc, wysokosc, polaczone_wideo.parent,
+        )
+        wejscia += ["-i", str(sciezka_nakladki)]
 
         warunek = f"between(t,{nakladka_od_s:.6f},{nakladka_do_s:.6f})"
-        if tryb_nakladki_wartosc == "alfa":
+        if tryb_nakladki_wartosc == "krycie":
             przygotowanie_nakladki = (
-                f"[2:v]scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=decrease,"
-                f"format=rgba,pad={szerokosc}:{wysokosc}:(ow-iw)/2:(oh-ih)/2:color=0x00000000,"
-                f"fps={fps},setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
+                f"[2:v]format=rgba,colorchannelmixer=aa={KRYCIE_NAKLADKI},"
+                f"setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
             )
             kompozycja = f"[0:v][nak]overlay=eval=frame:enable='{warunek}',setsar=1[v]"
-        elif tryb_nakladki_wartosc == "zielen":
-            przygotowanie_nakladki = (
-                f"[2:v]scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,"
-                f"crop={szerokosc}:{wysokosc},fps={fps},"
-                f"format=rgba,colorkey=0x00FF00:0.3:0.1,setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
-            )
-            kompozycja = f"[0:v][nak]overlay=eval=frame:enable='{warunek}',setsar=1[v]"
-        elif tryb_nakladki_wartosc == "krycie":
-            r, g, b = kolor_brzegu(nakladka)
-            kolor_hex = f"0x{r:02x}{g:02x}{b:02x}"
-            przygotowanie_nakladki = (
-                f"[2:v]scale='if(gt(iw,ih),-2,{szerokosc})':'if(gt(iw,ih),{szerokosc},-2)',"
-                f"crop='min(iw,{szerokosc})':'min(ih,{wysokosc})',"
-                f"pad={szerokosc}:{wysokosc}:(ow-iw)/2:(oh-ih)/2:color={kolor_hex},"
-                f"fps={fps},format=rgba,colorchannelmixer=aa={KRYCIE_NAKLADKI},setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
-            )
-            kompozycja = f"[0:v][nak]overlay=eval=frame:enable='{warunek}',setsar=1[v]"
-        else:
-            przygotowanie_nakladki = (
-                f"[2:v]scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,"
-                f"crop={szerokosc}:{wysokosc},fps={fps},"
-                f"format=gbrp,setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
-            )
+        elif tryb_nakladki_wartosc == "ekran":
+            przygotowanie_nakladki = f"[2:v]format=gbrp,setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
             kompozycja = (
                 f"[0:v]format=gbrp[glowne];[glowne][nak]blend=all_mode=screen:enable='{warunek}',"
                 f"scale=out_range=tv,format=yuv420p,setsar=1[v]"
             )
+        else:
+            przygotowanie_nakladki = f"[2:v]setpts=PTS+{nakladka_od_s:.6f}/TB[nak]"
+            kompozycja = f"[0:v][nak]overlay=eval=frame:enable='{warunek}',setsar=1[v]"
 
         filtr = (
             f"{przygotowanie_nakladki};{kompozycja};"
@@ -834,12 +863,20 @@ def przebieg_koncowy(
     if znak is not None:
         znak = Path(znak)
         okno_znaku_s = round(znak_do_s, 6)
-        indeks_znaku = wejscia.count("-i")
-        wejscia += ["-loop", "1", "-t", f"{okno_znaku_s:.6f}", "-i", str(znak)]
+        liczba_klatek_znaku = round(okno_znaku_s * fps)
         dw, dh, x, y = wymiary_i_pozycja_znaku(znak, szerokosc, wysokosc)
+        sciezka_znaku = polaczone_wideo.parent / "znak.mov"
+        uruchom_ffmpeg([
+            "-loop", "1", "-i", str(znak),
+            "-frames:v", str(liczba_klatek_znaku),
+            "-vf", f"scale={dw}:{dh},format=rgba,colorchannelmixer=aa={KRYCIE_ZNAKU},fps={fps}",
+            "-c:v", "png", "-pix_fmt", "rgba",
+            str(sciezka_znaku),
+        ])
+        indeks_znaku = wejscia.count("-i")
+        wejscia += ["-i", str(sciezka_znaku)]
         filtr += (
-            f";[{indeks_znaku}:v]scale={dw}:{dh},format=rgba,colorchannelmixer=aa={KRYCIE_ZNAKU}[zw];"
-            f"{mapa_wideo}[zw]overlay={x}:{y}:enable='between(t,0,{okno_znaku_s:.6f})'[vz]"
+            f";{mapa_wideo}[{indeks_znaku}:v]overlay={x}:{y}:enable='between(t,0,{okno_znaku_s:.6f})'[vz]"
         )
         mapa_wideo = "[vz]"
 
