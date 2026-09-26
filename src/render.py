@@ -795,8 +795,8 @@ def przygotuj_slowa(
         for indeks_slowa, (od, do) in enumerate(okna):
             if od <= klatka_absolutna < do:
                 if indeks_slowa == len(slowa_surowe) - 1:
-                    skala = 1.6 * tekst.skala_wjazdu_akcentu(klatka_absolutna - od)
-                    return tekst.obraz_slowa(slowa_surowe[indeks_slowa], szerokosc, wysokosc, skala=skala)
+                    wjazd = tekst.skala_wjazdu_akcentu(klatka_absolutna - od)
+                    return tekst.obraz_slowa(slowa_surowe[indeks_slowa], szerokosc, wysokosc, akcent=True, wjazd=wjazd)
                 return tekst.obraz_slowa(slowa_surowe[indeks_slowa], szerokosc, wysokosc)
         return Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
 

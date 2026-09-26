@@ -247,7 +247,7 @@ def skala_wjazdu_akcentu(klatka_lokalna: int) -> float:
     return 1 + 5 * (1 - klatka_lokalna / 6) ** 2
 
 
-def obraz_slowa(tresc: str, szerokosc: int, wysokosc: int, skala: float = 1.0):
+def obraz_slowa(tresc: str, szerokosc: int, wysokosc: int, akcent: bool = False, wjazd: float = 1.0):
     obraz = Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
     rysownik = ImageDraw.Draw(obraz)
     if not tresc.strip():
@@ -261,19 +261,32 @@ def obraz_slowa(tresc: str, szerokosc: int, wysokosc: int, skala: float = 1.0):
     przesuniecie_cienia = max(1, round(0.004 * wysokosc))
     grubosc_obrysu = max(1, round(0.005 * wysokosc))
     margines = przesuniecie_cienia * 3 + grubosc_obrysu
-    szerokosc_uzyteczna = max(strefa_szerokosc - 2 * margines, 1)
+
+    if akcent:
+        max_szerokosc = max(0.95 * szerokosc, 1)
+        docelowa_wysokosc = preset["wysokosc_wersalika"] * wysokosc * 1.6
+    else:
+        max_szerokosc = max(strefa_szerokosc - 2 * margines, 1)
+        docelowa_wysokosc = preset["wysokosc_wersalika"] * wysokosc
 
     sciezka_czcionki, waga = wybierz_czcionke(preset)
-    docelowa_wysokosc = preset["wysokosc_wersalika"] * wysokosc * skala
     czcionka = dopasuj_wysokosc(sciezka_czcionki, waga, docelowa_wysokosc, znak_pomiaru="x")
     szer = szerokosc_napisu(rysownik, tresc, czcionka)
-    while szer > szerokosc_uzyteczna and czcionka.size > 4:
+    while szer > max_szerokosc and czcionka.size > 4:
         czcionka = wczytaj_czcionke(sciezka_czcionki, czcionka.size - 1, waga)
+        szer = szerokosc_napisu(rysownik, tresc, czcionka)
+
+    if akcent and wjazd != 1.0:
+        rozmiar_wjazdu = max(int(czcionka.size * wjazd), 4)
+        czcionka = wczytaj_czcionke(sciezka_czcionki, rozmiar_wjazdu, waga)
         szer = szerokosc_napisu(rysownik, tresc, czcionka)
 
     ascent, descent = czcionka.getmetrics()
     wysokosc_tekstu = ascent + descent
-    x = strefa_lewo + (strefa_szerokosc - szer) / 2
+    if akcent:
+        x = szerokosc / 2 - szer / 2
+    else:
+        x = strefa_lewo + (strefa_szerokosc - szer) / 2
     y = wysokosc * 0.5 - wysokosc_tekstu / 2
 
     warstwa_cienia = Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))

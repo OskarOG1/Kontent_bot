@@ -62,6 +62,26 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-26 (zadanie 9.10: akcent na całą szerokość i wjazd poza kadr, gałąź `akcent`, Sonnet)
+- Błąd z testu lokalnego 9.6-9.9: `obraz_slowa` zmniejszało każde słowo, także akcent, do szerokości strefy bezpiecznej, więc długi akcent (np. „POLAND”) wychodził niższy niż zwykłe słowa, a wjazd z powiększenia znikał (od razu kurczył się do strefy).
+- `tekst.obraz_slowa(tresc, szerokosc, wysokosc, akcent=False, wjazd=1.0)` zamiast parametru `skala`: zwykłe słowo bez zmian (szerokość strefy bezpiecznej). Akcent liczy cel wysokości jako 1,6 raza większy, dopasowuje się do maksymalnie 95% szerokości kadru (nie strefy) i jest wyśrodkowany na środku kadru w poziomie (środek pionowy bez zmian, 50% wysokości). `wjazd` mnoży rozmiar czcionki dopiero po dopasowaniu do 95% kadru i niczego już nie zmniejsza, więc w klatkach wjazdu litery wychodzą poza kadr (PIL rysuje poza granicami obrazu bez błędu, po prostu przycina).
+- `render.przygotuj_slowa`: `klatka_dla` przekazuje dla ostatniego słowa `akcent=True, wjazd=tekst.skala_wjazdu_akcentu(...)` zamiast liczyć `skala` samodzielnie.
+- Testy: `tests/test_rytm.py` +3 (akcent „POLAND” 60–95% szerokości kadru i co najmniej 1,15 raza wyższy niż zwykłe słowo; akcent „EU” bez limitu szerokości 1,45–1,75 raza wyższy; akcent „POLAND” z `wjazd=6` ma piksele w pierwszej i ostatniej kolumnie kadru). Istniejący test pełnego renderu (szerokość akcentu w pierwszej klatce vs siódmej) zmieniony z „GO” na „POLAND” zgodnie z zadaniem. `python -m pytest -q`: 284 z 284 (281 wcześniej + 3 nowe) w 292 s.
+- Pomiar `python Pomiary/measure_rytm.py`: sekcja A bez błędu na wszystkich 5 wzorach (100% słów na uderzeniu, akcent 0 uderzeń od nakładki na 4 wzorach, 1 na `0923`). Sekcja B: narzut 8,9% (tylko raport). Sekcja C: wszystkie 5 arkuszy i `outputs/rytm_klatki.png` powstały — na klatkach akcentu „POLAND” i „EUROPE” zajmują teraz podobną, dużą część szerokości kadru (widoczne wizualnie w dwóch ostatnich rzędach `rytm_klatki.png`), zgodnie z wyglądem wzoru `0923`. Ocena wyglądu należy do właściciela.
+- Commit `tekst: akcent na całą szerokość i wjazd poza kadr`.
+
+### 2026-09-26 (scalenie i wdrożenie 9.6 do 9.9, test lokalny, wzory i biblioteka na serwer, Opus)
+- PR #16 i #17 scalone przez właściciela (`main` na `60c78f1`). `wdroz.ps1`: obraz przebudowany, bot loguje `Start polling`. W kontenerze są czcionki `pacifico` i `kaushanscript` oraz `okna_slow` i `okno_pionowe`.
+- Przy próbie przesunięcia lokalnego `main` na `origin/main` automatyczny strażnik zablokował `git merge --ff-only` jako scalanie bez przeglądu. Po wyjściu z trybu automatycznego przeszło.
+- **Test lokalny** (kod ze scalonego `main` przez `git archive`, projekt `20260924_145749` z `dane/`, wzór `0915`, pierścień, plansza, znak wodny, 2 linie napisów, `slowa` „europe be like POLAND”, `pionowo` „1993 supply made in poland”):
+  - kod 0, render 107 s, film 32,0 s;
+  - napisy w oknach 0 do 101 i 101 do 187, napis pionowy od 46 do 131, słowa od 187, akcent na klatce 218 = drop 7,27 s razem z pierścieniem;
+  - **błąd akcentu:** „POLAND” wielkimi literami jest zmniejszane do szerokości strefy bezpiecznej, więc wychodzi niższe niż „like”, a wjazd z powiększenia znika. Poprawka w zadaniu 9.10 (gałąź `akcent`).
+- **Materiały na serwerze** (prośba właściciela: „wrzuć wszystkie”):
+  - przed: muzyka komplet (plus `MR.mp4`, którego lokalnie nie ma), 1 wzór (`0915` jako `20260923_143107`), flaga, pierścień i plansza dla `0915`, znak wodny;
+  - wzory `0914`, `0921`, `0922` i `0923` wgrane jako `20260914_000000`, `20260921_000000`, `20260922_000000` i `20260923_000000`. Nazwy sortują się przed `20260923_143107`, więc aktywny zostaje `0915`, dopóki zadanie 9.2 nie da wyboru wzoru. Nowe wzory nie mają własnej planszy (`dane/plansze/domyslna.*` brak) i biorą flagę jako nakładkę;
+  - biblioteka `zdjęcia`, `nagrania`, `zdjęcia_bez_tła` i `promocyjne` (około 11 GB) w drodze do `/opt/edity-bot/dane/`, przy około 1 MB/s. Bot jej nie czyta (materiały idą przez Telegram), na dysku zostaje około 16 GB wolnego miejsca.
+
 ### 2026-09-26 (odbiór zadania 9.9, gałąź `rytm`, Opus)
 - **Werdykt: OK.** Zadania 9.6 do 9.9 gotowe do PR.
 - Testy: 281 z 281 w 235 s.

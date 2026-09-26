@@ -409,6 +409,29 @@ Katalog: C:\Dev\edity-bot, gałąź rytm. Wykonaj zadanie 9.9 z Pomiary/PLAN_EDI
 ```
 - **Commit:** `tekst: rozmiar napisów i napis pionowy po odbiorze`
 
+### [Task 9.10: Akcent na całą szerokość i wjazd poza kadr]
+- **Objective:** ostatnie słowo w rytmie (akcent) jest większe od pozostałych i wlatuje z powiększenia także wtedy, gdy jest długie, jak „EUROPE” w `0923`.
+- **Context/Inputs** (test lokalny po wdrożeniu, 2026-09-26); `src/tekst.py` (`obraz_slowa`, `skala_wjazdu_akcentu`), `src/render.py` (`przygotuj_slowa`, funkcja `klatka_dla`), `tests/test_rytm.py`:
+  - dziś `obraz_slowa` zmniejsza każde słowo do szerokości strefy bezpiecznej, także akcent i klatki wjazdu. „POLAND” wielkimi literami jest szerokie, więc wychodzi niższe niż „like”, a wjazd (skala od 6 do 1) znika, bo powiększone słowo od razu kurczy się do szerokości strefy;
+  - we wzorze `0923` „EUROPE” zajmuje 91% szerokości kadru (od 46 do 1031 px przy 1080), wychodząc poza strefę bezpieczną, a w pierwszych klatkach wjazdu pojedyncza litera wypełnia cały kadr.
+- **Kontrakt:**
+  - `obraz_slowa(tresc, szerokosc, wysokosc, akcent=False, wjazd=1.0)` zamiast parametru `skala`;
+  - zwykłe słowo bez zmian: zmniejszane do szerokości strefy bezpiecznej, wyśrodkowane w strefie;
+  - akcent: wielkość 1,6 raza większa od zwykłego słowa, zmniejszana najwyżej do 95% szerokości kadru (nie strefy), wyśrodkowana na środku kadru w poziomie, środek na 50% wysokości;
+  - `wjazd` mnoży wielkość akcentu po dopasowaniu do szerokości i niczego już nie zmniejsza: w klatkach wjazdu słowo wychodzi poza kadr;
+  - `render.przygotuj_slowa` przekazuje dla akcentu `akcent=True` i `wjazd=tekst.skala_wjazdu_akcentu(klatka - od)`.
+- **Constraints:** testy w `tests/test_rytm.py` (1080x1920):
+  1. akcent „POLAND” przy `wjazd=1`: ramka złotych pikseli ma szerokość od 60% do 95% kadru i jest co najmniej 1,15 raza wyższa niż ramka zwykłego słowa „POLAND”;
+  2. akcent „EU” (krótki, bez limitu szerokości): wysokość ramki od 1,45 do 1,75 raza większa niż zwykłego „EU”;
+  3. akcent „POLAND” przy `wjazd=6`: złote albo granatowe piksele są w pierwszej i w ostatniej kolumnie kadru;
+  4. istniejący test renderu „akcent szerszy w pierwszej klatce niż w siódmej” przechodzi także dla akcentu „POLAND”.
+- **Pomiar:** `python Pomiary/measure_rytm.py`. A i C bez błędu na 5 wzorach, a w `outputs/rytm_klatki.png` akcent jest większy od pozostałych słów.
+- **Sonnet Prompt:**
+```text
+Katalog: C:\Dev\edity-bot. Utwórz gałąź `akcent` od aktualnego `main` (przed startem `git pull`). Niezacommitowane zmiany w Pomiary/ dołącz do swojego commita, nie chowaj ich do stash. Wykonaj zadanie 9.10 z Pomiary/PLAN_EDITY_9_FABRYKA.md; otwórz src/tekst.py, src/render.py, tests/test_rytm.py. Weryfikacja: python -m pytest -q, potem python Pomiary/measure_rytm.py. Pliki robocze trzymaj poza repo. Dopisz wpis do Pomiary/ROZWOJ.md i zrób commit `tekst: akcent na całą szerokość i wjazd poza kadr`. Na koniec krótki raport.
+```
+- **Commit:** `tekst: akcent na całą szerokość i wjazd poza kadr`
+
 ## Gotowe, gdy
 - `python -m pytest -q` przechodzi w całości.
 - Pomiar: A w progach, B zaraportowane, arkusze C powstały.
@@ -430,6 +453,7 @@ Katalog: C:\Dev\edity-bot, gałąź rytm. Wykonaj zadanie 9.9 z Pomiary/PLAN_EDI
 7. `render i bot: napis pionowy` (9.7, gałąź `rytm`)
 8. `Pomiary: pomiar napisów w rytmie` (9.8, gałąź `rytm`)
 9. `tekst: rozmiar napisów i napis pionowy po odbiorze` (9.9, gałąź `rytm`)
+10. `tekst: akcent na całą szerokość i wjazd poza kadr` (9.10, gałąź `akcent`)
 
 ## Odbiór (oceniający)
 ```text
