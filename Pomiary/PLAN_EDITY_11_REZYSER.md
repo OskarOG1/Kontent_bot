@@ -8,26 +8,28 @@
 - Bez klucza, po błędzie API, po odmowie albo przy nieprawidłowym scenariuszu montaż idzie automatycznie jak w części 10. Podpis mówi wtedy, dlaczego.
 
 **Dlaczego:** Twój pomysł z 2026-09-26: „dodać AI żeby ulepszało na końcu edity albo wymyślało scenariusz z tymi edycjami”. Automat z części 10 układa materiały w kolejności wysłania i bierze klipy od początku. Nie widzi, co jest na zdjęciu ani która scena w klipie jest dobra.
-**Model:** `claude-opus-5-5` (Claude Opus 5.5, rekomendacja z 2026-09-26; właściciel ustawia `MODEL_AI` w `.env`). Kosztuje 4 $ za milion tokenów wejścia i 20 $ za milion wyjścia, czyli mniej niż Opus 5 (5 i 25 $), a daje ten sam kontekst, obrazy i schemat JSON.
-- Opus 5.5 myśli zawsze: nie wysyłaj `thinking.type` `disabled` ani `budget_tokens`, bo to błąd 400.
-- Domyślny `effort` tego modelu to `medium`, więc żądanie ustawia `high` jawnie.
-- Model zmienia się przez `MODEL_AI` w `.env`, bez zmian w kodzie. Zapasowo działa `claude-opus-5`.
+**Dostęp: OpenRouter (decyzja właściciela 2026-09-26: „używam openrouter do tego”).** Bot woła model przez API OpenRoutera, a nie bezpośrednio przez API Anthropic.
+- Klucz to `OPENROUTER_API_KEY`.
+- Model w `MODEL_AI` to nazwa z OpenRoutera, z przedrostkiem dostawcy (dla Claude Opus 5.5 zapewne `anthropic/claude-opus-5.5`). Dokładną nazwę bierzesz ze strony modelu na OpenRouterze albo z `GET https://openrouter.ai/api/v1/models`.
+- Wybór modelu to rekomendacja z 2026-09-26: Claude Opus 5.5. Jest nowszy i tańszy od Opus 5 (według cennika Anthropic 4 i 20 $ za milion tokenów wobec 5 i 25 $), widzi obrazy i odpowiada w schemacie JSON.
+- Model zmienia się przez `MODEL_AI`, bez zmian w kodzie.
+- Opus 5.5 myśli zawsze, a jego domyślny wysiłek to `medium`, więc żądanie ustawia wysoki wysiłek jawnie (pole `reasoning` OpenRoutera).
 **Szacunek kosztu:**
 - reżyser: około 15 tys. tokenów wejścia (3 do 4 arkusze obrazów i opis wzoru) i 4 do 8 tys. wyjścia, czyli 0,14 do 0,22 $;
 - krytyk: około 8 tys. wejścia i 2 do 4 tys. wyjścia, czyli 0,07 do 0,11 $;
-- razem z jedną poprawką poniżej 0,50 $ za edit.
+- razem z jedną poprawką poniżej 0,50 $ za edit, do tego prowizja OpenRoutera przy doładowaniu środków. Koszt faktyczny zwraca OpenRouter w odpowiedzi (patrz „Wywołanie modelu”).
 
 Pomiar 11.4 sprawdza to na prawdziwych wywołaniach.
 **Nowe pliki:** `src/rezyser.py`, `tests/test_rezyser.py`, `Pomiary/measure_rezyser.py`.
-**Zmieniane:** `src/render.py`, `src/konfiguracja.py`, `.env.example`, `src/bot.py`, `src/komunikaty.py`, `tests/test_render.py`, `tests/test_konfiguracja.py`, `tests/test_bot.py`, `requirements.txt` (pakiet `anthropic`).
+**Zmieniane:** `src/render.py`, `src/konfiguracja.py`, `.env.example`, `src/bot.py`, `src/komunikaty.py`, `tests/test_render.py`, `tests/test_konfiguracja.py`, `tests/test_bot.py`, `requirements.txt` (klient HTTP albo SDK `openai`, patrz „Wywołanie modelu”).
 **Od właściciela:**
-- klucz API Anthropic w `.env` na serwerze (`ANTHROPIC_API_KEY=...`) i, na czas pomiaru 11.4, w lokalnym `.env`. Klucz wpisujesz tylko tam: nie wklejaj go do czatu ani do plików w repo;
+- klucz OpenRoutera i nazwa modelu w `.env` na serwerze (`OPENROUTER_API_KEY=...`, `MODEL_AI=...`) i, na czas pomiaru 11.4, w lokalnym `.env`. Klucz wpisujesz tylko tam: nie wklejaj go do czatu ani do plików w repo;
 - zgoda na koszt pomiaru 11.4 (szacunek do 5 $);
 - ocena editów z reżyserem wobec automatycznych.
 
 Prompt startowy (cała część w jednej sesji):
 ```text
-Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania 11.1 do 11.4 z Pomiary/PLAN_EDITY_11_REZYSER.md na gałęzi `rezyser` od aktualnego `main` (przed startem `git pull`), zaczynając od „Stan wejściowy”. Przed pisaniem kodu, który woła API Claude, wczytaj skill `claude-api` i trzymaj się jego wskazówek dla Pythona. Na starcie przeczytaj Pomiary/ROZWOJ.md i dopisuj do niego po każdym zadaniu. Otwieraj tylko pliki wymienione w zadaniu. Nie otwieraj `.env` i nie wypisuj klucza API nigdzie. Po każdym zadaniu uruchom jego weryfikację i zrób commit o nazwie podanej w zadaniu. Pomiar 11.4 wydaje prawdziwe pieniądze: uruchom go tylko wtedy, gdy klucz jest ustawiony, i podaj koszt w raporcie. Pliki robocze trzymaj poza repo. Na koniec zdaj krótki raport.
+Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania 11.1 do 11.4 z Pomiary/PLAN_EDITY_11_REZYSER.md na gałęzi `rezyser` od aktualnego `main` (przed startem `git pull`), zaczynając od „Stan wejściowy”. Przed pisaniem kodu, który woła model, przeczytaj aktualną dokumentację API OpenRoutera (openrouter.ai/docs): czat z obrazami, wymuszony schemat JSON, parametr wysiłku rozumowania, zużycie i koszt w odpowiedzi, zapasowe modele. Nie zgaduj nazw pól. Na starcie przeczytaj Pomiary/ROZWOJ.md i dopisuj do niego po każdym zadaniu. Otwieraj tylko pliki wymienione w zadaniu. Nie otwieraj `.env` i nie wypisuj klucza API nigdzie. Po każdym zadaniu uruchom jego weryfikację i zrób commit o nazwie podanej w zadaniu. Pomiar 11.4 wydaje prawdziwe pieniądze: uruchom go tylko wtedy, gdy klucz jest ustawiony, i podaj koszt w raporcie. Pliki robocze trzymaj poza repo. Na koniec zdaj krótki raport.
 ```
 
 ## WSPÓLNE (ten sam blok w każdej części)
@@ -93,24 +95,28 @@ Szukaj po nazwach, bo numery linii przesuną się po części 10.
 
 **Konfiguracja (11.1):**
 - `.env` i `Konfiguracja`:
-  - `ANTHROPIC_API_KEY`: pusta albo brak oznacza AI wyłączone. Klucz czyta SDK ze środowiska. Nie trafia do logów, podsumowań, komunikatów ani wyjątków;
-  - `MODEL_AI` (domyślnie `claude-opus-5-5`);
+  - `OPENROUTER_API_KEY`: pusta albo brak oznacza AI wyłączone. Nie trafia do logów, podsumowań, komunikatów ani wyjątków;
+  - `MODEL_AI`: nazwa modelu na OpenRouterze. Domyślnie nazwa Claude Opus 5.5 z listy modeli OpenRoutera; sprawdź ją przy pisaniu kodu i wpisz do `.env.example`;
+  - `MODEL_AI_ZAPAS` (opcjonalny): drugi model, gdy pierwszy odmówi albo jest niedostępny, jeśli OpenRouter pozwala podać listę modeli w jednym żądaniu;
   - `AI_REZYSER` i `AI_KRYTYK` (`tak` albo `nie`, domyślnie `tak`);
   - `PROG_OCENY_AI` (domyślnie 7, od 1 do 10).
 - Bot przekazuje do renderu `--ai` tylko wtedy, gdy klucz jest ustawiony i choć jeden z kroków jest włączony. Do tego `--model-ai`, `--bez-rezysera`, `--bez-krytyka` i `--prog-oceny-ai`. Render bierze klucz ze środowiska procesu, które dziedziczy po bocie (kontener dostaje `.env`).
 - `LIMIT_RENDERU_S` rośnie z 900 do 1800 s, bo krytyk może zlecić drugi montaż (limity podnosimy, gdy praca się do nich zbliża, decyzja 18).
-- `/status` pokazuje linię „AI: włączone (claude-opus-5-5)” albo „AI: wyłączone (brak klucza)”.
-- `requirements.txt`: `anthropic` przypięty do aktualnej wersji (sprawdź `pip index versions anthropic`).
+- `/status` pokazuje linię „AI: włączone (<MODEL_AI>)” albo „AI: wyłączone (brak klucza)”.
+- `requirements.txt`: klient przypięty do aktualnej wersji. Albo SDK `openai` z `base_url` OpenRoutera, jak podaje jego dokumentacja, albo zwykłe HTTP (`httpx`). Wybierz jedno i uzasadnij w `ROZWOJ.md`.
 
 **Wywołanie modelu (`src/rezyser.py`, 11.1):**
-- Jedna funkcja `wywolaj_model(klient, model, tresc, schemat) -> tuple[dict | None, dict]` zwraca (odpowiedź zgodną ze schematem albo `None`, zużycie `{"wejscie": int, "wyjscie": int, "powod": str | None}`). Testy podmieniają `klient`, więc bez sieci.
-- Żądanie:
-  - `thinking={"type": "adaptive"}`, `output_config={"effort": "high", "format": {"type": "json_schema", "schema": ...}}`. `effort` zawsze jawnie, bo domyślny na Opus 5.5 to `medium`;
-  - odmowy przez parametr `fallbacks="default"` z nagłówkiem beta `server-side-fallback-2026-07-01` (ścieżka `client.beta.messages`). Kształt żądania sprawdź w skillu `claude-api` przed napisaniem kodu;
-  - obrazy jako bloki `image` w base64 (JPEG), tekst po obrazach;
-  - `max_tokens` 16000.
-- `stop_reason` różny od `end_turn` (w tym `refusal` i `max_tokens`), wyjątek SDK, JSON niezgodny ze schematem albo brak klucza: wynik `None` i powód w zużyciu. Montaż idzie wtedy automatycznie.
-- Koszt: `koszt_usd(model, wejscie, wyjscie)` z tabeli cen w module (`claude-opus-5-5`: 4 i 20 $ za milion tokenów, `claude-opus-5`: 5 i 25 $). Nieznany model daje `None`.
+- Jedna funkcja `wywolaj_model(klient, model, tresc, schemat) -> tuple[dict | None, dict]` zwraca (odpowiedź zgodną ze schematem albo `None`, zużycie `{"wejscie": int, "wyjscie": int, "koszt_usd": float | None, "powod": str | None}`). Tylko ona zna OpenRouter, więc przejście na inne API (np. bezpośrednio Anthropic) zmienia tylko tę funkcję. Testy podmieniają `klient`, więc bez sieci.
+- Żądanie do `POST https://openrouter.ai/api/v1/chat/completions` (format czatu jak w API OpenAI):
+  - nagłówek `Authorization: Bearer <OPENROUTER_API_KEY>`, klucz tylko ze środowiska;
+  - wiadomość użytkownika: najpierw obrazy jako części `image_url` z adresem `data:image/jpeg;base64,...`, na końcu tekst;
+  - odpowiedź w schemacie JSON przez `response_format` typu `json_schema` (`strict`), jeśli OpenRouter obsługuje to dla wybranego modelu. Jeśli nie, schemat idzie w poleceniu, a odpowiedź sprawdza Pydantic;
+  - wysoki wysiłek rozumowania przez pole `reasoning` OpenRoutera;
+  - limit długości odpowiedzi 16000 tokenów;
+  - zużycie i koszt z pola `usage` odpowiedzi. Jeśli OpenRouter podaje koszt na żądanie, bierz go stamtąd.
+  - Dokładne nazwy pól (`response_format`, `reasoning`, lista zapasowych modeli, koszt w `usage`) sprawdź w dokumentacji OpenRoutera przed napisaniem kodu.
+- Błąd HTTP, przekroczony czas (limit 180 s na żądanie), odpowiedź ucięta limitem długości, odmowa modelu, JSON niezgodny ze schematem albo brak klucza: wynik `None` i powód w zużyciu. Montaż idzie wtedy automatycznie. Jedna ponowna próba tylko przy błędzie sieci albo 5xx.
+- Koszt zapasowy: `koszt_usd(model, wejscie, wyjscie)` z tabeli cen w module (Claude Opus 5.5: 4 i 20 $ za milion tokenów), gdy OpenRouter nie poda kosztu. Nieznany model daje `None`.
 
 **Materiały dla reżysera (11.1):**
 - `arkusze_materialow(materialy, wycinki, katalog_pracy) -> list[Path]`, obrazy JPEG, dłuższy bok najwyżej 1568 px:
@@ -152,18 +158,18 @@ Szukaj po nazwach, bo numery linii przesuną się po części 10.
 ## Zadania
 
 ### [Task 11.1: Konfiguracja, wywołanie modelu i arkusze materiałów]
-- **Objective:** konfiguracja AI, `rezyser.wywolaj_model`, `koszt_usd`, `arkusze_materialow`, `opis_wzoru`, linia AI w `/status`, `anthropic` w `requirements.txt`.
+- **Objective:** konfiguracja AI, `rezyser.wywolaj_model` przez OpenRouter, `koszt_usd`, `arkusze_materialow`, `opis_wzoru`, linia AI w `/status`, klient w `requirements.txt`.
 - **Context/Inputs:** kontrakty „Konfiguracja”, „Wywołanie modelu” i „Materiały dla reżysera”; `src/konfiguracja.py`, `.env.example`, `src/bot.py` (`renderuj_w_tle`, `obsluz_cmd_status`, `LIMIT_RENDERU_S`), `src/komunikaty.py`, `requirements.txt`, `tests/test_konfiguracja.py`, `tests/test_bot.py`. Nowe `src/rezyser.py` i `tests/test_rezyser.py`.
 - **Constraints:** testy bez sieci (klient podmieniony obiektem testowym):
-  1. poprawna odpowiedź JSON daje słownik i zużycie z `usage`, a odpowiedź z `stop_reason` `refusal` albo `max_tokens`, wyjątek klienta lub JSON niezgodny ze schematem dają `None` z powodem;
-  2. żądanie ma `thinking` adaptive, `output_config` z `effort` i schematem, `fallbacks` `default` z nagłówkiem beta, obrazy przed tekstem;
-  3. `koszt_usd("claude-opus-5-5", 15000, 6000)` daje 0,18, a `koszt_usd("claude-opus-5", 15000, 6000)` daje 0,225;
+  1. poprawna odpowiedź JSON daje słownik i zużycie z `usage` (z kosztem, gdy odpowiedź go ma). Odpowiedź ucięta limitem, odmowa, błąd HTTP, przekroczony czas albo JSON niezgodny ze schematem dają `None` z powodem;
+  2. żądanie idzie na adres OpenRoutera z modelem z konfiguracji, ma obrazy jako `data:image/jpeg;base64` przed tekstem, schemat odpowiedzi i wysoki wysiłek rozumowania. Klucz jest tylko w nagłówku;
+  3. `koszt_usd` dla Claude Opus 5.5 przy 15000 tokenów wejścia i 6000 wyjścia daje 0,18;
   4. arkusze: żaden obraz nie ma boku ponad 1568 px, numerów na arkuszach jest tyle, ile materiałów, a klip ma 6 klatek;
-  5. brak `ANTHROPIC_API_KEY`: bot nie przekazuje `--ai`, a `/status` mówi „wyłączone (brak klucza)”. Z kluczem testowym `--ai` i `--model-ai` są w poleceniu. Wartość klucza nie pojawia się w żadnym komunikacie ani w poleceniu renderu;
+  5. brak `OPENROUTER_API_KEY`: bot nie przekazuje `--ai`, a `/status` mówi „wyłączone (brak klucza)”. Z kluczem testowym `--ai` i `--model-ai` są w poleceniu. Wartość klucza nie pojawia się w żadnym komunikacie ani w poleceniu renderu;
   6. `AI_REZYSER=moze` daje `ValueError`.
 - **Sonnet Prompt:**
 ```text
-Katalog: C:\Dev\edity-bot, gałąź rezyser. Wczytaj skill claude-api (Python). Wykonaj zadanie 11.1 z Pomiary/PLAN_EDITY_11_REZYSER.md; otwórz src/konfiguracja.py, .env.example, src/bot.py, src/komunikaty.py, requirements.txt, tests/test_konfiguracja.py, tests/test_bot.py, nowe src/rezyser.py i tests/test_rezyser.py. Weryfikacja: python -m pytest -q
+Katalog: C:\Dev\edity-bot, gałąź rezyser. Przeczytaj dokumentację API OpenRoutera dla pól z kontraktu „Wywołanie modelu”. Wykonaj zadanie 11.1 z Pomiary/PLAN_EDITY_11_REZYSER.md; otwórz src/konfiguracja.py, .env.example, src/bot.py, src/komunikaty.py, requirements.txt, tests/test_konfiguracja.py, tests/test_bot.py, nowe src/rezyser.py i tests/test_rezyser.py. Weryfikacja: python -m pytest -q
 ```
 - **Commit:** `rezyser: konfiguracja i wywołanie modelu`
 
@@ -180,7 +186,7 @@ Katalog: C:\Dev\edity-bot, gałąź rezyser. Wczytaj skill claude-api (Python). 
   7. bez `--ai` polecenia ffmpeg identyczne jak przed tą częścią.
 - **Sonnet Prompt:**
 ```text
-Katalog: C:\Dev\edity-bot, gałąź rezyser. Wczytaj skill claude-api (Python). Wykonaj zadanie 11.2 z Pomiary/PLAN_EDITY_11_REZYSER.md; otwórz src/rezyser.py, src/render.py, tests/test_rezyser.py, tests/test_render.py, tests/generuj.py. Weryfikacja: python -m pytest -q
+Katalog: C:\Dev\edity-bot, gałąź rezyser. Przeczytaj dokumentację API OpenRoutera dla pól z kontraktu „Wywołanie modelu”. Wykonaj zadanie 11.2 z Pomiary/PLAN_EDITY_11_REZYSER.md; otwórz src/rezyser.py, src/render.py, tests/test_rezyser.py, tests/test_render.py, tests/generuj.py. Weryfikacja: python -m pytest -q
 ```
 - **Commit:** `rezyser: scenariusz w renderze`
 
@@ -196,7 +202,7 @@ Katalog: C:\Dev\edity-bot, gałąź rezyser. Wczytaj skill claude-api (Python). 
   6. podpis: „Scenariusz AI, ocena 8/10 (po poprawce)” i „Scenariusz automatyczny: brak odpowiedzi modelu”.
 - **Sonnet Prompt:**
 ```text
-Katalog: C:\Dev\edity-bot, gałąź rezyser. Wczytaj skill claude-api (Python). Wykonaj zadanie 11.3 z Pomiary/PLAN_EDITY_11_REZYSER.md; otwórz src/rezyser.py, src/render.py, src/komunikaty.py, Pomiary/arkusz.py, tests/test_rezyser.py, tests/test_bot.py. Weryfikacja: python -m pytest -q
+Katalog: C:\Dev\edity-bot, gałąź rezyser. Przeczytaj dokumentację API OpenRoutera dla pól z kontraktu „Wywołanie modelu”. Wykonaj zadanie 11.3 z Pomiary/PLAN_EDITY_11_REZYSER.md; otwórz src/rezyser.py, src/render.py, src/komunikaty.py, Pomiary/arkusz.py, tests/test_rezyser.py, tests/test_bot.py. Weryfikacja: python -m pytest -q
 ```
 - **Commit:** `rezyser: krytyk i poprawka`
 
@@ -204,7 +210,7 @@ Katalog: C:\Dev\edity-bot, gałąź rezyser. Wczytaj skill claude-api (Python). 
 - **Objective:** `Pomiary/measure_rezyser.py`, wynik w `outputs/pomiar_rezyser.json`, arkusze i próbny edit.
 - **Context/Inputs:**
   - materiały jak w pomiarze części 10 (stała próbka plus wycinki, słowa, napis pionowy, flaga, plansza, znak);
-  - bez `ANTHROPIC_API_KEY` w środowisku pomiar zapisuje `{"pominiety": "brak klucza"}` i kończy się kodem 0;
+  - bez `OPENROUTER_API_KEY` w środowisku pomiar zapisuje `{"pominiety": "brak klucza"}` i kończy się kodem 0;
   - przed pierwszym wywołaniem wypisz szacunek kosztu z `koszt_usd` dla przewidywanych tokenów;
   - **Sekcja A** (5 wzorów): montaż automatyczny i montaż z AI. Dla obu: ocena krytyka (automat też oceniany, dla porównania), liczba ujęć, użyte materiały, liczba ostrzeżeń scenariusza, tokeny, koszt, czas zegara;
   - **Sekcja C:** `outputs/porownanie_rezyser_<wzor>_auto.png` i `outputs/porownanie_rezyser_<wzor>_ai.png`, do tego próbny edit `outputs/rezyser_0923.mp4`;
@@ -236,5 +242,5 @@ Katalog: C:\Dev\edity-bot. Oceniasz część 11 według Pomiary/PLAN_EDITY_11_RE
 1. `git log --oneline main..rezyser`, `python -m pytest -q`, stan i znane problemy w `Pomiary/ROZWOJ.md`.
 2. `outputs/pomiar_rezyser.json`: odsetek poprawnych scenariuszy, koszt na edit, oceny krytyka. Pomiaru nie uruchamiaj drugi raz bez zgody właściciela, bo kosztuje.
 3. Arkusze auto i AI dla każdego wzoru: czy AI wybiera lepsze otwarcie, fragmenty klipów i kolaże.
-4. `src/rezyser.py`: żądanie zgodne z kontraktem (model z `.env`, adaptive, schemat, fallbacks), klucz nigdzie nie wypisywany, każdy błąd kończy się automatem, a nie przerwanym montażem.
+4. `src/rezyser.py`: żądanie zgodne z kontraktem (OpenRouter, model z `.env`, obrazy, schemat, wysiłek), klucz nigdzie nie wypisywany, każdy błąd kończy się automatem, a nie przerwanym montażem.
 5. `src/render.py`: bez `--ai` polecenia bez zmian, najwyżej jeden dodatkowy montaż.
