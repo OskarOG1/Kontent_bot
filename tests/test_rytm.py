@@ -59,6 +59,48 @@ def test_obraz_slowa_kolory_i_znaki():
     assert kolor_granatowy_maska(tablica)[widoczne].any()
 
 
+def ramka_zlotej_alfy(obraz):
+    tablica = np.array(obraz)
+    maska = kolor_zloty_maska(tablica) & (tablica[..., 3] > 0)
+    ys, xs = np.nonzero(maska)
+    return xs, ys
+
+
+def test_obraz_slowa_akcent_szeroki_i_wyzszy_niz_zwykle_slowo():
+    zwykle = tekst.obraz_slowa("POLAND", 1080, 1920)
+    akcent = tekst.obraz_slowa("POLAND", 1080, 1920, akcent=True, wjazd=1.0)
+
+    xs_zwykle, ys_zwykle = ramka_zlotej_alfy(zwykle)
+    xs_akcent, ys_akcent = ramka_zlotej_alfy(akcent)
+
+    szerokosc_akcentu = xs_akcent.max() - xs_akcent.min()
+    assert 0.60 * 1080 <= szerokosc_akcentu <= 0.95 * 1080
+
+    wysokosc_zwykla = ys_zwykle.max() - ys_zwykle.min()
+    wysokosc_akcentu = ys_akcent.max() - ys_akcent.min()
+    assert wysokosc_akcentu >= 1.15 * wysokosc_zwykla
+
+
+def test_obraz_slowa_akcent_krotkie_slowo_wieksze_o_okolo_16_razy():
+    zwykle = tekst.obraz_slowa("EU", 1080, 1920)
+    akcent = tekst.obraz_slowa("EU", 1080, 1920, akcent=True, wjazd=1.0)
+
+    _, ys_zwykle = ramka_zlotej_alfy(zwykle)
+    _, ys_akcent = ramka_zlotej_alfy(akcent)
+
+    wysokosc_zwykla = ys_zwykle.max() - ys_zwykle.min()
+    wysokosc_akcentu = ys_akcent.max() - ys_akcent.min()
+    assert 1.45 * wysokosc_zwykla <= wysokosc_akcentu <= 1.75 * wysokosc_zwykla
+
+
+def test_obraz_slowa_akcent_wjazd_wychodzi_poza_kadr():
+    akcent = tekst.obraz_slowa("POLAND", 1080, 1920, akcent=True, wjazd=6.0)
+    tablica = np.array(akcent)
+    widoczne = (kolor_zloty_maska(tablica) | kolor_granatowy_maska(tablica)) & (tablica[..., 3] > 0)
+    assert widoczne[:, 0].any()
+    assert widoczne[:, -1].any()
+
+
 def zapisz_projekt_slowa(projekt, slowa, linie=None):
     dane = {"teksty": [{"message_id": i + 1, "tekst": linia} for i, linia in enumerate(linie or [])], "slowa": slowa}
     (projekt / "projekt.json").write_text(json.dumps(dane, ensure_ascii=False), encoding="utf-8")
@@ -79,7 +121,7 @@ def test_renderuj_slowa_w_rytmie_pelny_przebieg(tmp_path):
             generuj.zdjecie_testowe(katalog / f"000000000{i}_m.jpg", rozmiar=(800, 600), kolor=(20, 20, 20))
 
     projekt = zbuduj_projekt(tmp_path, dodaj)
-    zapisz_projekt_slowa(projekt, "raz dwa GO")
+    zapisz_projekt_slowa(projekt, "raz dwa POLAND")
     wzor_json = tmp_path / "wzor.json"
     wzor_json.write_text(json.dumps(wzor_prosty(6.0)), encoding="utf-8")
     utwor = tmp_path / "klik.wav"
