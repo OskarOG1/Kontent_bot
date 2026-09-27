@@ -14,7 +14,7 @@ Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym
 | 8 nakładka | scalona w PR #9 i #10 (2026-09-24), wdrożona. Testy 187 z 187 (190 s). Odbiór ponowny 2026-09-24 (Opus): OK. Pomiar A 5 z 5 wzorów w granicy 0,5 s (maks 0,1 s), arkusze C poprawne (hak czysty, nakładka od dropu, plansza bez nakładki i bez znaku, znak wodny jak w `0914`). Pomiar B niewiarygodny (narzut ujemny), zasada czasu procesora dopisana do bloku WSPÓLNE. Test ręczny: kod -9 przez brak pamięci w analizie utworów z części 4, nie przez nakładkę (znany problem 9) |
 | 5 kolor | kod gotowy na gałęzi `kolor`, 2026-09-24. Testy 214 z 214 (225 s). Pomiar A i B w progach (ΔE przy sile 0,6 mniejsze niż przy 0 w każdej sekcji wszystkich 5 prawdziwych wzorów), arkusze C (15) powstały. Narzut renderu 44 do 112% (bez ustalonego progu, do decyzji właściciela). Czas próbkowania „niepewny" (rozrzut przebiegów bazowych nad progiem 20%, na jednym, największym wzorze). Odbiór 2026-09-24 (Opus): poprawki w zadaniu 5.5 (klip krótszy od ujęcia wywraca montaż, wzór z jednym ujęciem, ciche nieudane próbkowanie). Siła domyślna 0,6 potwierdzona na arkuszach. Bez wdrożenia. Scalona w PR #12, wdrożona 2026-09-24. Zadanie 5.6 (niebo bez przebarwienia) scalone w PR #13 i wdrożone 2026-09-25, pełny pomiar po nim zaliczony |
 | 9 fabryka | 9.5 do 9.9 scalone (PR #14, #17) i wdrożone. 9.10 (PR #18) i 9.1 do 9.4 (PR #20: restart, `/wzory`, warianty, `/ponow`, pomiar; testy 323 z 323, odbiór OK 2026-09-26) scalone do `main`, wdrożenie do potwierdzenia |
-| 10 dynamika | 10.1 do 10.5 na gałęzi `dynamika` (2026-09-26), testy 350 z 350. Odbiór 2026-09-26 (Opus): kod zgodny z kontraktami, przed scaleniem poprawki 10.6 do 10.8: przeplot zdjęć i klipów, warstwy przebiegu końcowego jako klipy (problem 13), flaga w skali 0,85, pomiar ponownie. 10.1 do 10.5 scalone do `main` w PR #21 (2026-09-26, 22:38 UTC), zanim powstały poprawki. 10.6 do 10.8 zrobione na `dynamika` w sesji w chmurze bez `dane/`: testy 357 z 357, pomiar 10.8 nieuruchomiony. Ocena 2026-09-27: kod zgodny z kontraktami, poprawki 10.9 do 10.11 zrobione tego samego dnia (testy 360 z 360, pomiar na syntetycznym `dane/` w progach). Poprawki 10.6 do 10.11 w PR #22 (szkic). Pomiar 10.8 u właściciela 2026-09-27: A w progach na 5 wzorach, problem 13 zamknięty. Do zrobienia: werdykt właściciela na arkuszach i próbnym edicie, odbiór, scalenie PR #22, wdrożenie |
+| 10 dynamika | 10.1 do 10.5 na gałęzi `dynamika` (2026-09-26), testy 350 z 350. Odbiór 2026-09-26 (Opus): kod zgodny z kontraktami, przed scaleniem poprawki 10.6 do 10.8: przeplot zdjęć i klipów, warstwy przebiegu końcowego jako klipy (problem 13), flaga w skali 0,85, pomiar ponownie. 10.1 do 10.5 scalone do `main` w PR #21 (2026-09-26, 22:38 UTC), zanim powstały poprawki. 10.6 do 10.8 zrobione na `dynamika` w sesji w chmurze bez `dane/`: testy 357 z 357, pomiar 10.8 nieuruchomiony. Ocena 2026-09-27: kod zgodny z kontraktami, poprawki 10.9 do 10.11 zrobione tego samego dnia (testy 360 z 360, pomiar na syntetycznym `dane/` w progach). Poprawki 10.6 do 10.11 w PR #22 (szkic). Pomiar 10.8 u właściciela 2026-09-27: A w progach na 5 wzorach, problem 13 zamknięty, arkusze i próbny edit zaakceptowane przez właściciela. Do zrobienia: odbiór, scalenie PR #22, wdrożenie |
 | 11 reżyser AI | plan w PR #19 (OpenRouter, Claude Opus 5.5). Do zrobienia po części 10. Od właściciela: `OPENROUTER_API_KEY` i `MODEL_AI` w `.env` |
 | 6 tekst | kod gotowy na gałęzi `tekst`, 2026-09-25. Testy 251 z 251 (311 s). Pomiar: najwyżej 20 do 27 linii w haku prawdziwych wzorów, narzut procesora 24% (bez progu), arkusze dla 5 wzorów. Odbiór 2026-09-25 (Opus): OK z trzema drobnymi poprawkami, czcionka do akceptacji właściciela. Bez PR i bez wdrożenia. Czcionka szeryfowa zaakceptowana, scalona w PR #15 i wdrożona 2026-09-25. Test lokalny w warunkach produkcji OK (2026-09-25) |
 
@@ -25,6 +25,8 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 1. Klipy i animacje (gify) mają być pobierane i cięte na krótkie wstawki, żeby dało się ich użyć w editach. Wpisane do `PLAN_EDITY_3_RENDER.md` (kontrakt `render.wstawki`, testy 9 do 11 w zadaniu 3.2, `gif` w typach klipów w zadaniu 3.3). Potwierdzone przez właściciela 2026-09-22: długość wstawki to mediana długości ujęć wzoru w granicach 0,5 do 2,0 s, kolejność rundami po materiałach w kolejności wysłania.
 
 2. **Edity promują czapki marki 1993 Supply (2026-09-24).** Wzór `0914` to własny edit właściciela: przez cały edit ma znak wodny „1993 Supply” (51% szerokości, środek na 80% wysokości, krycie około 0,6), a na końcu stronę sklepu z czapką. Plik znaku leży w `dane/promocyjne/1993supply_watermark.png`. Wpisane jako zadanie 8.6 i decyzja 20 w mapie.
+
+3. **Drugi projekt na serwerze (2026-09-27).** Na serwerze działa też drugi projekt właściciela. Decyzja właściciela: tamtego projektu nie ruszamy.
 
 ## Znane problemy i ograniczenia
 
@@ -74,6 +76,11 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 - Wyniki (`outputs/`), dane (`dane/`) i `.env` są poza gitem. Katalog `Pomiary/` od 2026-09-23 jest w repozytorium (decyzja właściciela), więc zmiany planów i dziennika trzeba commitować.
 
 ## Dziennik
+
+### 2026-09-27 (werdykt właściciela, PR #23 i drugi projekt)
+- Werdykt właściciela na arkuszach `porownanie_dynamika_*`, `dynamika_drop.png` i próbnym edicie `dynamika_0923.mp4`: „mogą być”. Pomiar części 10 zaliczony: A w progach, B zaraportowane, C zaakceptowane.
+- CI zgłoszone do `main` w PR #23 (gałąź `claude/wizardly-mccarthy-1pjwjs`). Po scaleniu `main` trzeba wciągnąć do `dynamika`, żeby CI sprawdziło PR #22.
+- Na serwerze działa też drugi projekt właściciela. Decyzja właściciela: tamtego projektu nie ruszamy (wpis 3 w „Wymaganiach od właściciela”).
 
 ### 2026-09-27 (CI w `.github`)
 - `.github/workflows/testy.yml` na gałęzi `claude/wizardly-mccarthy-1pjwjs` (od `main`): przy każdym pushu GitHub buduje obraz z `Dockerfile` i uruchamia w nim `python -m pytest -q`. CI działa na maszynach GitHuba i nie łączy się z serwerem.
@@ -1042,7 +1049,7 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Następne kroki
 
-1. Część 10: pomiar 10.8 u właściciela zaliczony (A w progach na 5 wzorach, problem 13 zamknięty). Zostało: werdykt właściciela na arkuszach `porownanie_dynamika_*`, `dynamika_drop.png` i próbnym edicie `dynamika_0923.mp4`, odbiór, scalenie PR #22 (szkic, oznaczyć „Ready for review”) i wdrożenie. Opcjonalnie pomiar ponownie po `git pull` (10.10: pełny czas B i koszt nakładek). Jeśli `main` po PR #21 jest już na serwerze, problem 13 grozi tam zawieszeniem renderu z flagą `krycie`, dopóki nie wejdą poprawki.
+1. Część 10: pomiar zaliczony (A w progach na 5 wzorach, problem 13 zamknięty, arkusze i próbny edit zaakceptowane przez właściciela 2026-09-27). Zostało: odbiór według sekcji „Odbiór” planu, scalenie PR #22 (szkic, oznaczyć „Ready for review”) i wdrożenie przez `wdroz.ps1`. Wcześniej scalić PR #23 (CI) i wciągnąć `main` do `dynamika`, żeby CI sprawdziło PR #22 na ffmpeg 7.1. Opcjonalnie pomiar ponownie po `git pull` (10.10: pełny czas B i koszt nakładek). Jeśli `main` po PR #21 jest już na serwerze, problem 13 grozi tam zawieszeniem renderu z flagą `krycie`, dopóki nie wejdą poprawki.
 2. Jeśli `main` po scaleniu #18 i #20 nie jest jeszcze na serwerze: `wdroz.ps1` i test na Telegramie:
    - `/wzory`: 5 wzorów z nazwami, a aktywny `0915`;
    - `/gotowe 3`;
