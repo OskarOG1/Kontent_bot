@@ -307,3 +307,9 @@ def status_muzyki(liczba_utworow: int) -> str:
 
 def status_znaku(ma_znak: bool) -> str:
     return f"Znak wodny: {'tak' if ma_znak else 'nie'}."
+
+
+def status_ai(klucz: str | None, model: str) -> str:
+    if not klucz:
+        return "AI: wyłączone (brak klucza)."
+    return f"AI: włączone ({model})."

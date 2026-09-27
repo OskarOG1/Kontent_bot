@@ -100,3 +100,47 @@ def test_dlugosc_nakladki_krycie_niestandardowa():
 def test_dlugosc_nakladki_krycie_niepoprawna():
     with pytest.raises(ValueError, match="DLUGOSC_NAKLADKI_KRYCIE_S"):
         wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123", "DLUGOSC_NAKLADKI_KRYCIE_S": "abc"})
+
+
+def test_ai_domyslne_wartosci():
+    konf = wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123"})
+    assert konf.openrouter_api_key is None
+    assert konf.model_ai == "anthropic/claude-opus-5.5"
+    assert konf.model_ai_zapas is None
+    assert konf.ai_rezyser is True
+    assert konf.ai_krytyk is True
+    assert konf.prog_oceny_ai == 7
+
+
+def test_ai_klucz_pusty_oznacza_brak():
+    konf = wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123", "OPENROUTER_API_KEY": ""})
+    assert konf.openrouter_api_key is None
+
+
+def test_ai_klucz_i_model_niestandardowe():
+    konf = wczytaj({
+        "BOT_TOKEN": "token",
+        "OWNER_ID": "123",
+        "OPENROUTER_API_KEY": "sk-or-abc",
+        "MODEL_AI": "anthropic/claude-opus-4.5",
+        "MODEL_AI_ZAPAS": "anthropic/claude-sonnet-5",
+        "AI_REZYSER": "nie",
+        "AI_KRYTYK": "nie",
+        "PROG_OCENY_AI": "5",
+    })
+    assert konf.openrouter_api_key == "sk-or-abc"
+    assert konf.model_ai == "anthropic/claude-opus-4.5"
+    assert konf.model_ai_zapas == "anthropic/claude-sonnet-5"
+    assert konf.ai_rezyser is False
+    assert konf.ai_krytyk is False
+    assert konf.prog_oceny_ai == 5
+
+
+def test_ai_rezyser_niepoprawna_wartosc():
+    with pytest.raises(ValueError, match="AI_REZYSER"):
+        wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123", "AI_REZYSER": "moze"})
+
+
+def test_prog_oceny_ai_poza_zakresem():
+    with pytest.raises(ValueError, match="PROG_OCENY_AI"):
+        wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123", "PROG_OCENY_AI": "11"})

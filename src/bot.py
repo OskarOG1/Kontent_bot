@@ -42,7 +42,7 @@ LIMIT_SERWERA_TELEGRAM_LOKALNY_MB = 2500
 LIMIT_WYSYLKI_TELEGRAM_MB = 50
 LIMIT_WYSYLKI_TELEGRAM_LOKALNY_MB = 2000
 LIMIT_ANALIZY_S = 300
-LIMIT_RENDERU_S = 900
+LIMIT_RENDERU_S = 1800
 LIMIT_GETFILE_LOKALNY_S = 1800
 LIMIT_SLOW_RYTM = 12
 LIMIT_ZNAKOW_PIONOWO = 40
@@ -206,6 +206,12 @@ async def renderuj_zadanie_w_tle(
         argumenty += ["--plansza", str(plansza)]
     if znak is not None:
         argumenty += ["--znak", str(znak)]
+    if konf.openrouter_api_key and (konf.ai_rezyser or konf.ai_krytyk):
+        argumenty += ["--ai", "--model-ai", konf.model_ai, "--prog-oceny-ai", str(konf.prog_oceny_ai)]
+        if not konf.ai_rezyser:
+            argumenty += ["--bez-rezysera"]
+        if not konf.ai_krytyk:
+            argumenty += ["--bez-krytyka"]
     wynik = await kolejka_modul.uruchom(argumenty, limit_s=LIMIT_RENDERU_S)
 
     def zapisz_wynik_zadania(stan: str, wynik: str | None = None, blad: str | None = None) -> None:
@@ -460,6 +466,7 @@ async def obsluz_cmd_status(
         ma_plansze = magazyn.plik_zasobu(konf.katalog_danych, "plansze", wzor_id) is not None
         linie.append(komunikaty.status_zasobow_wzoru(wzor_id, ma_nakladke, ma_plansze))
     linie.append(komunikaty.status_znaku((konf.katalog_danych / "znak_wodny.png").is_file()))
+    linie.append(komunikaty.status_ai(konf.openrouter_api_key, konf.model_ai))
     await message.answer("\n".join(linie))
 
 

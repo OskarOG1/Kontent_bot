@@ -1029,6 +1029,87 @@ async def test_dlugosc_nakladki_krycie_renderu_z_konfiguracji(z_praca_w_tle, mon
     assert argumenty[argumenty.index("--dlugosc-nakladki-krycie") + 1] == "3.5"
 
 
+async def test_bez_klucza_ai_render_bez_flagi_ai(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    konf.openrouter_api_key = None
+    przygotuj_wzor_i_utwor(konf)
+    wywolania = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    argumenty = wywolania[0]
+    assert "--ai" not in argumenty
+    assert "sk-" not in " ".join(argumenty)
+
+
+async def test_status_bez_klucza_ai_pokazuje_wylaczone(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    konf.openrouter_api_key = None
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/status")))
+    assert "AI: wyłączone (brak klucza)." in teksty_odpowiedzi(sesja)[-1]
+
+
+async def test_z_kluczem_ai_render_dostaje_flagi(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    konf.openrouter_api_key = "sk-or-test-tajny"
+    konf.model_ai = "anthropic/claude-opus-5.5"
+    przygotuj_wzor_i_utwor(konf)
+    wywolania = []
+    teksty_komunikatow = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        teksty_komunikatow.append(str(argumenty))
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    argumenty = wywolania[0]
+    assert "--ai" in argumenty
+    assert argumenty[argumenty.index("--model-ai") + 1] == "anthropic/claude-opus-5.5"
+    assert "--bez-rezysera" not in argumenty
+    assert "--bez-krytyka" not in argumenty
+    assert "sk-or-test-tajny" not in " ".join(argumenty)
+    assert not any("sk-or-test-tajny" in tekst for tekst in teksty_odpowiedzi(sesja))
+
+
+async def test_ai_krok_wylaczony_dodaje_flage_bez(z_praca_w_tle, monkeypatch):
+    dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
+    konf.openrouter_api_key = "sk-or-test"
+    konf.ai_rezyser = False
+    przygotuj_wzor_i_utwor(konf)
+    wywolania = []
+
+    async def uruchom_podmienione(argumenty, limit_s=None, katalog=None):
+        wywolania.append(argumenty)
+        return await render_udany_podmieniony()(argumenty, limit_s, katalog)
+
+    monkeypatch.setattr(kolejka, "uruchom", uruchom_podmienione)
+    await wyslij_material_i_gotowe(dyspozytor, bot_obiekt)
+    await czekaj_na_kolejke(kolejka_obiekt)
+
+    argumenty = wywolania[0]
+    assert "--bez-rezysera" in argumenty
+
+
+async def test_status_z_kluczem_ai_pokazuje_model(srodowisko):
+    dyspozytor, bot_obiekt, sesja, konf = srodowisko
+    konf.openrouter_api_key = "sk-or-test"
+    konf.model_ai = "anthropic/claude-opus-5.5"
+
+    await dyspozytor.feed_update(bot_obiekt, zbuduj_update(zbuduj_wiadomosc(text="/status")))
+    assert "AI: włączone (anthropic/claude-opus-5.5)." in teksty_odpowiedzi(sesja)[-1]
+
+
 async def test_dokument_za_duzy_przy_wysylce_daje_komunikat(z_praca_w_tle, monkeypatch):
     dyspozytor, bot_obiekt, sesja, konf, kolejka_obiekt = z_praca_w_tle
     sesja.dokument_za_duzy = True
