@@ -74,6 +74,12 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-27 (zadanie 10.10: pełny czas procesora i komplet wzorów w pomiarze)
+- `Pomiary/measure_dynamika.py`: `render.materializuj_warstwe` podmieniona na `materializuj_warstwe_z_limitem` (te same argumenty plus `-benchmark`, log ffmpeg w pliku tymczasowym, limit 900 s przez `threading.Timer`). Czas procesora renderu to `ffmpeg_s` (z `uruchom_ffmpeg`), `warstwy_s` (z warstw) i `python_s` (`time.process_time()`), a narzut B liczy się z sumy. Indeks muzyki liczony raz przed sekcją A. Koszt `materializuj_nakladke` dla każdej nakładki z `dane/nakladki/` i syntetycznego pierścienia. Próg `wszystkie_wzory_w_obu_trybach` i `liczba_wzorow`. Zapis A, B i C po każdym wzorze. Nazwy bez `_`.
+- Weryfikacja na syntetycznym `dane/` w kopii repo poza repo (2 wzory 30 s z dropem, 2 utwory z klików, 8 zdjęć, 4 klipy po 12 s, 2 wycinki, flaga 16:9, pierścień PNG, plansza, znak): kod 0 w 8 min 52 s, wszystkie progi A spełnione (ujęć 38 wobec 37 i 32 wobec 30, 75% zdjęć po dropie, seria klipów 1). Plik wyników powstał już po pierwszym wzorze, a arkusze, arkusz dropu i próbny edit na końcu.
+- B na syntetycznym wzorze `0914` (maszyna obciążona równoległymi testami): z dynamiką ffmpeg 208,6 s, warstwy 18,5 s, Python 20,3 s, razem 247,5 s; bez dynamiki 202,4 s, 7,0 s i 13,8 s, razem 223,2 s. Narzut 10,9%, a z samego ffmpeg, jak liczyło 10.8, wyszłoby 3,1%. Koszt nakładek: flaga `krycie` (75 klatek) 1,5 do 4,1 s, pierścień `alfa` (576 klatek, okno 19,2 s) 28,1 do 29,5 s i 10,6 MB.
+- Liczby z syntetycznych danych sprawdzają tylko działanie skryptu. Progi i czasy na prawdziwym `dane/` mierzy właściciel.
+
 ### 2026-09-27 (zadanie 10.9: kolejka bez dwóch klipów pod rząd)
 - `src/render.py`, `rozloz_tempo`: gdy hak i ostatni element `kawalki` są kawałkami klipów, po wyczerpaniu kolejki materiały idą od drugiego elementu (funkcja wewnętrzna `kawalek`). W pozostałych przypadkach zawinięcie jak dotąd, więc hak zdjęcie dalej wraca.
 - Testy w `tests/test_dynamika.py` (+3): hak klip przy krótkiej kolejce (bez poprawki test pada na dwóch klipach pod rząd), hak zdjęcie wraca po zawinięciu, `przeplot` dopisuje nieużyte zdjęcia na koniec w kolejności. Plik: 28 z 28.

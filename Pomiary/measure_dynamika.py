@@ -4,13 +4,15 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
-# Pomiar czesci 10 (dynamika), zadanie 10.8 (powtorka 10.5 po poprawkach 10.6/10.7).
+# Pomiar czesci 10 (dynamika), zadania 10.8 i 10.10 (powtorka 10.5 po poprawkach 10.6/10.7,
+#   pelny czas procesora, komplet wzorow i zapis po kazdym wzorze z 10.10).
 # Sekcja A: na kazdym z 5 prawdziwych wzorow (dane/wzory/*.mp4) render z dynamika i z
 #   --bez-dynamiki (ta sama biblioteka materialow, ta sama muzyka), bez pamieci wynikow z
 #   poprzednich przebiegow (kazde wywolanie renderuje oba warianty od nowa, czas nie ma
@@ -21,14 +23,24 @@ sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 #   (dynamika.wycinki) z liczba plikow z przezroczystoscia faktycznie znalezionych w
 #   bibliotece (test_dynamika.py sprawdza to samo zachowanie na poziomie kodu, tu tylko
 #   potwierdzenie na prawdziwych danych).
-# Sekcja B: narzut czasu procesora (-benchmark, jak w measure_rytm.py) dynamika wobec
-#   --bez-dynamiki na pierwszym wzorze, oba swiezo zmierzone w tym przebiegu. Tylko raport.
+#   Prog wszystkie_wzory_w_obu_trybach: kazdy wzor wyrenderowany w obu trybach bez bledu.
+# Sekcja B: narzut czasu procesora dynamika wobec --bez-dynamiki na pierwszym wzorze, oba
+#   swiezo zmierzone w tym przebiegu. Tylko raport. Czas renderu to suma trzech czesci:
+#   -benchmark procesow ffmpeg z render.uruchom_ffmpeg, -benchmark procesow ffmpeg z
+#   render.materializuj_warstwe (kolaze, slowa, napis pionowy; podmieniona na wersje z
+#   -benchmark, logiem w pliku tymczasowym i limitem 900 s) oraz time.process_time() procesu
+#   Pythona. Indeks muzyki liczony raz przed sekcja A. Poza suma zostaja krotkie wywolania
+#   ffprobe i probkowanie koloru (subprocess.run w render.py), obecne w obu trybach.
+#   Dodatkowo koszt render.materializuj_nakladke dla kazdej nakladki z dane/nakladki/ i dla
+#   syntetycznego pierscienia (okno z planu pierwszego wzoru): czas procesora i rozmiar pliku.
 # Sekcja C: dla kazdego wzoru arkusz outputs/porownanie_dynamika_<wzor>.png (wzor kontra
 #   wynik z dynamika, Pomiary/arkusz.py). Dla wzoru 0923 dodatkowo outputs/dynamika_drop.png
 #   (klatki od 10 przed do 20 po dropie, co 2 klatki) i outputs/dynamika_0923.mp4 (probny
 #   edit dla wlasciciela, kopia wyniku z dynamika).
 # render.uruchom_ffmpeg podmieniony w calym pomiarze na wersje z limitem 900 s (jak w
 #   measure_rytm.py): zawieszony przebieg trafia do wyniku jako blad wzoru, pomiar idzie dalej.
+# Wyniki A, B i C zapisywane do outputs/pomiar_dynamika.json po kazdym wzorze ("w_toku": true),
+#   a na koncu ostatecznie.
 
 KATALOG_REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KATALOG_REPO / "src"))
@@ -41,6 +53,7 @@ from PIL import Image  # noqa: E402
 import analyze  # noqa: E402
 import arkusz  # noqa: E402
 import generuj  # noqa: E402
+import music  # noqa: E402
 import render  # noqa: E402
 
 KATALOG_OUTPUTS = KATALOG_REPO / "outputs"
@@ -58,6 +71,7 @@ BENCH_RE = re.compile(r"bench:\s*utime=([\d.]+)s\s*stime=([\d.]+)s")
 
 WYNIKI_CALOSC: dict = {}
 CPU_SUMATOR: list[float] = []
+CPU_WARSTW: list[float] = []
 
 
 def zapisz_wyniki() -> None:
@@ -88,19 +102,72 @@ def uruchom_ffmpeg_z_limitem(argumenty: list[str], katalog: Path | None = None) 
 
 render.uruchom_ffmpeg = uruchom_ffmpeg_z_limitem
 
+
+def materializuj_warstwe_z_limitem(generator_klatek, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int, wyjscie: Path) -> None:
+    # Te same argumenty co render.materializuj_warstwe, plus -benchmark. Log ffmpeg idzie do pliku,
+    # nie do potoku, bo przy -loglevel info potok stderr moglby sie zapelnic w trakcie zapisu klatek.
+    przekroczony = threading.Event()
+    with TemporaryDirectory() as katalog_logu:
+        sciezka_logu = Path(katalog_logu) / "ffmpeg.log"
+        with open(sciezka_logu, "wb") as log:
+            proces = subprocess.Popen(
+                [
+                    "ffmpeg", "-y", "-nostdin", "-loglevel", "info", "-benchmark",
+                    "-f", "rawvideo", "-pix_fmt", "rgba", "-s", f"{szerokosc}x{wysokosc}",
+                    "-framerate", str(fps), "-i", "pipe:0",
+                    "-frames:v", str(liczba_klatek),
+                    "-c:v", "png", "-pix_fmt", "rgba",
+                    str(wyjscie),
+                ],
+                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=log,
+            )
+
+            def zabij() -> None:
+                przekroczony.set()
+                proces.kill()
+
+            straznik = threading.Timer(LIMIT_RENDERU_S, zabij)
+            straznik.start()
+            try:
+                try:
+                    for indeks in range(liczba_klatek):
+                        obraz = generator_klatek(indeks).convert("RGBA")
+                        proces.stdin.write(np.asarray(obraz, dtype=np.uint8).tobytes())
+                except OSError:
+                    pass
+                finally:
+                    try:
+                        proces.stdin.close()
+                    except OSError:
+                        pass
+                kod = proces.wait()
+            finally:
+                straznik.cancel()
+        tresc = sciezka_logu.read_text(encoding="utf-8", errors="replace")
+    if przekroczony.is_set():
+        raise RuntimeError(f"ffmpeg przekroczyl limit czasu {LIMIT_RENDERU_S} s (warstwa {Path(wyjscie).name})")
+    if kod != 0:
+        raise RuntimeError(f"ffmpeg zakonczyl sie kodem {kod}: {tresc}")
+    dopasowanie = BENCH_RE.search(tresc)
+    if dopasowanie:
+        CPU_WARSTW.append(float(dopasowanie.group(1)) + float(dopasowanie.group(2)))
+
+
+render.materializuj_warstwe = materializuj_warstwe_z_limitem
+
 OSTATNI_PLAN: dict = {}
-_oryginalny_rozloz_tempo = render.rozloz_tempo
+ORYGINALNY_ROZLOZ_TEMPO = render.rozloz_tempo
 
 
-def _rozloz_tempo_z_przechwyceniem(plan, wzor_arg, uderzenia, kawalki, fps_arg):
-    wynik = _oryginalny_rozloz_tempo(plan, wzor_arg, uderzenia, kawalki, fps_arg)
+def rozloz_tempo_z_przechwyceniem(plan, wzor_arg, uderzenia, kawalki, fps_arg):
+    wynik = ORYGINALNY_ROZLOZ_TEMPO(plan, wzor_arg, uderzenia, kawalki, fps_arg)
     OSTATNI_PLAN["plan_bazowy"] = plan
     OSTATNI_PLAN["plan"] = wynik
     OSTATNI_PLAN["sekcje"] = wzor_arg.get("sekcje")
     return wynik
 
 
-render.rozloz_tempo = _rozloz_tempo_z_przechwyceniem
+render.rozloz_tempo = rozloz_tempo_z_przechwyceniem
 
 
 def udzial_zdjec_i_seria_klipow_po_dropie() -> tuple[float | None, int | None]:
@@ -224,13 +291,66 @@ def znajdz_nakladke() -> Path | None:
     return domyslna if domyslna.is_file() else None
 
 
-def zrenderuj_wariant(wzor_json, katalog_projektu, wyjscie, muzyka, nakladka, plansza, znak, bez_dynamiki) -> dict | None:
+def zrenderuj_wariant(wzor_json, katalog_projektu, wyjscie, muzyka, nakladka, plansza, znak, bez_dynamiki) -> tuple[dict, dict]:
     del CPU_SUMATOR[:]
-    return render.renderuj(
+    del CPU_WARSTW[:]
+    start_python = time.process_time()
+    podsumowanie = render.renderuj(
         wzor_json, katalog_projektu, None, wyjscie,
         szerokosc=1080, wysokosc=1920, fps=FPS, limit_mb=200, muzyka=muzyka,
         nakladka=nakladka, plansza=plansza, znak=znak, bez_dynamiki=bez_dynamiki,
     )
+    czasy = {
+        "ffmpeg_s": round(sum(CPU_SUMATOR), 3),
+        "warstwy_s": round(sum(CPU_WARSTW), 3),
+        "python_s": round(time.process_time() - start_python, 3),
+    }
+    czasy["razem_s"] = round(czasy["ffmpeg_s"] + czasy["warstwy_s"] + czasy["python_s"], 3)
+    return podsumowanie, czasy
+
+
+def zapisz_w_toku(wpisy_a: list, wpisy_c: list, narzut_b: dict | None) -> None:
+    WYNIKI_CALOSC["A"] = {"w_toku": True, "wzory": wpisy_a}
+    WYNIKI_CALOSC["B"] = narzut_b if narzut_b is not None else {"w_toku": True}
+    WYNIKI_CALOSC["C"] = {"w_toku": True, "wzory": wpisy_c}
+    zapisz_wyniki()
+
+
+def koszt_nakladek(wzor_json: Path, plan: dict | None, plansza: Path | None) -> list[dict]:
+    if plan is None:
+        return []
+    wzor = json.loads(Path(wzor_json).read_text(encoding="utf-8"))
+    plansza_uzyta = plansza is not None and len(plan["ujecia"]) > 1
+    katalog_nakladek = KATALOG_REPO / "dane" / "nakladki"
+    nakladki = sorted(p for p in katalog_nakladek.iterdir() if p.is_file()) if katalog_nakladek.is_dir() else []
+    wyniki = []
+    with TemporaryDirectory() as katalog:
+        katalog = Path(katalog)
+        pierscien = katalog / "pierscien_syntetyczny.png"
+        generuj.pierscien_testowy(pierscien, rozmiar=(1080, 1080))
+        for nakladka in nakladki + [pierscien]:
+            try:
+                tryb = render.tryb_nakladki(nakladka)
+                od_s, do_s = render.okno_nakladki(
+                    wzor, plan, plansza_uzyta, tryb=tryb, dlugosc_krycie_s=render.DLUGOSC_NAKLADKI_KRYCIE_S,
+                )
+                liczba_klatek = round((do_s - od_s) * FPS)
+                del CPU_SUMATOR[:]
+                wynik = render.materializuj_nakladke(nakladka, tryb, liczba_klatek, FPS, 1080, 1920, katalog)
+                wpis = {
+                    "plik": nakladka.name,
+                    "tryb": tryb,
+                    "okno_s": round(do_s - od_s, 3),
+                    "klatki": liczba_klatek,
+                    "cpu_s": round(sum(CPU_SUMATOR), 3),
+                    "rozmiar_mb": round(wynik.stat().st_size / (1024 * 1024), 2),
+                }
+                wynik.unlink()
+            except (RuntimeError, OSError, ValueError) as blad:
+                wpis = {"plik": nakladka.name, "blad": str(blad)}
+            wyniki.append(wpis)
+            print(f"B nakladka {wpis}")
+    return wyniki
 
 
 def sekcja_a_i_c() -> tuple[dict, dict]:
@@ -241,6 +361,9 @@ def sekcja_a_i_c() -> tuple[dict, dict]:
     if not KATALOG_MUZYKI.is_dir() or not any(KATALOG_MUZYKI.iterdir()):
         print("A/C pominiete: brak dane/muzyka")
         return {"pominieta": True, "powod": "brak dane/muzyka"}, {"pominieta": True, "powod": "brak dane/muzyka"}
+
+    _, przeanalizowane = music.indeksuj(KATALOG_MUZYKI)
+    print(f"Indeks muzyki gotowy przed renderami (przeanalizowane teraz: {przeanalizowane})")
 
     nakladka = znajdz_nakladke()
     plansza = znajdz_plansze()
@@ -259,79 +382,85 @@ def sekcja_a_i_c() -> tuple[dict, dict]:
         zapisz_projekt_json(katalog_projektu)
 
         for indeks_wzoru, sciezka in enumerate(pliki_wzorow):
-            nazwa = sciezka.stem
-            wzor_json = wczytaj_lub_przeanalizuj_wzor(sciezka)
-            wyjscie_dyn = KATALOG_OUTPUTS / f"dynamika_zrodlo_{nazwa}.mp4"
-            wyjscie_bez = katalog_tymczasowy / f"bez_dynamiki_{nazwa}.mp4"
-
-            OSTATNI_PLAN.clear()
             try:
-                podsumowanie_dyn = zrenderuj_wariant(
-                    wzor_json, katalog_projektu, wyjscie_dyn, KATALOG_MUZYKI, nakladka, plansza, znak, False,
-                )
-                cpu_dyn_s = round(sum(CPU_SUMATOR), 3)
-            except (RuntimeError, subprocess.TimeoutExpired) as blad:
-                wpisy_a.append({"wzor": nazwa, "blad": str(blad)})
-                print(f"A {nazwa}: BLAD {blad}")
-                continue
+                nazwa = sciezka.stem
+                wzor_json = wczytaj_lub_przeanalizuj_wzor(sciezka)
+                wyjscie_dyn = KATALOG_OUTPUTS / f"dynamika_zrodlo_{nazwa}.mp4"
+                wyjscie_bez = katalog_tymczasowy / f"bez_dynamiki_{nazwa}.mp4"
 
-            zaden_osobno = podsumowanie_dyn["dynamika"]["wycinki"] == len(wycinki)
-            udzial_zdjec_po_dropie, najdluzsza_seria_klipow = udzial_zdjec_i_seria_klipow_po_dropie()
+                OSTATNI_PLAN.clear()
+                try:
+                    podsumowanie_dyn, czasy_dyn = zrenderuj_wariant(
+                        wzor_json, katalog_projektu, wyjscie_dyn, KATALOG_MUZYKI, nakladka, plansza, znak, False,
+                    )
+                except (RuntimeError, subprocess.TimeoutExpired) as blad:
+                    wpisy_a.append({"wzor": nazwa, "blad": str(blad)})
+                    print(f"A {nazwa}: BLAD {blad}")
+                    continue
 
-            cel_arkusza = KATALOG_OUTPUTS / f"porownanie_dynamika_{nazwa}.png"
-            arkusz.arkusz_porownawczy(sciezka, wyjscie_dyn, cel_arkusza)
-            wpisy_c.append({"wzor": nazwa, "arkusz": cel_arkusza.name})
-            print(f"C {nazwa}: arkusz {cel_arkusza.name}")
+                zaden_osobno = podsumowanie_dyn["dynamika"]["wycinki"] == len(wycinki)
+                udzial_zdjec_po_dropie, najdluzsza_seria_klipow = udzial_zdjec_i_seria_klipow_po_dropie()
+                plan_dyn = OSTATNI_PLAN.get("plan")
 
-            if nazwa == WZOR_PROBNEGO_EDITU:
-                wynik_0923 = wyjscie_dyn
-                drop_s_0923 = podsumowanie_dyn.get("drop_s")
+                cel_arkusza = KATALOG_OUTPUTS / f"porownanie_dynamika_{nazwa}.png"
+                arkusz.arkusz_porownawczy(sciezka, wyjscie_dyn, cel_arkusza)
+                wpisy_c.append({"wzor": nazwa, "arkusz": cel_arkusza.name})
+                print(f"C {nazwa}: arkusz {cel_arkusza.name}")
 
-            try:
-                podsumowanie_bez = zrenderuj_wariant(
-                    wzor_json, katalog_projektu, wyjscie_bez, KATALOG_MUZYKI, nakladka, plansza, znak, True,
-                )
-                cpu_bez_s = round(sum(CPU_SUMATOR), 3)
-            except (RuntimeError, subprocess.TimeoutExpired) as blad:
-                wpisy_a.append({"wzor": nazwa, "blad": f"bez-dynamiki: {blad}"})
-                print(f"A {nazwa}: BLAD (bez-dynamiki) {blad}")
-                continue
+                if nazwa == WZOR_PROBNEGO_EDITU:
+                    wynik_0923 = wyjscie_dyn
+                    drop_s_0923 = podsumowanie_dyn.get("drop_s")
 
-            dynamika = podsumowanie_dyn["dynamika"]
-            wpis = {
-                "wzor": nazwa,
-                "liczba_ujec_dynamika": podsumowanie_dyn["liczba_ujec"],
-                "liczba_ujec_bez_dynamiki": podsumowanie_bez["liczba_ujec"],
-                "materialy_uzyte_dynamika": podsumowanie_dyn["materialy_uzyte"],
-                "materialy_uzyte_bez_dynamiki": podsumowanie_bez["materialy_uzyte"],
-                "mediana_zdjecia_s": dynamika["mediana_zdjecia_s"],
-                "mediana_klipu_s": dynamika["mediana_klipu_s"],
-                "liczba_kolazy": len(podsumowanie_dyn["kolaze"]),
-                "wycinki": dynamika["wycinki"],
-                "zaden_wycinek_jako_osobne_ujecie": zaden_osobno,
-                "udzial_zdjec_po_dropie": udzial_zdjec_po_dropie,
-                "najdluzsza_seria_klipow_po_dropie": najdluzsza_seria_klipow,
-            }
-            wpisy_a.append(wpis)
-            print(
-                f"A {nazwa}: ujec {wpis['liczba_ujec_dynamika']} (bez dynamiki {wpis['liczba_ujec_bez_dynamiki']}), "
-                f"mediana zdjecia {wpis['mediana_zdjecia_s']} s, klipu {wpis['mediana_klipu_s']} s, "
-                f"kolaze {wpis['liczba_kolazy']}, wycinki {wpis['wycinki']}, "
-                f"zdjecia po dropie {wpis['udzial_zdjec_po_dropie']}, "
-                f"najdluzsza seria klipow {wpis['najdluzsza_seria_klipow_po_dropie']}"
-            )
+                try:
+                    podsumowanie_bez, czasy_bez = zrenderuj_wariant(
+                        wzor_json, katalog_projektu, wyjscie_bez, KATALOG_MUZYKI, nakladka, plansza, znak, True,
+                    )
+                except (RuntimeError, subprocess.TimeoutExpired) as blad:
+                    wpisy_a.append({"wzor": nazwa, "blad": f"bez-dynamiki: {blad}"})
+                    print(f"A {nazwa}: BLAD (bez-dynamiki) {blad}")
+                    continue
 
-            if indeks_wzoru == 0 and cpu_bez_s > 0 and cpu_dyn_s > 0:
-                narzut_b = {
+                dynamika = podsumowanie_dyn["dynamika"]
+                wpis = {
                     "wzor": nazwa,
-                    "cpu_dynamika_s": cpu_dyn_s,
-                    "cpu_bez_dynamiki_s": cpu_bez_s,
-                    "narzut_procent": round((cpu_dyn_s - cpu_bez_s) / cpu_bez_s * 100, 1),
+                    "liczba_ujec_dynamika": podsumowanie_dyn["liczba_ujec"],
+                    "liczba_ujec_bez_dynamiki": podsumowanie_bez["liczba_ujec"],
+                    "materialy_uzyte_dynamika": podsumowanie_dyn["materialy_uzyte"],
+                    "materialy_uzyte_bez_dynamiki": podsumowanie_bez["materialy_uzyte"],
+                    "mediana_zdjecia_s": dynamika["mediana_zdjecia_s"],
+                    "mediana_klipu_s": dynamika["mediana_klipu_s"],
+                    "liczba_kolazy": len(podsumowanie_dyn["kolaze"]),
+                    "wycinki": dynamika["wycinki"],
+                    "zaden_wycinek_jako_osobne_ujecie": zaden_osobno,
+                    "udzial_zdjec_po_dropie": udzial_zdjec_po_dropie,
+                    "najdluzsza_seria_klipow_po_dropie": najdluzsza_seria_klipow,
+                    "cpu_dynamika_s": czasy_dyn["razem_s"],
+                    "cpu_bez_dynamiki_s": czasy_bez["razem_s"],
                 }
-                print(f"B {nazwa}: cpu dynamika {cpu_dyn_s} s, bez dynamiki {cpu_bez_s} s ({narzut_b['narzut_procent']}%)")
+                wpisy_a.append(wpis)
+                print(
+                    f"A {nazwa}: ujec {wpis['liczba_ujec_dynamika']} (bez dynamiki {wpis['liczba_ujec_bez_dynamiki']}), "
+                    f"mediana zdjecia {wpis['mediana_zdjecia_s']} s, klipu {wpis['mediana_klipu_s']} s, "
+                    f"kolaze {wpis['liczba_kolazy']}, wycinki {wpis['wycinki']}, "
+                    f"zdjecia po dropie {wpis['udzial_zdjec_po_dropie']}, "
+                    f"najdluzsza seria klipow {wpis['najdluzsza_seria_klipow_po_dropie']}"
+                )
+
+                if indeks_wzoru == 0 and czasy_dyn["razem_s"] > 0 and czasy_bez["razem_s"] > 0:
+                    narzut_b = {
+                        "wzor": nazwa,
+                        "dynamika": czasy_dyn,
+                        "bez_dynamiki": czasy_bez,
+                        "narzut_procent": round((czasy_dyn["razem_s"] - czasy_bez["razem_s"]) / czasy_bez["razem_s"] * 100, 1),
+                    }
+                    print(f"B {nazwa}: dynamika {czasy_dyn}, bez dynamiki {czasy_bez} ({narzut_b['narzut_procent']}%)")
+                    narzut_b["nakladki"] = koszt_nakladek(wzor_json, plan_dyn, plansza)
+            finally:
+                zapisz_w_toku(wpisy_a, wpisy_c, narzut_b)
 
     zaliczone_a = [w for w in wpisy_a if "blad" not in w]
     progi_a = {
+        "wszystkie_wzory_w_obu_trybach": bool(pliki_wzorow) and len(zaliczone_a) == len(pliki_wzorow),
         "mediana_zdjecia_w_progu": bool(zaliczone_a) and all(
             0.3 <= w["mediana_zdjecia_s"] <= 0.7 for w in zaliczone_a if w["mediana_zdjecia_s"] is not None
         ),
@@ -352,7 +481,7 @@ def sekcja_a_i_c() -> tuple[dict, dict]:
         ),
         "zaden_render_nie_przekroczyl_limitu": all("limit" not in str(w.get("blad", "")) for w in wpisy_a),
     }
-    wyniki_a = {"wzory": wpisy_a, "narzut_b": narzut_b, "progi": progi_a}
+    wyniki_a = {"liczba_wzorow": len(pliki_wzorow), "wzory": wpisy_a, "narzut_b": narzut_b, "progi": progi_a}
     print(f"A: {progi_a}")
 
     arkusz_dropu = None
