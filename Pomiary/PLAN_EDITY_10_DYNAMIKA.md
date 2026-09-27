@@ -399,6 +399,24 @@ Katalog: C:\Dev\edity-bot, gałąź dynamika. Wykonaj zadanie 10.11 z Pomiary/PL
 ```
 - **Commit:** `testy: skala flagi jak w planie i bez komentarzy`
 
+## Odbiór części 10 (2026-09-27)
+Werdykt: OK z jedną drobną poprawką (10.12).
+- Pomiar 10.8 u właściciela: A w progach na 5 wzorach, żaden z 10 renderów nie przekroczył limitu (problem 13 zamknięty), B 44,1%, arkusze i próbny edit zaakceptowane („mogą być”). Właściciel uruchomił wersję skryptu z 10.8, bez progu `wszystkie_wzory_w_obu_trybach`, ale wszystkie 5 wzorów wyrenderowało się w obu trybach.
+- Kod: funkcje segmentów i `PARAMETRY_KODOWANIA_SEGMENTU` bez zmian względem `main`, warstwy przebiegu końcowego bez `-t`, `-loop` i `-stream_loop` (test dla pięciu trybów), `--bez-dynamiki` odtwarza stary plan, `src/` i `tests/` bez komentarzy.
+- Znalezisko: `render.materializuj_nakladke` bierze domyślne strumienie wejścia, więc nakładka wideo ze ścieżką dźwięku daje klip nakładki z dźwiękiem (ffmpeg 6.1.1: 75 klatek obrazu i 106 ramek AAC, proces kończy się po 0,8 s). Przebieg końcowy bierze tylko `[2:v]`, ale kodowanie dźwięku jest zbędne, a koniec procesu przy `-stream_loop -1` zależy wtedy od tego, jak dana wersja ffmpeg kończy plik z kilkoma strumieniami. Na ffmpeg 7.1 z serwera ten przypadek nie jest sprawdzony. Zadanie 10.12.
+
+**Klip nakładki bez dźwięku (10.12):** `materializuj_nakladke` mapuje tylko pierwszy strumień obrazu wejścia (`-map 0:v:0`) w obu gałęziach (klip `png` i `libx264`).
+
+### [Task 10.12: Klip nakładki bez dźwięku]
+- **Objective:** `-map 0:v:0` w `materializuj_nakladke`.
+- **Context/Inputs:** kontrakt „Klip nakładki bez dźwięku”; `src/render.py` (`materializuj_nakladke`), `tests/test_nakladka.py`, `tests/generuj.py` (generator nakładki z dźwiękiem z `lavfi`).
+- **Constraints:** test w `tests/test_nakladka.py`: nakładka 16:9 z dźwiękiem (1 s) w trybie `krycie` na okno 75 klatek daje klip z samym obrazem i 75 klatkami. Bez poprawki test pada na ścieżce dźwięku. CI sprawdza to na ffmpeg 7.1.
+- **Prompt:**
+```text
+Katalog: C:\Dev\edity-bot, gałąź dynamika. Wykonaj zadanie 10.12 z Pomiary/PLAN_EDITY_10_DYNAMIKA.md; otwórz src/render.py, tests/test_nakladka.py, tests/generuj.py. Weryfikacja: python -m pytest -q
+```
+- **Commit:** `render: klip nakładki bez dźwięku`
+
 ## Gotowe, gdy
 - `python -m pytest -q` przechodzi w całości.
 - Pomiar: A w progach (także `wszystkie_wzory_w_obu_trybach` z 10.10), B zaraportowane, arkusze i próbny edit ocenione przez właściciela.
@@ -417,6 +435,7 @@ Katalog: C:\Dev\edity-bot, gałąź dynamika. Wykonaj zadanie 10.11 z Pomiary/PL
 9. `render: kolejka bez dwóch klipów pod rząd`
 10. `Pomiary: pełny czas procesora i komplet wzorów`
 11. `testy: skala flagi jak w planie i bez komentarzy`
+12. `render: klip nakładki bez dźwięku`
 
 ## Odbiór (oceniający)
 ```text
