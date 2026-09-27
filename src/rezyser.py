@@ -5,6 +5,7 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Literal
 
 import cv2
 import numpy as np
@@ -83,7 +84,7 @@ def wywolaj_model(klient, model: str | list[str], tresc: dict, schemat: dict) ->
         try:
             odpowiedz = klient.post(OPENROUTER_URL, headers=naglowki, json=zadanie, timeout=LIMIT_CZASU_S)
         except Exception as wyjatek:
-            ostatni_powod = f"błąd sieci: {wyjatek}"
+            ostatni_powod = f"błąd sieci: {type(wyjatek).__name__}"
             odpowiedz = None
             continue
         if odpowiedz.status_code >= 500:
@@ -101,6 +102,8 @@ def wywolaj_model(klient, model: str | list[str], tresc: dict, schemat: dict) ->
     try:
         dane = odpowiedz.json()
     except ValueError:
+        return None, zuzycie(powod="odpowiedź nie jest poprawnym JSON")
+    if not isinstance(dane, dict):
         return None, zuzycie(powod="odpowiedź nie jest poprawnym JSON")
 
     uzycie = dane.get("usage") or {}
@@ -157,7 +160,11 @@ def skaluj_pokryj(obraz: np.ndarray, kx: int, ky: int) -> np.ndarray:
 
 
 def narysuj_numer(obraz: np.ndarray, numer: int) -> np.ndarray:
-    tekst = str(numer)
+    return narysuj_etykiete(obraz, str(numer))
+
+
+def narysuj_etykiete(obraz: np.ndarray, tekst: str) -> np.ndarray:
+    obraz = np.ascontiguousarray(obraz)
     cv2.rectangle(obraz, (0, 0), (12 + 11 * len(tekst), 20), (0, 0, 0), -1)
     cv2.putText(obraz, tekst, (4, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA)
     return obraz
@@ -239,13 +246,38 @@ def klatki_klipu(plik: Path, liczba_klatek: int, czas_s: float, kx: int, ky: int
     return [klatki[i].copy() for i in range(liczba_odczytana)]
 
 
+def numeracja(materialy: list[dict], wycinki: list[dict]) -> tuple[dict[int, dict], dict[int, dict]]:
+    zwykle = {numer: material for numer, material in enumerate(materialy)}
+    wyciete = {len(materialy) + numer: wycinek for numer, wycinek in enumerate(wycinki)}
+    return zwykle, wyciete
+
+
+def lista_materialow(materialy: list[dict], wycinki: list[dict]) -> list[dict]:
+    zwykle, wyciete = numeracja(materialy, wycinki)
+    lista = []
+    for numer, material in zwykle.items():
+        if material["typ"] == "klip":
+            lista.append({"numer": numer, "typ": "klip", "dlugosc_s": round(float(material.get("czas_s", 0.0)), 3)})
+        else:
+            lista.append({"numer": numer, "typ": material["typ"]})
+    lista += [{"numer": numer, "typ": "wycinek"} for numer in wyciete]
+    return lista
+
+
+def z_naglowkiem(obraz: np.ndarray, tekst: str) -> np.ndarray:
+    naglowek = np.full((24, obraz.shape[1], 3), 32, dtype=np.uint8)
+    cv2.putText(naglowek, tekst, (4, 17), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA)
+    return np.vstack([naglowek, obraz])
+
+
 def arkusze_materialow(materialy: list[dict], wycinki: list[dict], katalog_pracy: Path) -> list[Path]:
     katalog_pracy = Path(katalog_pracy)
     katalog_pracy.mkdir(parents=True, exist_ok=True)
     sciezki = []
+    zwykle, wyciete = numeracja(materialy, wycinki)
 
     kx, ky = KOMORKA_ZDJECIA
-    zdjecia = [(numer, material) for numer, material in enumerate(materialy) if material["typ"] == "zdjecie"]
+    zdjecia = [(numer, material) for numer, material in zwykle.items() if material["typ"] == "zdjecie"]
     if zdjecia:
         pozycje = []
         for numer, material in zdjecia:
@@ -254,35 +286,30 @@ def arkusze_materialow(materialy: list[dict], wycinki: list[dict], katalog_pracy
             if obraz is None:
                 obraz = np.full((ky, kx, 3), 64, dtype=np.uint8)
             pozycje.append((numer, obraz))
-        siatka = siatka_ponumerowana(pozycje, kx, ky, KOLUMNY_ZDJEC)
+        siatka = z_naglowkiem(siatka_ponumerowana(pozycje, kx, ky, KOLUMNY_ZDJEC), "zdjecia: numer do pola material")
         siatka = ogranicz_bok(siatka, BOK_MAKSYMALNY_ARKUSZA)
         sciezka = katalog_pracy / "arkusz_zdjecia.jpg"
         zapisz_jpeg(siatka, sciezka)
         sciezki.append(sciezka)
 
     kkx, kky = KOMORKA_KLATKI_KLIPU
-    for numer, material in enumerate(materialy):
+    for numer, material in zwykle.items():
         if material["typ"] != "klip":
             continue
         czas_s = float(material.get("czas_s", 1.0))
         klatki = klatki_klipu(Path(material["plik"]), LICZBA_KLATEK_KLIPU, czas_s, kkx, kky)
         if not klatki:
             continue
-        naglowek = np.full((24, kkx * len(klatki), 3), 32, dtype=np.uint8)
-        cv2.putText(
-            naglowek, f"klip {numer}, {czas_s:.1f} s", (4, 17),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA,
-        )
-        obraz = np.vstack([naglowek, np.hstack(klatki)])
+        obraz = z_naglowkiem(np.hstack(klatki), f"klip {numer}, {czas_s:.1f} s")
         obraz = ogranicz_bok(obraz, BOK_MAKSYMALNY_ARKUSZA)
         sciezka = katalog_pracy / f"arkusz_klip_{numer}.jpg"
         zapisz_jpeg(obraz, sciezka)
         sciezki.append(sciezka)
 
-    if wycinki:
+    if wyciete:
         wkx, wky = KOMORKA_WYCINKA
-        pozycje = [(numer, wczytaj_z_alfa(Path(wycinek["plik"]), wkx, wky)) for numer, wycinek in enumerate(wycinki)]
-        siatka = siatka_ponumerowana(pozycje, wkx, wky, KOLUMNY_WYCINKOW)
+        pozycje = [(numer, wczytaj_z_alfa(Path(wycinek["plik"]), wkx, wky)) for numer, wycinek in wyciete.items()]
+        siatka = z_naglowkiem(siatka_ponumerowana(pozycje, wkx, wky, KOLUMNY_WYCINKOW), "wycinki: numer do pola kolaz")
         siatka = ogranicz_bok(siatka, BOK_MAKSYMALNY_ARKUSZA)
         sciezka = katalog_pracy / "arkusz_wycinki.jpg"
         zapisz_jpeg(siatka, sciezka)
@@ -291,7 +318,10 @@ def arkusze_materialow(materialy: list[dict], wycinki: list[dict], katalog_pracy
     return sciezki
 
 
-def opis_wzoru(wzor: dict, plan: dict, uderzenia: list[int], materialy: list[dict], okna_tekstow: dict | None) -> str:
+def opis_wzoru(
+    wzor: dict, plan: dict, uderzenia: list[int], materialy: list[dict], okna_tekstow: dict | None,
+    wycinki: list[dict] | None = None,
+) -> str:
     import render as render_modul
 
     sekcje = wzor.get("sekcje")
@@ -309,58 +339,55 @@ def opis_wzoru(wzor: dict, plan: dict, uderzenia: list[int], materialy: list[dic
         "poczatek_planszy": plan_ujecia[-1]["klatka_od"] if plan_ujecia else None,
         "granice_ujec_wzoru": [u["klatka_od"] for u in plan_ujecia],
         "okna_tekstow": okna_tekstow or {},
-        "materialy": [
-            {"numer": i, "typ": material["typ"]} if material["typ"] != "klip"
-            else {"numer": i, "typ": "klip", "dlugosc_s": round(float(material.get("czas_s", 0.0)), 3)}
-            for i, material in enumerate(materialy)
-        ],
+        "materialy": lista_materialow(materialy, wycinki or []),
     }
     return json.dumps(opis, ensure_ascii=False)
 
 
-PRZEJSCIA_DOZWOLONE = ("brak", "smuga", "najazd")
-BLYSKI_DOZWOLONE = (0.0, 0.1, 0.3)
 LICZBA_WYCINKOW_KOLAZU_SCENARIUSZA = 3
+LIMIT_UZASADNIENIA = 300
+LICZBA_MOCNYCH_STRON = 3
+POLA_POMIJANE_W_SCHEMACIE = ("title", "default")
 
 
 class Ujecie(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    material: int
-    od_s: float = 0.0
-    uderzenia: int = Field(ge=1, le=8)
-    uderzenie: bool = False
-    blysk_s: float = 0.0
-    wstrzas: bool = False
-    przejscie: str = "brak"
-    kolaz: list[int] = Field(default_factory=list, max_length=LICZBA_WYCINKOW_KOLAZU_SCENARIUSZA)
+    material: int = Field(description="numer zdjęcia albo klipu z listy materiałów, nigdy numer wycinka")
+    od_s: float = Field(default=0.0, description="początek fragmentu klipu w sekundach, dla zdjęcia 0")
+    uderzenia: Literal[1, 2, 3, 4, 5, 6, 7, 8] = Field(description="długość ujęcia w uderzeniach")
+    uderzenie: bool = Field(default=False, description="krótki zoom na początku ujęcia")
+    blysk_s: Literal[0.0, 0.1, 0.3] = Field(default=0.0, description="biały błysk na początku ujęcia w sekundach")
+    wstrzas: bool = Field(default=False, description="wstrząs kadru przez pierwsze pół sekundy")
+    przejscie: Literal["brak", "smuga", "najazd"] = Field(default="brak", description="wejście ujęcia")
+    kolaz: list[int] = Field(default_factory=list, description="najwyżej 3 numery wycinków, tylko na klipach")
 
-    @field_validator("przejscie")
+    @field_validator("kolaz", mode="before")
     @classmethod
-    def sprawdz_przejscie(cls, wartosc: str) -> str:
-        if wartosc not in PRZEJSCIA_DOZWOLONE:
-            raise ValueError("przejscie musi być brak, smuga albo najazd")
-        return wartosc
-
-    @field_validator("blysk_s")
-    @classmethod
-    def sprawdz_blysk(cls, wartosc: float) -> float:
-        if wartosc not in BLYSKI_DOZWOLONE:
-            raise ValueError("blysk_s musi być 0, 0.1 albo 0.3")
+    def przytnij_kolaz(cls, wartosc):
+        if isinstance(wartosc, list):
+            return wartosc[:LICZBA_WYCINKOW_KOLAZU_SCENARIUSZA]
         return wartosc
 
 
 class Scenariusz(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    ujecia: list[Ujecie]
-    uzasadnienie: str = Field(default="", max_length=300)
+    ujecia: list[Ujecie] = Field(description="ujęcia w kolejności odtwarzania od pierwszej klatki")
+    uzasadnienie: str = Field(default="", description="najwyżej 300 znaków")
+
+    @field_validator("uzasadnienie", mode="before")
+    @classmethod
+    def przytnij_uzasadnienie(cls, wartosc):
+        if isinstance(wartosc, str):
+            return wartosc[:LIMIT_UZASADNIENIA]
+        return wartosc
 
 
 class Poprawka(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    ujecie: int
+    ujecie: int = Field(description="numer ujęcia z listy ujęć wyniku")
     problem: str
     zmiana: Ujecie
 
@@ -368,9 +395,40 @@ class Poprawka(BaseModel):
 class Ocena(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    ocena: int = Field(ge=1, le=10)
-    mocne: list[str] = Field(default_factory=list, max_length=3)
+    ocena: Literal[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    mocne: list[str] = Field(default_factory=list, description="najwyżej 3 krótkie punkty")
     poprawki: list[Poprawka] = Field(default_factory=list)
+
+    @field_validator("mocne", mode="before")
+    @classmethod
+    def przytnij_mocne(cls, wartosc):
+        if isinstance(wartosc, list):
+            return wartosc[:LICZBA_MOCNYCH_STRON]
+        return wartosc
+
+
+def oczysc_schemat(wezel):
+    if isinstance(wezel, list):
+        return [oczysc_schemat(element) for element in wezel]
+    if not isinstance(wezel, dict):
+        return wezel
+    wynik = {}
+    for klucz, wartosc in wezel.items():
+        if klucz in POLA_POMIJANE_W_SCHEMACIE:
+            continue
+        if klucz in ("properties", "$defs"):
+            wynik[klucz] = {nazwa: oczysc_schemat(podschemat) for nazwa, podschemat in wartosc.items()}
+        else:
+            wynik[klucz] = oczysc_schemat(wartosc)
+    if "properties" in wynik:
+        wynik["required"] = list(wynik["properties"])
+        wynik["additionalProperties"] = False
+    return wynik
+
+
+def schemat_dla_modelu(klasa) -> dict:
+    schemat = oczysc_schemat(klasa.model_json_schema())
+    return {"title": klasa.__name__, **schemat}
 
 
 def zbuduj_scenariusz(dane: dict) -> "Scenariusz | None":
@@ -388,11 +446,11 @@ def zbuduj_ocene(dane: dict) -> "Ocena | None":
 
 
 def schemat_scenariusza() -> dict:
-    return Scenariusz.model_json_schema()
+    return schemat_dla_modelu(Scenariusz)
 
 
 def schemat_oceny() -> dict:
-    return Ocena.model_json_schema()
+    return schemat_dla_modelu(Ocena)
 
 
 POLECENIE_REZYSERA = (
@@ -400,12 +458,26 @@ POLECENIE_REZYSERA = (
     "Wzór ma stałą strukturę: hak (pierwsze sekundy, naturalne kolory, bez nakładki), drop "
     "(od niego pełnoekranowa nakładka i mocny grading), montaż i plansza końcowa z produktem. "
     "Z materiałów użytkownika ułóż scenariusz zgodny ze strukturą i rytmem wzoru opisanym w danych. "
-    "Nic z obrazu ani dźwięku wzoru nie trafia do wyniku, wzór pokazuje tylko strukturę i styl. "
+    "Nic z obrazu ani dźwięku wzoru nie trafia do wyniku, wzór pokazuje tylko strukturę i styl.\n"
+    "Obrazy: arkusz zdjęć z numerem w rogu, pasek klatek każdego klipu z numerem i sekundami w nagłówku "
+    "oraz arkusz wycinków na szachownicy. Lista materiałów w danych podaje typ każdego numeru i długość "
+    "klipów. Pole material to numer zdjęcia albo klipu. Wycinki nie są ujęciami, ich numery wolno podać "
+    "tylko w polu kolaz.\n"
+    "Czas: dane podają klatki uderzeń, klatkę dropu, początek planszy, granice ujęć wzoru i okna napisów, "
+    "słów i napisu pionowego. Ujęcia idą po kolei od pierwszej klatki, a długość ujęcia to liczba uderzeń. "
+    "Drop i początek planszy to twarde cięcia: ujęcie, które przez nie przechodzi, zostanie na nich ucięte. "
+    "Od początku planszy do końca editu stoi plansza końcowa, więc tam nie planuj ważnych ujęć. "
+    "Brakujący koniec uzupełni automat, a nadmiar ujęć odpada.\n"
     "Zasady: zdjęcia trwają 1 do 2 uderzeń, klipy 4 do 7 uderzeń i pokazują najlepszy fragment akcji "
-    "(wybierz od_s tak, żeby złapać ruch albo emocję, nie pierwszą sekundę z automatu), najmocniejszy "
-    "materiał otwiera hak i stoi na dropie, kolaże (pole kolaz) stawiaj na klipach w tle montażu. "
+    "(wybierz od_s tak, żeby złapać ruch albo emocję, nie pierwszą sekundę z automatu; od_s plus długość "
+    "ujęcia nie może przekroczyć długości klipu), najmocniejszy materiał otwiera hak i stoi na dropie. "
+    "Kolaże (najwyżej 3 wycinki) stawiaj na klipach w tle montażu, nie w haku pod napisami i nie na dropie.\n"
+    "Efekty na początku ujęcia: uderzenie (krótki zoom w rytmie), blysk_s (biały błysk 0, 0.1 albo 0.3 s), "
+    "wstrzas (wstrząs kadru przez pół sekundy), przejscie (brak albo smuga, czyli rozmycie ruchu na pierwszych "
+    "klatkach; najazd działa tylko na planszy). Automat daje każdemu ujęciu uderzenie, klipom błysk 0.1, "
+    "a co trzeciemu zdjęciu po dropie smugę. Ujęcie na dropie i tak dostaje błysk 0.3 i wstrząs.\n"
     "Zwróć wyłącznie JSON zgodny z podanym schematem: listę ujęć w kolejności odtwarzania i krótkie "
-    "uzasadnienie wyboru."
+    "uzasadnienie wyboru (najwyżej 300 znaków)."
 )
 
 KOMORKA_ARKUSZA_KRYTYKA = (108, 192)
@@ -459,8 +531,8 @@ def arkusz_krytyka(
             wycinek_wyniku.append(puste)
         if grupa > 0:
             czesci.append(linia)
-        czesci.append(np.hstack(wycinek_wzoru))
-        czesci.append(np.hstack(wycinek_wyniku))
+        czesci.append(narysuj_etykiete(np.hstack(wycinek_wyniku), "WYNIK"))
+        czesci.append(narysuj_etykiete(np.hstack(wycinek_wzoru), "WZOR"))
 
     siatka = np.vstack(czesci) if czesci else np.zeros((ky, kolumny * kx, 3), dtype=np.uint8)
     siatka = ogranicz_bok(siatka, BOK_MAKSYMALNY_ARKUSZA)
@@ -468,30 +540,50 @@ def arkusz_krytyka(
     return cel
 
 
-def opis_montazu(plan: dict, fps: int) -> str:
+def opis_montazu(
+    plan: dict, fps: int, materialy: list[dict] | None = None, wycinki: list[dict] | None = None,
+    plansza_uzyta: bool = False,
+) -> str:
+    zwykle, _ = numeracja(materialy or [], wycinki or [])
+    numery = {str(material["plik"]): numer for numer, material in zwykle.items()}
+    ujecia = []
+    for i, u in enumerate(plan.get("ujecia", [])):
+        wpis = {
+            "ujecie": i,
+            "start_s": round(u["klatka_od"] / fps, 3),
+            "koniec_s": round((u["klatka_od"] + u["liczba_klatek"]) / fps, 3),
+            "typ": u["typ"],
+            "material": numery.get(str(u["material"])),
+            "efekt": u.get("efekt_scenariusza"),
+        }
+        if u["typ"] == "klip":
+            wpis["od_s"] = round(float(u.get("start_w_klipie_s", 0.0)), 3)
+        if u.get("kolaz_scenariusza"):
+            wpis["kolaz"] = list(u["kolaz_scenariusza"])
+        ujecia.append(wpis)
+    if plansza_uzyta and ujecia:
+        ujecia[-1]["plansza"] = True
     opis = {
         "fps": fps,
         "dlugosc_klatek": plan["liczba_klatek"],
-        "ujecia": [
-            {
-                "ujecie": i,
-                "od_s": round(u["klatka_od"] / fps, 3),
-                "do_s": round((u["klatka_od"] + u["liczba_klatek"]) / fps, 3),
-                "typ": u["typ"],
-                "efekt": u.get("efekt_scenariusza"),
-            }
-            for i, u in enumerate(plan.get("ujecia", []))
-        ],
+        "ujecia": ujecia,
+        "materialy": lista_materialow(materialy or [], wycinki or []),
     }
     return json.dumps(opis, ensure_ascii=False)
 
 
 POLECENIE_KRYTYKA = (
     "Jesteś krytykiem gotowego edytu 9:16 na TikToka dla marki czapek 1993 Supply. Dostajesz arkusz "
-    "klatek wyniku nad arkuszem wzoru (ta sama skala czasu) oraz listę ujęć wyniku z czasami, efektami "
-    "i numerami materiałów. Wzór pokazuje tylko strukturę i styl, jego obraz i dźwięk nie trafiają do "
-    "wyniku, więc nie oceniaj podobieństwa treści, tylko rytm, dynamikę i jakość wyboru materiałów. "
+    "klatek, 2 na sekundę, w tej samej skali czasu dla wyniku i wzoru: w każdej parze wierszy górny wiersz "
+    "z podpisem WYNIK to oceniany edit, a dolny z podpisem WZOR to wzór. Wzór pokazuje tylko strukturę i "
+    "styl, jego obraz i dźwięk nie trafiają do wyniku, więc nie oceniaj podobieństwa treści, tylko rytm, "
+    "dynamikę i jakość wyboru materiałów.\n"
+    "Dane podają listę ujęć wyniku (czas w edicie start_s i koniec_s, typ, numer materiału, początek "
+    "fragmentu klipu od_s, efekty, kolaż, plansza) i listę materiałów z numerami, typami i długością klipów.\n"
     "Oceń wynik w skali 1 do 10, wypisz do 3 mocnych stron i listę poprawek (najwyżej po jednej na "
-    "problem): numer ujęcia do zmiany, opis problemu i nowe ujęcie zgodne ze schematem Ujecie. "
+    "problem): numer ujęcia z listy, opis problemu i nowe ujęcie zgodne ze schematem Ujecie. W zmianie "
+    "podaj numer zdjęcia albo klipu z listy materiałów (numery wycinków tylko w polu kolaz), a dla klipu "
+    "od_s tak, żeby fragment o długości ujęcia zmieścił się w klipie. Poprawka zachowuje czas ujęcia "
+    "w edicie, więc pole uderzenia nie zmienia jego długości. Ujęcia z planszą nie poprawiaj.\n"
     "Zwróć wyłącznie JSON zgodny z podanym schematem."
 )

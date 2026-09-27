@@ -1436,3 +1436,264 @@ def test_linia_ai_automatyczny_z_powodem():
 
 def test_linia_ai_brak_gdy_ai_wylaczone():
     assert komunikaty.linia_ai(None) is None
+
+
+def test_plan_ze_scenariusza_od_s_przyciete_tak_zeby_ujecie_zmiescilo_sie_w_klipie():
+    plan = plan_wzorca_testowego(100, [0], fps=10)
+    uderzenia = list(range(0, 105, 5))
+    kawalki = {0: {"plik": "k.mp4", "typ": "klip", "czas_s": 5.0}}
+    scenariusz = rezyser.Scenariusz(ujecia=[ujecie_scenariusza(0, 5, od_s=4.8)])
+
+    wynik, ostrzezenia = render.plan_ze_scenariusza(scenariusz, plan, kawalki, uderzenia, 10, {"sekcje": None})
+
+    assert wynik["ujecia"][0]["liczba_klatek"] == 25
+    assert wynik["ujecia"][0]["start_w_klipie_s"] == 2.5
+    assert len(ostrzezenia) == 1
+
+
+def test_plan_ze_scenariusza_klip_krotszy_od_ujecia_zostaje_w_rytmie():
+    plan = plan_wzorca_testowego(100, [0], fps=10)
+    uderzenia = list(range(0, 105, 5))
+    kawalki = {0: {"plik": "k.mp4", "typ": "klip", "czas_s": 1.0}, 1: {"plik": "z.jpg", "typ": "zdjecie"}}
+    scenariusz = rezyser.Scenariusz(ujecia=[ujecie_scenariusza(0, 5, od_s=0.5), ujecie_scenariusza(1, 1)])
+
+    wynik, ostrzezenia = render.plan_ze_scenariusza(scenariusz, plan, kawalki, uderzenia, 10, {"sekcje": None})
+
+    assert [u["klatka_od"] for u in wynik["ujecia"][:2]] == [0, 25]
+    assert wynik["ujecia"][0]["start_w_klipie_s"] == 0.0
+    assert len(ostrzezenia) == 1
+
+
+def test_plan_ze_scenariusza_wycinek_jako_ujecie_pominiety_z_ostrzezeniem():
+    plan = plan_wzorca_testowego(50, [0], fps=10)
+    kawalki = {0: {"plik": "z.jpg", "typ": "zdjecie"}, 1: {"plik": "w.png", "typ": "wycinek"}}
+    scenariusz = rezyser.Scenariusz(ujecia=[ujecie_scenariusza(1, 2), ujecie_scenariusza(0, 2)])
+
+    wynik, ostrzezenia = render.plan_ze_scenariusza(scenariusz, plan, kawalki, [], 10, {"sekcje": None})
+
+    assert len(ostrzezenia) == 1
+    assert "wycinek" in ostrzezenia[0]
+    assert wynik["ujecia"][0]["material"] == "z.jpg"
+
+
+def test_zastosuj_poprawki_zachowuje_czas_ujec_i_pomija_wycinek():
+    plan = {"fps": 10, "start_audio_s": 0.0, "liczba_klatek": 60, "ujecia": [
+        {"material": "a.jpg", "typ": "zdjecie", "klatka_od": 0, "liczba_klatek": 20, "start_w_klipie_s": 0.0, "numer_wzoru": 0},
+        {"material": "b.jpg", "typ": "zdjecie", "klatka_od": 20, "liczba_klatek": 40, "start_w_klipie_s": 0.0, "numer_wzoru": 0},
+    ]}
+    kawalki = {
+        0: {"plik": "a.jpg", "typ": "zdjecie"},
+        1: {"plik": "k.mp4", "typ": "klip", "czas_s": 5.0},
+        2: {"plik": "w.png", "typ": "wycinek"},
+    }
+    poprawki = [
+        rezyser.Poprawka(ujecie=1, problem="nuda", zmiana=rezyser.Ujecie(material=1, od_s=4.9, uderzenia=2)),
+        rezyser.Poprawka(ujecie=0, problem="kadr", zmiana=rezyser.Ujecie(material=2, uderzenia=1)),
+    ]
+
+    wynik, ostrzezenia = render.zastosuj_poprawki(plan, poprawki, kawalki, 10)
+
+    u = wynik["ujecia"]
+    assert [x["klatka_od"] for x in u] == [0, 20]
+    assert [x["liczba_klatek"] for x in u] == [20, 40]
+    assert u[1]["material"] == "k.mp4"
+    assert u[1]["start_w_klipie_s"] == 1.0
+    assert u[0]["material"] == "a.jpg"
+    assert len(ostrzezenia) == 2
+
+
+def przygotuj_render_ai(tmp_path):
+    projekt = projekt_ai(tmp_path)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_ai_prosty()), encoding="utf-8")
+    generuj.klip_testowy(tmp_path / "zrodlo.mp4", czas_s=3.5, rozmiar=(270, 480))
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=180, czas_s=5.0, pierwsze_uderzenie_s=0.1)
+    return projekt, wzor_json, utwor
+
+
+def licz_montaze(monkeypatch):
+    plany = []
+    oryginalny = render.zmontuj
+
+    def zmontuj_liczony(plan, *args):
+        plany.append(plan)
+        return oryginalny(plan, *args)
+
+    monkeypatch.setattr(render, "zmontuj", zmontuj_liczony)
+    return plany
+
+
+def test_render_ai_poprawka_na_koncowke_klipu_nie_przerywa_renderu(tmp_path, monkeypatch):
+    projekt, wzor_json, utwor = przygotuj_render_ai(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    plany = licz_montaze(monkeypatch)
+    poprawka = {"ujecie": 1, "problem": "nuda", "zmiana": {"material": 5, "od_s": 3.9, "uderzenia": 2}}
+    klient = KlientAiTestowy([
+        odpowiedz_ai(scenariusz_json_dla(6)),
+        odpowiedz_ai({"ocena": 4, "mocne": [], "poprawki": [poprawka]}),
+        odpowiedz_ai({"ocena": 8, "mocne": [], "poprawki": []}),
+    ])
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(
+        wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50,
+        ai=True, klient_ai=klient,
+    )
+
+    assert podsumowanie["ai"]["poprawka"] is True
+    assert podsumowanie["ai"]["ocena"] == 8
+    assert podsumowanie["ai"]["ocena_przed"] == 4
+    assert len(plany) == 2
+    poprawione = plany[1]["ujecia"][1]
+    assert poprawione["material"].endswith("0000000005_d.mp4")
+    assert poprawione["liczba_klatek"] == plany[0]["ujecia"][1]["liczba_klatek"]
+    assert poprawione["start_w_klipie_s"] + poprawione["liczba_klatek"] / 30 <= 4.0 + 1e-6
+    assert any("od_s" in o for o in podsumowanie["ai"]["ostrzezenia"])
+    assert not (tmp_path / "wynik_ai_poprawka.mp4").exists()
+
+
+def test_render_ai_blad_montazu_po_poprawce_zostawia_pierwsza_wersje(tmp_path, monkeypatch):
+    projekt, wzor_json, utwor = przygotuj_render_ai(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    oryginalny = render.zmontuj
+
+    def zmontuj_z_bledem(plan, *args):
+        if str(args[-1]).endswith("_ai_poprawka.mp4"):
+            raise RuntimeError("test")
+        return oryginalny(plan, *args)
+
+    monkeypatch.setattr(render, "zmontuj", zmontuj_z_bledem)
+    klient = KlientAiTestowy([
+        odpowiedz_ai(scenariusz_json_dla(6)),
+        odpowiedz_ai({"ocena": 4, "mocne": [], "poprawki": [scenariusz_poprawki(2)]}),
+    ])
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(
+        wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50,
+        ai=True, klient_ai=klient,
+    )
+
+    assert wyjscie.exists()
+    assert podsumowanie["ai"]["poprawka"] is False
+    assert podsumowanie["ai"]["ocena"] == 4
+    assert "montaż po poprawce nieudany: RuntimeError" in podsumowanie["ai"]["ostrzezenia"]
+    assert len(klient.wywolania) == 2
+
+
+def test_render_ai_blad_montazu_scenariusza_montuje_automatycznie(tmp_path, monkeypatch):
+    projekt, wzor_json, utwor = przygotuj_render_ai(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    oryginalny = render.zmontuj
+
+    def zmontuj_z_bledem(plan, *args):
+        if any(u.get("efekt_scenariusza") for u in plan["ujecia"]):
+            raise RuntimeError("test")
+        return oryginalny(plan, *args)
+
+    monkeypatch.setattr(render, "zmontuj", zmontuj_z_bledem)
+    klient = KlientAiTestowy([odpowiedz_ai(scenariusz_json_dla(6))])
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(
+        wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50,
+        ai=True, bez_krytyka=True, klient_ai=klient,
+    )
+
+    assert wyjscie.exists()
+    assert podsumowanie["ai"]["rezyser"] is False
+    assert podsumowanie["ai"]["powod_pominiecia"] == "błąd montażu scenariusza: RuntimeError"
+
+
+def test_render_ai_krytyk_najwyzej_jeden_dodatkowy_montaz_przy_niskiej_drugiej_ocenie(tmp_path, monkeypatch):
+    projekt, wzor_json, utwor = przygotuj_render_ai(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    plany = licz_montaze(monkeypatch)
+    klient = KlientAiTestowy([
+        odpowiedz_ai(scenariusz_json_dla(6)),
+        odpowiedz_ai({"ocena": 4, "mocne": [], "poprawki": [scenariusz_poprawki(2)]}),
+        odpowiedz_ai({"ocena": 3, "mocne": [], "poprawki": [scenariusz_poprawki(3)]}),
+    ])
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(
+        wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50,
+        ai=True, klient_ai=klient,
+    )
+
+    assert len(plany) == 2
+    assert len(klient.wywolania) == 3
+    assert podsumowanie["ai"]["ocena"] == 4
+    assert podsumowanie["ai"]["poprawka"] is False
+
+
+def test_render_ai_scenariusz_na_wzorze_z_dropem_efekty_kolaz_i_opis_wzoru(tmp_path, monkeypatch):
+    def dodaj(katalog):
+        for i in range(3):
+            generuj.zdjecie_testowe(katalog / f"000000000{i}_m.jpg", rozmiar=(270, 480), kolor=generuj.kolor_ujecia(i))
+        generuj.klip_testowy(katalog / "0000000003_d.mp4", czas_s=8.0, rozmiar=(270, 480))
+        generuj.zdjecie_kwadrat_na_przezroczystym(katalog / "0000000004_w.png")
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    (projekt / "projekt.json").write_text(json.dumps({"slowa": "raz dwa trzy"}), encoding="utf-8")
+    wzor = {
+        "ciecia_uderzenia": [], "koniec_uderzenia": None, "ciecia_s": [0.0, 3.0, 9.0], "zrodlo": {"czas_s": 12.0},
+        "sekcje": {"drop_s": None, "drop_ujecie": 1, "koniec_haka_uderzenia": None},
+    }
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=180, czas_s=13.0, pierwsze_uderzenie_s=0.1)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+
+    przechwycone = {}
+    oryginalne_tempo = render.rozloz_tempo
+
+    def rozloz_tempo_zapisane(plan, *args):
+        przechwycone["plan_bazowy"] = plan
+        return oryginalne_tempo(plan, *args)
+
+    monkeypatch.setattr(render, "rozloz_tempo", rozloz_tempo_zapisane)
+    plany = licz_montaze(monkeypatch)
+    segmenty = {}
+    for nazwa in ("segment_zdjecia", "segment_klipu"):
+        oryginalny = getattr(render, nazwa)
+
+        def zapisz_segment(zrodlo, wyjscie, *args, oryginalny=oryginalny, **kwargs):
+            segmenty[int(Path(wyjscie).stem.split("_")[-1])] = kwargs
+            return oryginalny(zrodlo, wyjscie, *args, **kwargs)
+
+        monkeypatch.setattr(render, nazwa, zapisz_segment)
+
+    ujecia = [
+        {"material": 0, "uderzenia": 2, "blysk_s": 0.1, "przejscie": "smuga"},
+        {"material": 3, "od_s": 1.0, "uderzenia": 5, "kolaz": [4]},
+    ] + [{"material": i % 3, "uderzenia": 1} for i in range(20)]
+    klient = KlientAiTestowy([odpowiedz_ai({"ujecia": ujecia, "uzasadnienie": "test"})])
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(
+        wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50,
+        ai=True, bez_krytyka=True, klient_ai=klient,
+    )
+
+    assert podsumowanie["ai"]["rezyser"] is True
+    plan = plany[0]
+    assert segmenty[0]["przejscie"] == "smuga"
+    assert segmenty[0]["blysk_s"] == 0.1
+    assert segmenty[1]["blysk_s"] == 0.0
+    assert segmenty[1]["kolaz"] is not None
+    assert podsumowanie["kolaze"] == [{"ujecie": 1, "wycinki": ["0000000004_w.png"]}]
+    klatka_dropu = render.koniec_haka(plan, wzor["sekcje"])
+    na_dropie = next(i for i, u in enumerate(plan["ujecia"]) if u["klatka_od"] == klatka_dropu)
+    assert plan["ujecia"][na_dropie]["efekt_scenariusza"]["blysk_s"] == 0.0
+    assert segmenty[na_dropie]["blysk_s"] == 0.3
+    assert segmenty[na_dropie]["wstrzas"] is True
+
+    tresc = klient.wywolania[0]["messages"][0]["content"]
+    opis = json.loads(tresc[-1]["text"].split("\n\n", 1)[1])
+    assert opis["granice_ujec_wzoru"] == [u["klatka_od"] for u in przechwycone["plan_bazowy"]["ujecia"]]
+    assert len(opis["okna_tekstow"]["slowa"]) == 3
+    assert {"numer": 4, "typ": "wycinek"} in opis["materialy"]
+    assert sum(1 for c in tresc if c["type"] == "image_url") == 3
