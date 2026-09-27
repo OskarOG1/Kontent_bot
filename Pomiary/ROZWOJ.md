@@ -79,6 +79,12 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-27 (próba ścieżki bota bez Telegrama)
+- Zamiast testu na Telegramie: analiza wzoru i render przez `kolejka.uruchom` z argumentami z `bot.renderuj_zadanie_w_tle` (siła koloru 0,6, szeryf, dół, flaga 2,5 s, limit 50 MB), kod z `main` (`cf31bbf`), 2 rdzenie (`taskset`), ffmpeg 6.1.1. Dane sztuczne: wzór 26,4 s ułożony jak `0923` (22 ujęcia, 150 BPM, drop 10,8 s), 20 zdjęć, 8 klipów 1920x1080 po 12 s z dźwiękiem, 8 wycinków w wymieszanej kolejności, flaga 16:9 z kręgiem gwiazd na 58% szerokości, znak wodny, plansza, słowa i napis pionowy.
+- Wynik: analiza 7,4 s, render 232 s (limit bota 900 s), szczyt pamięci 1067 MB (limit kontenera 5 GB), plik 1080x1920, 26,4 s, 8,45 MB. 30 ujęć (wzór 22), zdjęcia po 0,4 s (co uderzenie), klipy 2,0 do 2,4 s, po dropie 75% zdjęć i nigdy dwa klipy pod rząd. Na klatkach: błysk na dropie (jasność 108 na 157), akcent „POLAND” wlatuje, flaga od 10,8 do 13,3 s ze wszystkimi bocznymi gwiazdami w kadrze, 3 kolaże po 3 wycinki (żaden na dropie, planszy ani słowach), smuga co trzecie zdjęcie po dropie, znak wodny poza planszą, plansza na końcu.
+- Przy pierwszym przebiegu (błąd danych testu: zbyt podobne kolory ujęć wzoru) wzór wyszedł bez wykrytych cięć i edit był jednym zdjęciem na całą długość, bez planszy, z nakładką od 1 s. To zachowanie dla wzoru z jednym ujęciem z części 5; prawdziwe wzory mają cięcia.
+- Próba nie sprawdza serwera (ffmpeg 7.1 sprawdza CI), Telegrama (pobieranie, kompresja zdjęć wysłanych jako zdjęcia) ani prawdziwych klipów 4K, na których render trwa dłużej (pomiar u właściciela: 679 s czasu procesora ffmpeg na `0914`).
+
 ### 2026-09-27 (scalenie części 10 i porządki w dzienniku)
 - PR #22 (10.6 do 10.12) scalony do `main` o 13:20 UTC (`08f8ee2`). CI na `main` po scaleniu: 361 z 361 w 180 s (ffmpeg 7.1.5), to samo drzewo co przetestowana głowica PR. Wdrożenie robi właściciel przez `wdroz.ps1`, bo sesja w chmurze nie ma dostępu SSH do serwera.
 - Porządki według kodu i historii PR: nagłówek stanu na 2026-09-27, wiersze części 10 i 11, CI w „Repo” i w decyzjach. W znanych problemach rozwiązane: 0b (`Dockerfile`), 0e (`catch_warnings` i test), 3 (`MATERIAL_NIEPOPRAWNY_TYP`), 11 (PR #13) i 13 (poprawka w `main`); dopisany stan 4 (licznik pobrań na projekt) i 10 (nadal otwarte). Decyzja o `pobierz_plik` uzupełniona o lokalny serwer Bot API z części 7. Następne kroki: wdrożenie części 10 z testem na Telegramie, potem część 11.
@@ -1068,7 +1074,7 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 ## Następne kroki
 
 1. Wdrożenie `main` przez `wdroz.ps1` z maszyny właściciela (sesja w chmurze nie ma dostępu SSH do serwera). Część 9 jest już na serwerze (potwierdzenie właściciela 2026-09-27), wdrożenie wnosi część 10 (PR #21 i #22). Potem test na Telegramie:
-   - edit na wzorze `0923`: szybkie zdjęcia, przejścia, kolaż wycinków i flaga w kadrze (plan 10, „Gotowe, gdy”);
+   - edit na wzorze `0923`: szybkie zdjęcia, przejścia, kolaż wycinków i flaga w kadrze (plan 10, „Gotowe, gdy”). Próba bez Telegrama na sztucznych danych przeszła (dziennik 2026-09-27), na serwerze zostaje potwierdzić, że render przechodzi;
    - jeśli części 9 nie sprawdzono jeszcze na serwerze: `/wzory` (5 wzorów z nazwami, aktywny `0915`), `/gotowe 3`, `/ponow wszystkie` i restart kontenera w trakcie montażu (`docker compose restart bot`).
    Każde odstępstwo jednym zdaniem w dzienniku.
 2. Opcjonalnie pomiar dynamiki ponownie (`python Pomiary/measure_dynamika.py` w wersji z 10.10: pełny czas B i koszt nakładek).
