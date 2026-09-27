@@ -1,0 +1,21 @@
+name: testy
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - name: obraz z Dockerfile, jak na serwerze
+        run: docker build -t edity-bot:ci .
+      - name: wersje w obrazie
+        run: docker run --rm edity-bot:ci sh -c "ffmpeg -version | head -n 1 && python --version"
+      - name: pytest w obrazie
+        run: >-
+          docker run --rm --user root -e NUMBA_CACHE_DIR=/tmp/numba edity-bot:ci
+          sh -c "pip install --no-cache-dir --root-user-action=ignore -r requirements-test.txt
+          && python -m pytest -q -p no:cacheprovider"
