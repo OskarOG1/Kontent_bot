@@ -690,3 +690,17 @@ def test_nakladka_krycie_skala_miesci_znaczniki_blisko_krawedzi_zrodla(tmp_path)
 
     assert ma_czerwony(lewa_strefa)
     assert ma_czerwony(prawa_strefa)
+
+
+def test_materializuj_nakladke_z_dzwiekiem_daje_sam_obraz(tmp_path):
+    zrodlo = tmp_path / "flaga_z_dzwiekiem.mp4"
+    generuj.nakladka_z_dzwiekiem_testowa(zrodlo, 1.0)
+
+    wynik = render.materializuj_nakladke(zrodlo, "krycie", 75, 30, 270, 480, tmp_path)
+
+    typy = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(wynik)],
+        stdin=subprocess.DEVNULL, capture_output=True,
+    ).stdout.decode("utf-8", errors="replace").split()
+    assert typy == ["video"]
+    assert klatki_pliku(wynik) == 75

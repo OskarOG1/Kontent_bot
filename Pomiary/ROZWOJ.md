@@ -77,6 +77,10 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-27 (zadanie 10.12: klip nakładki bez dźwięku)
+- `src/render.py`, `materializuj_nakladke`: `-map 0:v:0` w obu gałęziach, więc klip nakładki ma tylko obraz.
+- `tests/generuj.py`: `nakladka_z_dzwiekiem_testowa` (obraz `testsrc2` i dźwięk `sine` z `lavfi`). `tests/test_nakladka.py` (+1): nakładka 16:9 z dźwiękiem w trybie `krycie` na 75 klatek daje klip z samym obrazem i 75 klatkami. Bez poprawki test pada (`['video', 'audio']`). Plik lokalnie (ffmpeg 6.1.1): 23 z 23. Pełny zestaw na ffmpeg 7.1 sprawdza CI.
+
 ### 2026-09-27 (odbiór części 10)
 - **Odbiór: OK z jedną drobną poprawką (zadanie 10.12 w planie).** Pomiar u właściciela zaliczony: A w progach na 5 wzorach, problem 13 zamknięty, arkusze i próbny edit zaakceptowane. Wersja skryptu z 10.8 nie liczyła progu `wszystkie_wzory_w_obu_trybach`, ale wszystkie 5 wzorów wyrenderowało się w obu trybach.
 - Kod: funkcje segmentów i `PARAMETRY_KODOWANIA_SEGMENTU` bez zmian względem `main`, warstwy przebiegu końcowego bez `-t`, `-loop` i `-stream_loop` (test dla pięciu trybów), `--bez-dynamiki` odtwarza stary plan, `src/` i `tests/` bez komentarzy.

@@ -740,7 +740,7 @@ def materializuj_nakladke(
             )
         wyjscie = katalog / "nakladka.mov"
         uruchom_ffmpeg([
-            *wejscie_opcje, "-frames:v", str(liczba_klatek), "-vf", filtr,
+            *wejscie_opcje, "-map", "0:v:0", "-frames:v", str(liczba_klatek), "-vf", filtr,
             "-c:v", "png", "-pix_fmt", "rgba", str(wyjscie),
         ])
         return wyjscie
@@ -759,7 +759,7 @@ def materializuj_nakladke(
 
     wyjscie = katalog / "nakladka.mp4"
     uruchom_ffmpeg([
-        *wejscie_opcje, "-frames:v", str(liczba_klatek), "-vf", filtr,
+        *wejscie_opcje, "-map", "0:v:0", "-frames:v", str(liczba_klatek), "-vf", filtr,
         "-c:v", "libx264", "-crf", "12", "-pix_fmt", "yuv420p", str(wyjscie),
     ])
     return wyjscie

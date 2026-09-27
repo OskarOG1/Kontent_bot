@@ -286,6 +286,22 @@ def nakladka_vp9_alfa_testowa(
         subprocess.run(argumenty, stdin=subprocess.DEVNULL, check=True)
 
 
+def nakladka_z_dzwiekiem_testowa(
+    sciezka: Path, czas_s: float, rozmiar: tuple[int, int] = (640, 360), fps: float = 30,
+) -> None:
+    szerokosc, wysokosc = rozmiar
+    argumenty = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-f", "lavfi", "-i", f"testsrc2=size={szerokosc}x{wysokosc}:rate={ulamek_fps(fps)}",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
+        "-t", f"{czas_s:.6f}",
+        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        str(sciezka),
+    ]
+    subprocess.run(argumenty, stdin=subprocess.DEVNULL, check=True)
+
+
 def pierscien_testowy(sciezka: Path, rozmiar: tuple[int, int] = (600, 600)) -> None:
     szerokosc, wysokosc = rozmiar
     obraz = Image.new("RGBA", rozmiar, (0, 0, 0, 0))
