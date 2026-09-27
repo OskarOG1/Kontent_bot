@@ -34,6 +34,7 @@ KATALOG_REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KATALOG_REPO / "src"))
 sys.path.insert(0, str(KATALOG_REPO / "tests"))
 
+from dotenv import load_dotenv  # noqa: E402
 from PIL import Image  # noqa: E402
 
 import arkusz  # noqa: E402
@@ -41,6 +42,8 @@ import generuj  # noqa: E402
 import music  # noqa: E402
 import render  # noqa: E402
 import rezyser  # noqa: E402
+
+load_dotenv(KATALOG_REPO / ".env")
 
 KATALOG_OUTPUTS = KATALOG_REPO / "outputs"
 PLIK_WYNIKOW = KATALOG_OUTPUTS / "pomiar_rezyser.json"
