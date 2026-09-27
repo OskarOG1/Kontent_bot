@@ -629,8 +629,6 @@ def test_warstwy_przebiegu_koncowego_jako_klipy_bez_t_loop_stream_loop(tmp_path,
         def podmieniony(argumenty, katalog=None):
             wywolania.append(argumenty)
             oryginalny(argumenty, katalog=katalog)
-            # katalog_pracy jest kasowany po zakończeniu renderuj, więc plik trzeba
-            # policzyć od razu, zanim zniknie
             nazwa = Path(argumenty[-1]).name
             if nazwa in ("nakladka.mov", "nakladka.mp4", "znak.mov"):
                 klatki_zmierzone[nazwa] = klatki_pliku(argumenty[-1])
@@ -645,7 +643,7 @@ def test_warstwy_przebiegu_koncowego_jako_klipy_bez_t_loop_stream_loop(tmp_path,
         polecenie = przebiegi_koncowe[0]
 
         wejscia_info = opcje_wejsc(polecenie)
-        assert len(wejscia_info) == 4  # polaczone, utwor, nakladka, znak
+        assert len(wejscia_info) == 4
 
         for opcje, _plik in wejscia_info[2:]:
             assert "-t" not in opcje
@@ -671,7 +669,7 @@ def test_nakladka_krycie_skala_miesci_znaczniki_blisko_krawedzi_zrodla(tmp_path)
     projekt = zbuduj_projekt_czarny(tmp_path)
     wzor = wzor_4_ciecia_z_dropem(2)
     nakladka = tmp_path / "krycie_szeroka.mp4"
-    nakladka_krycie_16_9_ze_znacznikami(nakladka, czas_s=1.0, rozmiar=(1000, 500), pozycje_x=(215, 755))
+    nakladka_krycie_16_9_ze_znacznikami(nakladka, czas_s=1.0, pozycje_x=(128, 512))
 
     wyjscie, podsumowanie = zrenderuj(tmp_path, projekt, wzor, nakladka=nakladka)
     assert podsumowanie["nakladka"]["tryb"] == "krycie"
