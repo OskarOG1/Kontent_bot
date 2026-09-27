@@ -696,6 +696,16 @@ def rozloz_tempo(plan: dict, wzor: dict, uderzenia: list[int], kawalki: list[dic
     }
 
 
+def fragment_klipu(od_s: float, czas_klipu_s: float, liczba_klatek: int, fps: int) -> tuple[float, str | None]:
+    dlugosc_s = liczba_klatek / fps
+    if dlugosc_s > czas_klipu_s:
+        return 0.0, "klip krótszy od ujęcia, koniec klipu zatrzymany"
+    najpozniej_s = czas_klipu_s - dlugosc_s
+    if od_s < 0 or od_s > najpozniej_s:
+        return round(min(max(od_s, 0.0), najpozniej_s), 6), "od_s poza zakresem klipu, przycięte"
+    return od_s, None
+
+
 def plan_ze_scenariusza(
     scenariusz, plan: dict, kawalki_wedlug_numeru: dict, uderzenia: list[int], fps: int, wzor: dict,
 ) -> tuple[dict, list[str]]:
@@ -748,28 +758,26 @@ def plan_ze_scenariusza(
         if kawalek is None:
             ostrzezenia.append(f"ujęcie {pozycja}: nieznany numer materiału {ujecie_scenariusza.material}, pominięte")
             continue
-
         typ = kawalek["typ"]
-        if typ != "klip":
-            if ujecie_scenariusza.od_s != 0:
-                ostrzezenia.append(f"ujęcie {pozycja}: zdjęcie nie ma fragmentu, od_s wymuszone na 0")
-            od_s = 0.0
-        else:
-            czas_klipu_s = float(kawalek["czas_s"])
-            od_s = ujecie_scenariusza.od_s
-            if od_s < 0 or od_s >= czas_klipu_s:
-                ostrzezenia.append(f"ujęcie {pozycja}: od_s poza zakresem klipu, przycięte")
-                od_s = max(0.0, min(od_s, max(0.0, czas_klipu_s - 1.0 / fps)))
+        if typ == "wycinek":
+            ostrzezenia.append(f"ujęcie {pozycja}: wycinek {ujecie_scenariusza.material} jako ujęcie, pominięte")
+            continue
 
         granica = nastepna_twarda(klatka)
         dlugosc = dlugosc_z_uderzen(klatka, ujecie_scenariusza.uderzenia)
         koniec = min(klatka + dlugosc, granica, liczba_klatek)
-        if typ == "klip":
-            maks_klatek_z_klipu = max(1, round((czas_klipu_s - od_s) * fps))
-            koniec = min(koniec, klatka + maks_klatek_z_klipu)
         dlugosc = koniec - klatka
         if dlugosc <= 0:
             continue
+
+        if typ == "klip":
+            od_s, ostrzezenie = fragment_klipu(ujecie_scenariusza.od_s, float(kawalek["czas_s"]), dlugosc, fps)
+            if ostrzezenie:
+                ostrzezenia.append(f"ujęcie {pozycja}: {ostrzezenie}")
+        else:
+            if ujecie_scenariusza.od_s != 0:
+                ostrzezenia.append(f"ujęcie {pozycja}: zdjęcie nie ma fragmentu, od_s wymuszone na 0")
+            od_s = 0.0
 
         ujecia.append({
             "material": str(kawalek["plik"]),
@@ -815,31 +823,31 @@ def plan_ze_scenariusza(
     return plan_wynikowy, ostrzezenia
 
 
-def zastosuj_poprawki(plan: dict, poprawki: list, kawalki_wedlug_numeru: dict, fps: int) -> dict:
+def zastosuj_poprawki(plan: dict, poprawki: list, kawalki_wedlug_numeru: dict, fps: int) -> tuple[dict, list[str]]:
     ujecia = [dict(u) for u in plan["ujecia"]]
+    ostrzezenia = []
     for poprawka in poprawki:
         indeks = poprawka.ujecie
         if not (0 <= indeks < len(ujecia)):
+            ostrzezenia.append(f"poprawka: nieznane ujęcie {indeks}, pominięta")
             continue
         zmiana = poprawka.zmiana
         kawalek = kawalki_wedlug_numeru.get(zmiana.material)
-        if kawalek is None:
+        if kawalek is None or kawalek["typ"] == "wycinek":
+            ostrzezenia.append(f"poprawka ujęcia {indeks}: materiał {zmiana.material} nie jest zdjęciem ani klipem, pominięta")
             continue
         oryginal = ujecia[indeks]
         typ = kawalek["typ"]
+        start_w_klipie_s = 0.0
         if typ == "klip":
-            czas_klipu_s = float(kawalek["czas_s"])
-            start_w_klipie_s = max(0.0, min(zmiana.od_s, max(0.0, czas_klipu_s - 1.0 / fps)))
-            maks_klatek = max(1, round((czas_klipu_s - start_w_klipie_s) * fps))
-            liczba_klatek = min(oryginal["liczba_klatek"], maks_klatek)
-        else:
-            start_w_klipie_s = 0.0
-            liczba_klatek = oryginal["liczba_klatek"]
+            start_w_klipie_s, ostrzezenie = fragment_klipu(zmiana.od_s, float(kawalek["czas_s"]), oryginal["liczba_klatek"], fps)
+            if ostrzezenie:
+                ostrzezenia.append(f"poprawka ujęcia {indeks}: {ostrzezenie}")
         ujecia[indeks] = {
             "material": str(kawalek["plik"]),
             "typ": typ,
             "klatka_od": oryginal["klatka_od"],
-            "liczba_klatek": liczba_klatek,
+            "liczba_klatek": oryginal["liczba_klatek"],
             "start_w_klipie_s": start_w_klipie_s,
             "numer_wzoru": oryginal["numer_wzoru"],
             "efekt_scenariusza": {
@@ -848,7 +856,8 @@ def zastosuj_poprawki(plan: dict, poprawki: list, kawalki_wedlug_numeru: dict, f
             },
             "kolaz_scenariusza": list(zmiana.kolaz),
         }
-    return {"fps": plan["fps"], "start_audio_s": plan["start_audio_s"], "liczba_klatek": plan["liczba_klatek"], "ujecia": ujecia}
+    plan_poprawiony = {"fps": plan["fps"], "start_audio_s": plan["start_audio_s"], "liczba_klatek": plan["liczba_klatek"], "ujecia": ujecia}
+    return plan_poprawiony, ostrzezenia
 
 
 def plik_zrodlowy_wzoru(wzor_json: Path) -> Path | None:
@@ -862,14 +871,20 @@ def zapisz_scenariusz(katalog_projektu: Path, wzor_id: str, wariant: int, scenar
     sciezka.write_text(json.dumps(dane, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def ocen_montaz(klient, model, wzor_json: Path, plan: dict, wyjscie: Path, katalog_pracy: Path) -> tuple:
+def ocen_montaz(
+    klient, model, wzor_json: Path, plan: dict, wyjscie: Path, katalog_pracy: Path,
+    materialy: list[dict] | None = None, wycinki: list[dict] | None = None, plansza_uzyta: bool = False,
+) -> tuple:
     zrodlo_wzoru = plik_zrodlowy_wzoru(wzor_json)
     if zrodlo_wzoru is None:
         return None, rezyser.zuzycie(powod="brak źródła wzoru do arkusza krytyka")
-    arkusz = rezyser.arkusz_krytyka(wyjscie, zrodlo_wzoru, Path(katalog_pracy) / "arkusz_krytyka.jpg")
-    opis = rezyser.opis_montazu(plan, plan["fps"])
-    tresc = {"obrazy": [arkusz], "tekst": rezyser.POLECENIE_KRYTYKA + "\n\n" + opis}
-    dane, zuzycie = rezyser.wywolaj_model(klient, model, tresc, rezyser.schemat_oceny())
+    try:
+        arkusz = rezyser.arkusz_krytyka(wyjscie, zrodlo_wzoru, Path(katalog_pracy) / "arkusz_krytyka.jpg")
+        opis = rezyser.opis_montazu(plan, plan["fps"], materialy, wycinki, plansza_uzyta)
+        tresc = {"obrazy": [arkusz], "tekst": rezyser.POLECENIE_KRYTYKA + "\n\n" + opis}
+        dane, zuzycie = rezyser.wywolaj_model(klient, model, tresc, rezyser.schemat_oceny())
+    except Exception as wyjatek:
+        return None, rezyser.zuzycie(powod=f"błąd krytyka: {type(wyjatek).__name__}")
     if dane is None:
         return None, zuzycie
     ocena = rezyser.zbuduj_ocene(dane)
@@ -878,10 +893,18 @@ def ocen_montaz(klient, model, wzor_json: Path, plan: dict, wyjscie: Path, katal
     return ocena, zuzycie
 
 
+def dolicz_zuzycie(ai_info: dict, zuzycie: dict) -> None:
+    ai_info["tokeny_wejscia"] += zuzycie.get("wejscie", 0)
+    ai_info["tokeny_wyjscia"] += zuzycie.get("wyjscie", 0)
+    if zuzycie.get("koszt_usd") is not None:
+        ai_info["koszt_usd"] = (ai_info["koszt_usd"] or 0.0) + zuzycie["koszt_usd"]
+
+
 def rezyseruj(
     wzor: dict,
     wzor_json: Path,
     plan_auto: dict,
+    plan_bazowy: dict,
     zwykle: list[dict],
     wycinki: list[dict],
     uderzenia_wyn: list[int],
@@ -897,36 +920,51 @@ def rezyseruj(
     klient_ai,
     montuj,
     wyjscie: Path,
+    okna_tekstow: dict | None = None,
 ) -> tuple[dict, dict, dict]:
     model = [model_ai, model_ai_zapas] if model_ai_zapas else model_ai
     klient = klient_ai if klient_ai is not None else httpx.Client()
 
-    kawalki_wedlug_numeru = {i: m for i, m in enumerate(zwykle)}
-    wycinki_wedlug_numeru = {i: w for i, w in enumerate(wycinki)}
+    zwykle_wedlug_numeru, wycinki_wedlug_numeru = rezyser.numeracja(zwykle, wycinki)
+    materialy_wedlug_numeru = dict(zwykle_wedlug_numeru)
+    materialy_wedlug_numeru.update({numer: dict(wycinek, typ="wycinek") for numer, wycinek in wycinki_wedlug_numeru.items()})
 
     scenariusz = None
+    plan_1 = plan_auto
     ostrzezenia = []
     zuzycie_rezysera = rezyser.zuzycie(powod="reżyser wyłączony")
     if not bez_rezysera:
-        sciezki_arkuszy = rezyser.arkusze_materialow(zwykle, wycinki, Path(katalog_pracy) / "arkusze_rezysera")
-        opis = rezyser.opis_wzoru(wzor, plan_auto, uderzenia_wyn, zwykle, None)
-        tresc = {"obrazy": sciezki_arkuszy, "tekst": rezyser.POLECENIE_REZYSERA + "\n\n" + opis}
-        dane, zuzycie_rezysera = rezyser.wywolaj_model(klient, model, tresc, rezyser.schemat_scenariusza())
-        if dane is not None:
-            scenariusz = rezyser.zbuduj_scenariusz(dane)
-            if scenariusz is None:
-                zuzycie_rezysera = dict(zuzycie_rezysera, powod="JSON niezgodny ze schematem")
+        try:
+            sciezki_arkuszy = rezyser.arkusze_materialow(zwykle, wycinki, Path(katalog_pracy) / "arkusze_rezysera")
+            opis = rezyser.opis_wzoru(wzor, plan_bazowy, uderzenia_wyn, zwykle, okna_tekstow, wycinki)
+            tresc = {"obrazy": sciezki_arkuszy, "tekst": rezyser.POLECENIE_REZYSERA + "\n\n" + opis}
+            dane, zuzycie_rezysera = rezyser.wywolaj_model(klient, model, tresc, rezyser.schemat_scenariusza())
+            if dane is not None:
+                scenariusz = rezyser.zbuduj_scenariusz(dane)
+                if scenariusz is None:
+                    zuzycie_rezysera = dict(zuzycie_rezysera, powod="JSON niezgodny ze schematem")
+            if scenariusz is not None:
+                plan_1, ostrzezenia = plan_ze_scenariusza(
+                    scenariusz, plan_auto, materialy_wedlug_numeru, uderzenia_wyn, fps, wzor,
+                )
+        except Exception as wyjatek:
+            scenariusz = None
+            plan_1 = plan_auto
+            ostrzezenia = []
+            zuzycie_rezysera = dict(zuzycie_rezysera, powod=f"błąd reżysera: {type(wyjatek).__name__}")
 
     rezyser_aktywny = scenariusz is not None
     if rezyser_aktywny:
-        plan_1, ostrzezenia = plan_ze_scenariusza(scenariusz, plan_auto, kawalki_wedlug_numeru, uderzenia_wyn, fps, wzor)
         zapisz_scenariusz(katalog_projektu, Path(wzor_json).parent.name, wariant, scenariusz, ostrzezenia)
-        wycinki_dla_montazu = wycinki_wedlug_numeru
+        try:
+            wynik_1 = montuj(plan_1, wycinki_wedlug_numeru, Path(katalog_pracy) / "montaz_ai_1", wyjscie)
+        except Exception as wyjatek:
+            rezyser_aktywny = False
+            zuzycie_rezysera = dict(zuzycie_rezysera, powod=f"błąd montażu scenariusza: {type(wyjatek).__name__}")
+            plan_1 = plan_auto
+            wynik_1 = montuj(plan_auto, None, Path(katalog_pracy) / "montaz_auto", wyjscie)
     else:
-        plan_1 = plan_auto
-        wycinki_dla_montazu = None
-
-    wynik_1 = montuj(plan_1, wycinki_dla_montazu, Path(katalog_pracy) / "montaz_ai_1", wyjscie)
+        wynik_1 = montuj(plan_1, None, Path(katalog_pracy) / "montaz_ai_1", wyjscie)
 
     ai_info = {
         "model": model_ai,
@@ -934,7 +972,7 @@ def rezyseruj(
         "ocena": None,
         "ocena_przed": None,
         "poprawka": False,
-        "ostrzezenia": ostrzezenia,
+        "ostrzezenia": list(ostrzezenia),
         "tokeny_wejscia": zuzycie_rezysera.get("wejscie", 0),
         "tokeny_wyjscia": zuzycie_rezysera.get("wyjscie", 0),
         "koszt_usd": zuzycie_rezysera.get("koszt_usd"),
@@ -944,13 +982,14 @@ def rezyseruj(
     if bez_krytyka:
         return plan_1, wynik_1, ai_info
 
-    ocena_1, zuzycie_krytyka_1 = ocen_montaz(klient, model, wzor_json, plan_1, wyjscie, katalog_pracy)
-    ai_info["tokeny_wejscia"] += zuzycie_krytyka_1.get("wejscie", 0)
-    ai_info["tokeny_wyjscia"] += zuzycie_krytyka_1.get("wyjscie", 0)
-    if zuzycie_krytyka_1.get("koszt_usd") is not None:
-        ai_info["koszt_usd"] = (ai_info["koszt_usd"] or 0.0) + zuzycie_krytyka_1["koszt_usd"]
+    plansza_uzyta = bool(wynik_1.get("plansza_uzyta"))
+    ocena_1, zuzycie_krytyka_1 = ocen_montaz(
+        klient, model, wzor_json, plan_1, wyjscie, katalog_pracy, zwykle, wycinki, plansza_uzyta,
+    )
+    dolicz_zuzycie(ai_info, zuzycie_krytyka_1)
 
     if ocena_1 is None:
+        ai_info["ostrzezenia"].append(f"krytyk: {zuzycie_krytyka_1.get('powod')}")
         if not rezyser_aktywny and ai_info["powod_pominiecia"] is None:
             ai_info["powod_pominiecia"] = zuzycie_krytyka_1.get("powod")
         return plan_1, wynik_1, ai_info
@@ -959,22 +998,35 @@ def rezyseruj(
     if ocena_1.ocena >= prog_oceny_ai or not ocena_1.poprawki:
         return plan_1, wynik_1, ai_info
 
-    plan_2 = zastosuj_poprawki(plan_1, ocena_1.poprawki, kawalki_wedlug_numeru, fps)
+    plan_2, ostrzezenia_poprawek = zastosuj_poprawki(plan_1, ocena_1.poprawki, materialy_wedlug_numeru, fps)
+    ai_info["ostrzezenia"] += ostrzezenia_poprawek
+    if plan_2["ujecia"] == plan_1["ujecia"]:
+        return plan_1, wynik_1, ai_info
+
     wyjscie_2 = Path(wyjscie).with_name(Path(wyjscie).stem + "_ai_poprawka" + Path(wyjscie).suffix)
-    wynik_2 = montuj(plan_2, wycinki_wedlug_numeru, Path(katalog_pracy) / "montaz_ai_2", wyjscie_2)
-    ocena_2, zuzycie_krytyka_2 = ocen_montaz(klient, model, wzor_json, plan_2, wyjscie_2, katalog_pracy)
-    ai_info["tokeny_wejscia"] += zuzycie_krytyka_2.get("wejscie", 0)
-    ai_info["tokeny_wyjscia"] += zuzycie_krytyka_2.get("wyjscie", 0)
-    if zuzycie_krytyka_2.get("koszt_usd") is not None:
-        ai_info["koszt_usd"] = (ai_info["koszt_usd"] or 0.0) + zuzycie_krytyka_2["koszt_usd"]
+    try:
+        wynik_2 = montuj(plan_2, wycinki_wedlug_numeru, Path(katalog_pracy) / "montaz_ai_2", wyjscie_2)
+    except Exception as wyjatek:
+        ai_info["ostrzezenia"].append(f"montaż po poprawce nieudany: {type(wyjatek).__name__}")
+        wyjscie_2.unlink(missing_ok=True)
+        return plan_1, wynik_1, ai_info
+
+    ocena_2, zuzycie_krytyka_2 = ocen_montaz(
+        klient, model, wzor_json, plan_2, wyjscie_2, katalog_pracy, zwykle, wycinki, bool(wynik_2.get("plansza_uzyta")),
+    )
+    dolicz_zuzycie(ai_info, zuzycie_krytyka_2)
+    if ocena_2 is None:
+        ai_info["ostrzezenia"].append(f"krytyk po poprawce: {zuzycie_krytyka_2.get('powod')}")
 
     ai_info["ocena_przed"] = ocena_1.ocena
     if ocena_2 is not None and ocena_2.ocena >= ocena_1.ocena:
         shutil.copyfile(wyjscie_2, wyjscie)
+        wyjscie_2.unlink(missing_ok=True)
         ai_info["ocena"] = ocena_2.ocena
         ai_info["poprawka"] = True
         return plan_2, wynik_2, ai_info
 
+    wyjscie_2.unlink(missing_ok=True)
     return plan_1, wynik_1, ai_info
 
 
@@ -1844,10 +1896,19 @@ def renderuj(
 
     ai_info = None
     if ai and not bez_dynamiki:
+        okna_tekstow = {
+            "napisy": podsumowanie_tekstow.get("okna", []),
+            "slowa": okna_slow,
+            "pionowy": (
+                [podsumowanie_pionowo["od"], podsumowanie_pionowo["do"]]
+                if podsumowanie_pionowo and "od" in podsumowanie_pionowo else None
+            ),
+        }
         plan, wynik_montazu, ai_info = rezyseruj(
-            wzor, wzor_json, plan, zwykle, wycinki, uderzenia_wyn, fps,
+            wzor, wzor_json, plan, plan_bazowy, zwykle, wycinki, uderzenia_wyn, fps,
             katalog_projektu, katalog_pracy, wariant, model_ai, model_ai_zapas,
             bez_rezysera, bez_krytyka, prog_oceny_ai, klient_ai, wykonaj_montaz, wyjscie,
+            okna_tekstow=okna_tekstow,
         )
     else:
         wynik_montazu = wykonaj_montaz(plan, None, katalog_pracy / "montaz", wyjscie)

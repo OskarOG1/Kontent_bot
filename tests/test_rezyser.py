@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 
 import cv2
@@ -221,3 +222,142 @@ def test_opis_wzoru_zawiera_klucze_kontraktu():
     assert dane["granice_ujec_wzoru"] == [0, 50]
     assert len(dane["materialy"]) == 2
     assert dane["materialy"][1]["dlugosc_s"] == 5.0
+
+
+def zbierz_klucze(wezel, klucze):
+    if isinstance(wezel, dict):
+        for klucz, wartosc in wezel.items():
+            klucze.add(klucz)
+            zbierz_klucze(wartosc, klucze)
+    elif isinstance(wezel, list):
+        for element in wezel:
+            zbierz_klucze(element, klucze)
+    return klucze
+
+
+def obiekty_schematu(wezel):
+    if isinstance(wezel, dict):
+        if "properties" in wezel:
+            yield wezel
+        for klucz, wartosc in wezel.items():
+            if klucz == "properties":
+                for podschemat in wartosc.values():
+                    yield from obiekty_schematu(podschemat)
+            else:
+                yield from obiekty_schematu(wartosc)
+    elif isinstance(wezel, list):
+        for element in wezel:
+            yield from obiekty_schematu(element)
+
+
+def test_schematy_bez_ograniczen_nieobslugiwanych_i_ze_wszystkimi_polami_wymaganymi():
+    nieobslugiwane = {
+        "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+        "minLength", "maxLength", "minItems", "maxItems", "default",
+    }
+    for schemat in (rezyser.schemat_scenariusza(), rezyser.schemat_oceny()):
+        assert not zbierz_klucze(schemat, set()) & nieobslugiwane
+        obiekty = list(obiekty_schematu(schemat))
+        assert obiekty
+        for obiekt in obiekty:
+            assert obiekt["additionalProperties"] is False
+            assert sorted(obiekt["required"]) == sorted(obiekt["properties"])
+
+
+def test_schemat_scenariusza_ma_dozwolone_wartosci_efektow_i_uderzen():
+    ujecie = rezyser.schemat_scenariusza()["$defs"]["Ujecie"]["properties"]
+    assert ujecie["przejscie"]["enum"] == ["brak", "smuga", "najazd"]
+    assert ujecie["blysk_s"]["enum"] == [0.0, 0.1, 0.3]
+    assert ujecie["uderzenia"]["enum"] == list(range(1, 9))
+    assert rezyser.schemat_oceny()["properties"]["ocena"]["enum"] == list(range(1, 11))
+
+
+def test_polecenie_rezysera_wymienia_efekty_i_numeracje():
+    for fraza in ("smuga", "najazd", "0.1", "0.3", "kolaz", "Wycinki nie są ujęciami"):
+        assert fraza in rezyser.POLECENIE_REZYSERA
+
+
+def test_scenariusz_przycina_kolaz_i_uzasadnienie_zamiast_odrzucac():
+    scenariusz = rezyser.zbuduj_scenariusz({
+        "ujecia": [{"material": 0, "uderzenia": 4, "kolaz": [5, 6, 7, 8]}],
+        "uzasadnienie": "x" * 400,
+    })
+    assert scenariusz is not None
+    assert scenariusz.ujecia[0].kolaz == [5, 6, 7]
+    assert len(scenariusz.uzasadnienie) == rezyser.LIMIT_UZASADNIENIA
+
+
+def test_scenariusz_z_przejsciem_spoza_listy_odrzucony():
+    assert rezyser.zbuduj_scenariusz({"ujecia": [{"material": 0, "uderzenia": 1, "przejscie": "zoom"}]}) is None
+
+
+def test_wywolaj_model_powod_bledu_sieci_bez_tresci_wyjatku(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-tajny-klucz")
+    blad = ValueError("Illegal header value b'Bearer sk-tajny-klucz'")
+    klient = KlientTestowy([blad, blad])
+    wynik, zuzycie = rezyser.wywolaj_model(klient, "m", {"tekst": "x"}, SCHEMAT_PROSTY)
+    assert wynik is None
+    assert zuzycie["powod"] == "błąd sieci: ValueError"
+
+
+def test_numeracja_wycinki_po_zdjeciach_i_klipach():
+    zwykle, wyciete = rezyser.numeracja([{"typ": "zdjecie"}, {"typ": "klip"}], [{"plik": "a.png"}, {"plik": "b.png"}])
+    assert list(zwykle) == [0, 1]
+    assert list(wyciete) == [2, 3]
+
+
+def test_opis_wzoru_podaje_wycinki_i_okna_tekstow():
+    plan = {"liczba_klatek": 60, "fps": 30, "ujecia": [
+        {"klatka_od": 0, "liczba_klatek": 30, "typ": "zdjecie"},
+        {"klatka_od": 30, "liczba_klatek": 30, "typ": "zdjecie"},
+    ]}
+    materialy = [{"typ": "zdjecie"}, {"typ": "klip", "czas_s": 4.0}]
+    okna = {"napisy": [[0, 30]], "slowa": [[10, 15], [15, 20]], "pionowy": None}
+    dane = json.loads(rezyser.opis_wzoru({"sekcje": None}, plan, [], materialy, okna, [{"plik": "w.png"}]))
+    assert dane["materialy"][-1] == {"numer": 2, "typ": "wycinek"}
+    assert dane["okna_tekstow"] == okna
+
+
+def klip_w_kolorze(sciezka, kolor, czas_s=2.0):
+    subprocess.run(
+        [
+            "ffmpeg", "-nostdin", "-y", "-loglevel", "error",
+            "-f", "lavfi", "-i", f"color=c={kolor}:s=270x480:r=30:d={czas_s}",
+            "-pix_fmt", "yuv420p", str(sciezka),
+        ],
+        check=True, stdin=subprocess.DEVNULL,
+    )
+
+
+def test_arkusz_krytyka_wynik_nad_wzorem(tmp_path):
+    wynik = tmp_path / "wynik.mp4"
+    wzor = tmp_path / "wzor.mp4"
+    klip_w_kolorze(wynik, "red")
+    klip_w_kolorze(wzor, "blue")
+
+    obraz = cv2.imread(str(rezyser.arkusz_krytyka(wynik, wzor, tmp_path / "arkusz.jpg")))
+
+    x = int(obraz.shape[1] * 2.5 / rezyser.KOLUMNY_ARKUSZA_KRYTYKA)
+    niebieski, _, czerwony = (int(v) for v in obraz[int(obraz.shape[0] * 0.25), x])
+    assert czerwony > 150 and niebieski < 100
+    niebieski, _, czerwony = (int(v) for v in obraz[int(obraz.shape[0] * 0.75), x])
+    assert niebieski > 150 and czerwony < 100
+    assert "górny wiersz" in rezyser.POLECENIE_KRYTYKA and "WYNIK" in rezyser.POLECENIE_KRYTYKA
+
+
+def test_opis_montazu_ma_numery_materialow_fragment_klipu_i_plansze():
+    materialy = [{"plik": "/p/a.jpg", "typ": "zdjecie"}, {"plik": "/p/k.mp4", "typ": "klip", "czas_s": 6.0}]
+    plan = {"liczba_klatek": 60, "fps": 30, "ujecia": [
+        {"material": "/p/a.jpg", "typ": "zdjecie", "klatka_od": 0, "liczba_klatek": 30},
+        {"material": "/p/k.mp4", "typ": "klip", "klatka_od": 30, "liczba_klatek": 30, "start_w_klipie_s": 1.5},
+    ]}
+
+    dane = json.loads(rezyser.opis_montazu(plan, 30, materialy, [{"plik": "/p/w.png"}], plansza_uzyta=True))
+
+    assert [u["material"] for u in dane["ujecia"]] == [0, 1]
+    assert dane["ujecia"][1]["od_s"] == 1.5
+    assert dane["ujecia"][1]["start_s"] == 1.0
+    assert dane["ujecia"][1]["plansza"] is True
+    assert dane["materialy"] == [
+        {"numer": 0, "typ": "zdjecie"}, {"numer": 1, "typ": "klip", "dlugosc_s": 6.0}, {"numer": 2, "typ": "wycinek"},
+    ]

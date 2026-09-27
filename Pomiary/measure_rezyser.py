@@ -1,8 +1,12 @@
+import argparse
 import json
+import multiprocessing
 import os
 import shutil
+import subprocess
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -14,21 +18,30 @@ sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 #   nigdy nie probuje wywolania bez klucza).
 # Przed pierwszym wywolaniem modelu drukowany jest szacunek kosztu jednego edytu
 #   z rezyser.koszt_usd na przewidywanych tokenach z planu czesci 11 (rezyser
-#   ok. 15000 wejscia/6000 wyjscia, krytyk ok. 8000/3000).
-# Sekcja A: na kazdym z 5 prawdziwych wzorow (dane/wzory/*.mp4) dwa montaze —
-#   automatyczny (bez --ai) i z AI (--ai) — na tej samej bibliotece i muzyce.
-#   Automat tez dostaje ocene krytyka (do porownania, mimo ze model ocenia
-#   material, ktory sam nie wybieral). Zapisywane: liczba ujec, uzyte materialy,
-#   liczba ostrzezen scenariusza, tokeny wejscia/wyjscia, koszt USD, czas zegara.
+#   ok. 15000 wejscia/6000 wyjscia, krytyk ok. 8000/3000) i szacunek calego pomiaru.
+# Sekcja A: na kazdym z 5 prawdziwych wzorow (dane/wzory/*.mp4) dwa montaze na tej
+#   samej bibliotece i muzyce:
+#   - "auto": montaz automatyczny z czesci 10 (render z --ai i --bez-rezysera, prog
+#     oceny 1), wiec krytyk tylko go ocenia, bez poprawki. Montaz jest ten sam co bez --ai;
+#   - "ai": rezyser i krytyk z jedna poprawka, jak w bocie (prog 7).
+#   Zapisywane: ocena krytyka (dla ai tez ocena przed poprawka), liczba ujec, uzyte
+#   materialy, liczba ostrzezen scenariusza, tokeny wejscia/wyjscia, koszt USD, czas zegara.
 #   Progi: scenariusz poprawny (bez przejscia na automat, tzn. podsumowanie["ai"]
 #   ma rezyser=true) na co najmniej 4 z 5 wzorow; koszt jednego edytu z AI ponizej
-#   1 USD.
+#   1 USD. Laczny koszt pomiaru (z ocenami automatu) w wynikach.
 # Sekcja C: dla kazdego wzoru outputs/porownanie_rezyser_<wzor>_auto.png i
 #   outputs/porownanie_rezyser_<wzor>_ai.png (Pomiary/arkusz.py, ta sama warstwa
 #   co czesci 4 do 9), do tego probny edit outputs/rezyser_0923.mp4 (kopia
 #   wyniku AI dla wzoru 0923, jesli byl w probce). Werdykt na arkuszach i probnym
 #   edicie wydaje wlasciciel, ocena krytyka to tylko dodatek.
-# Wyniki zapisywane do outputs/pomiar_rezyser.json po kazdym wzorze.
+# --procesy N: rendery (wzor x tryb, razem do 10) ida w N procesach naraz. Czekanie
+#   na model naklada sie wtedy na rendery innych wzorow. ffmpeg sam uzywa kilku rdzeni,
+#   a jeden render zajmuje okolo 1 GB pamieci, wiec na laptopie rozsadne N to 2 do 3.
+#   Czas zegara pojedynczego renderu jest wtedy zawyzony przez rownolegla prace. Procesy startuja
+#   metoda spawn na kazdym systemie, tak jak na Windows.
+# render.uruchom_ffmpeg dostaje limit 900 s na wywolanie (jak w pomiarze czesci 10),
+#   takze w procesach roboczych, bo podmiana stoi na poziomie modulu.
+# Wyniki zapisywane do outputs/pomiar_rezyser.json po kazdym renderze.
 
 KATALOG_REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KATALOG_REPO / "src"))
@@ -51,9 +64,11 @@ KATALOG_WZOROW = KATALOG_REPO / "dane" / "wzory"
 KATALOG_MUZYKI = KATALOG_REPO / "dane" / "muzyka"
 
 FPS = 30
-LIMIT_RENDERU_S = 1800
+LIMIT_FFMPEG_S = 900
+PROG_OCENY_AI = 7
 WZOR_PROBNEGO_EDITU = "0923"
 MODEL_AI = os.environ.get("MODEL_AI") or "anthropic/claude-opus-5.5"
+TRYBY = ("auto", "ai")
 
 WYNIKI_CALOSC: dict = {}
 
@@ -67,6 +82,21 @@ def zapisz_wyniki() -> None:
 def zapisz_sekcje(nazwa: str, dane) -> None:
     WYNIKI_CALOSC[nazwa] = dane
     zapisz_wyniki()
+
+
+def uruchom_ffmpeg_z_limitem(argumenty: list[str], katalog: Path | None = None) -> None:
+    try:
+        wynik = subprocess.run(
+            ["ffmpeg", "-y", "-nostdin", "-loglevel", "error", *argumenty],
+            stdin=subprocess.DEVNULL, capture_output=True, cwd=katalog, timeout=LIMIT_FFMPEG_S,
+        )
+    except subprocess.TimeoutExpired as blad:
+        raise RuntimeError(f"ffmpeg przekroczyl limit czasu {LIMIT_FFMPEG_S} s") from blad
+    if wynik.returncode != 0:
+        raise RuntimeError(f"ffmpeg zakonczyl sie kodem {wynik.returncode}: {wynik.stderr.decode('utf-8', errors='replace')}")
+
+
+render.uruchom_ffmpeg = uruchom_ffmpeg_z_limitem
 
 
 def znajdz_wzory() -> list[Path]:
@@ -147,19 +177,97 @@ def znajdz_nakladke() -> Path | None:
     return domyslna if domyslna.is_file() else None
 
 
-def zrenderuj_wariant(wzor_json: Path, katalog_projektu: Path, wyjscie: Path, muzyka, nakladka, plansza, znak, ai: bool) -> tuple[dict, dict]:
-    start = time.monotonic()
-    podsumowanie = render.renderuj(
-        wzor_json, katalog_projektu, None, wyjscie,
-        szerokosc=1080, wysokosc=1920, fps=FPS, limit_mb=200, muzyka=muzyka,
-        nakladka=nakladka, plansza=plansza, znak=znak,
-        ai=ai, model_ai=MODEL_AI, prog_oceny_ai=7,
-    )
-    czasy = {"zegar_s": round(time.monotonic() - start, 2)}
-    return podsumowanie, czasy
+def przygotuj_wzor(wzor_mp4: Path, katalog_tymczasowy: Path) -> tuple[Path, Path] | None:
+    # Krytyk szuka zrodlo.* obok wzor.json (jak w dane/wzory/<id>/ na serwerze), wiec wzor idzie
+    # do wlasnego katalogu razem z kopia analizy z outputs/wzor_<nazwa>.json.
+    nazwa = wzor_mp4.stem
+    wzor_json = KATALOG_OUTPUTS / f"wzor_{nazwa}.json"
+    if not wzor_json.is_file():
+        return None
+    katalog_wzoru = katalog_tymczasowy / f"wzor_{nazwa}"
+    katalog_wzoru.mkdir(parents=True, exist_ok=True)
+    zrodlo_lokalne = katalog_wzoru / f"zrodlo{wzor_mp4.suffix}"
+    if not zrodlo_lokalne.is_file():
+        try:
+            os.link(wzor_mp4, zrodlo_lokalne)
+        except OSError:
+            shutil.copy(wzor_mp4, zrodlo_lokalne)
+    wzor_json_lokalny = katalog_wzoru / "wzor.json"
+    shutil.copy(wzor_json, wzor_json_lokalny)
+    return wzor_json_lokalny, zrodlo_lokalne
 
 
-def sekcja_a_i_c() -> tuple[dict, dict]:
+def zrenderuj_zadanie(zadanie: dict) -> dict:
+    # Jeden render (wzor x tryb). Funkcja na poziomie modulu, bo przy --procesy idzie
+    # do ProcessPoolExecutor (na Windows proces roboczy importuje ten plik od nowa).
+    nazwa, tryb = zadanie["nazwa"], zadanie["tryb"]
+    katalog_projektu = Path(zadanie["katalog"]) / f"projekt_{nazwa}_{tryb}"
+    wyjscie = Path(zadanie["katalog"]) / f"wynik_{nazwa}_{tryb}.mp4"
+    wpis = {"wzor": nazwa, "tryb": tryb}
+    try:
+        zbuduj_katalog_materialow(katalog_projektu / "materialy")
+        zapisz_projekt_json(katalog_projektu)
+        start = time.monotonic()
+        podsumowanie = render.renderuj(
+            zadanie["wzor_json"], katalog_projektu, None, wyjscie,
+            szerokosc=1080, wysokosc=1920, fps=FPS, limit_mb=200, muzyka=KATALOG_MUZYKI,
+            nakladka=zadanie["nakladka"], plansza=zadanie["plansza"], znak=zadanie["znak"],
+            ai=True, model_ai=MODEL_AI,
+            bez_rezysera=tryb == "auto", prog_oceny_ai=1 if tryb == "auto" else PROG_OCENY_AI,
+        )
+        dane_ai = podsumowanie.get("ai") or {}
+        wpis.update({
+            "liczba_ujec": podsumowanie["liczba_ujec"],
+            "materialy_uzyte": podsumowanie["materialy_uzyte"],
+            "ostrzezenia_scenariusza": len(dane_ai.get("ostrzezenia") or []),
+            "ostrzezenia": dane_ai.get("ostrzezenia") or [],
+            "rezyser": dane_ai.get("rezyser"),
+            "ocena": dane_ai.get("ocena"),
+            "ocena_przed": dane_ai.get("ocena_przed"),
+            "poprawka": dane_ai.get("poprawka"),
+            "tokeny_wejscia": dane_ai.get("tokeny_wejscia"),
+            "tokeny_wyjscia": dane_ai.get("tokeny_wyjscia"),
+            "koszt_usd": dane_ai.get("koszt_usd"),
+            "powod_pominiecia": dane_ai.get("powod_pominiecia"),
+            "zegar_s": round(time.monotonic() - start, 2),
+        })
+
+        arkusz_cel = KATALOG_OUTPUTS / f"porownanie_rezyser_{nazwa}_{tryb}.png"
+        try:
+            arkusz.arkusz_porownawczy(zadanie["zrodlo"], wyjscie, arkusz_cel)
+            wpis["arkusz"] = arkusz_cel.name
+        except Exception as blad:
+            print(f"{nazwa} {tryb}: arkusz nie powstal: {blad}")
+
+        if tryb == "ai" and nazwa == WZOR_PROBNEGO_EDITU:
+            cel_probny = KATALOG_OUTPUTS / "rezyser_0923.mp4"
+            shutil.copy(wyjscie, cel_probny)
+            wpis["probny_edit"] = cel_probny.name
+    except Exception as blad:
+        wpis["blad"] = str(blad)
+        print(f"{nazwa} {tryb}: blad {blad}")
+    print(f"{nazwa} {tryb}: gotowe")
+    return wpis
+
+
+def zloz_wpisy(wyniki: list[dict]) -> tuple[list[dict], list[str]]:
+    wedlug_wzoru: dict[str, dict] = {}
+    pliki_c = []
+    for wpis in sorted(wyniki, key=lambda w: (w["wzor"], TRYBY.index(w["tryb"]))):
+        wpis = dict(wpis)
+        nazwa, tryb = wpis.pop("wzor"), wpis.pop("tryb")
+        wpis_wzoru = wedlug_wzoru.setdefault(nazwa, {"wzor": nazwa})
+        arkusz_nazwa = wpis.pop("arkusz", None)
+        if arkusz_nazwa:
+            wpis_wzoru.setdefault("arkusze", []).append(arkusz_nazwa)
+        probny = wpis.pop("probny_edit", None)
+        if probny:
+            pliki_c.append(probny)
+        wpis_wzoru[tryb] = wpis
+    return list(wedlug_wzoru.values()), pliki_c
+
+
+def sekcja_a_i_c(procesy: int) -> tuple[dict, dict]:
     pliki_wzorow = znajdz_wzory()
     if not pliki_wzorow:
         print("A/C pominiete: brak dane/wzory")
@@ -174,77 +282,48 @@ def sekcja_a_i_c() -> tuple[dict, dict]:
     plansza = znajdz_plansze()
     znak = znajdz_znak()
 
-    wpisy_a = []
-    wpisy_c = []
-
+    wyniki: list[dict] = []
     with TemporaryDirectory() as katalog_tymczasowy:
         katalog_tymczasowy = Path(katalog_tymczasowy)
+        zadania = []
         for wzor_mp4 in pliki_wzorow:
-            nazwa = wzor_mp4.stem
-            print(f"=== wzor {nazwa} ===")
-            wzor_json = KATALOG_OUTPUTS / f"wzor_{nazwa}.json"
-            if not wzor_json.is_file():
-                print(f"{nazwa}: brak {wzor_json.name}, pomijam (analiza spoza tego pomiaru)")
+            przygotowany = przygotuj_wzor(wzor_mp4, katalog_tymczasowy)
+            if przygotowany is None:
+                print(f"{wzor_mp4.stem}: brak outputs/wzor_{wzor_mp4.stem}.json, pomijam (analiza spoza tego pomiaru)")
                 continue
+            wzor_json, zrodlo = przygotowany
+            for tryb in TRYBY:
+                zadania.append({
+                    "nazwa": wzor_mp4.stem, "tryb": tryb, "wzor_json": wzor_json, "zrodlo": zrodlo,
+                    "katalog": katalog_tymczasowy, "nakladka": nakladka, "plansza": plansza, "znak": znak,
+                })
 
-            katalog_wzoru_zrodlo = katalog_tymczasowy / f"wzor_{nazwa}"
-            katalog_wzoru_zrodlo.mkdir(parents=True, exist_ok=True)
-            zrodlo_lokalne = katalog_wzoru_zrodlo / f"zrodlo{wzor_mp4.suffix}"
-            if not zrodlo_lokalne.is_file():
-                try:
-                    os.link(wzor_mp4, zrodlo_lokalne)
-                except OSError:
-                    shutil.copy(wzor_mp4, zrodlo_lokalne)
-            wzor_json_lokalny = katalog_wzoru_zrodlo / "wzor.json"
-            shutil.copy(wzor_json, wzor_json_lokalny)
+        def zapisz_postep() -> None:
+            wpisy, _ = zloz_wpisy(wyniki)
+            zapisz_sekcje("A", {"w_toku": True, "wzory": wpisy})
 
-            wpis_wzoru = {"wzor": nazwa}
-            try:
-                for tryb, ai in (("auto", False), ("ai", True)):
-                    katalog_projektu = katalog_tymczasowy / f"projekt_{nazwa}_{tryb}"
-                    zbuduj_katalog_materialow(katalog_projektu / "materialy")
-                    zapisz_projekt_json(katalog_projektu)
-                    wyjscie = katalog_tymczasowy / f"wynik_{nazwa}_{tryb}.mp4"
+        print(f"Renderow: {len(zadania)}, procesow naraz: {procesy}")
+        if procesy > 1:
+            with ProcessPoolExecutor(max_workers=procesy, mp_context=multiprocessing.get_context("spawn")) as wykonawca:
+                przyszle = [wykonawca.submit(zrenderuj_zadanie, zadanie) for zadanie in zadania]
+                for przyszly in as_completed(przyszle):
+                    wyniki.append(przyszly.result())
+                    zapisz_postep()
+        else:
+            for zadanie in zadania:
+                wyniki.append(zrenderuj_zadanie(zadanie))
+                zapisz_postep()
 
-                    podsumowanie, czasy = zrenderuj_wariant(
-                        wzor_json_lokalny, katalog_projektu, wyjscie, KATALOG_MUZYKI, nakladka, plansza, znak, ai,
-                    )
-                    dane_ai = podsumowanie.get("ai") or {}
-                    wpis_wzoru[tryb] = {
-                        "liczba_ujec": podsumowanie["liczba_ujec"],
-                        "materialy_uzyte": podsumowanie["materialy_uzyte"],
-                        "ostrzezenia_scenariusza": len(dane_ai.get("ostrzezenia") or []),
-                        "rezyser": dane_ai.get("rezyser"),
-                        "ocena": dane_ai.get("ocena"),
-                        "tokeny_wejscia": dane_ai.get("tokeny_wejscia"),
-                        "tokeny_wyjscia": dane_ai.get("tokeny_wyjscia"),
-                        "koszt_usd": dane_ai.get("koszt_usd"),
-                        "powod_pominiecia": dane_ai.get("powod_pominiecia"),
-                        "zegar_s": czasy["zegar_s"],
-                    }
-
-                    arkusz_cel = KATALOG_OUTPUTS / f"porownanie_rezyser_{nazwa}_{tryb}.png"
-                    try:
-                        arkusz.arkusz_porownawczy(zrodlo_lokalne, wyjscie, arkusz_cel)
-                        wpis_wzoru.setdefault("arkusze", []).append(arkusz_cel.name)
-                    except Exception as blad:
-                        print(f"{nazwa} {tryb}: arkusz nie powstal: {blad}")
-
-                    if ai and nazwa == WZOR_PROBNEGO_EDITU:
-                        cel_probny = KATALOG_OUTPUTS / "rezyser_0923.mp4"
-                        shutil.copy(wyjscie, cel_probny)
-                        wpisy_c.append(cel_probny.name)
-            except Exception as blad:
-                wpis_wzoru["blad"] = str(blad)
-                print(f"{nazwa}: blad {blad}")
-
-            wpisy_a.append(wpis_wzoru)
-            zapisz_sekcje("A", {"w_toku": True, "wzory": wpisy_a})
-
-    return {"wzory": wpisy_a}, {"pliki": wpisy_c}
+    wpisy, pliki_c = zloz_wpisy(wyniki)
+    return {"wzory": wpisy}, {"pliki": pliki_c}
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--procesy", type=int, default=1, help="ile renderow naraz (domyslnie 1, po kolei)")
+    argumenty = parser.parse_args()
+    procesy = max(1, argumenty.procesy)
+
     if not os.environ.get("OPENROUTER_API_KEY"):
         print("Pomiar pominiety: brak OPENROUTER_API_KEY (pomiar wydaje prawdziwe pieniadze)")
         zapisz_sekcje("wynik", {"pominiety": "brak klucza"})
@@ -253,21 +332,28 @@ def main() -> int:
     szacunek_rezysera = rezyser.koszt_usd(MODEL_AI, 15000, 6000)
     szacunek_krytyka = rezyser.koszt_usd(MODEL_AI, 8000, 3000)
     print(f"Szacunek kosztu: rezyser {szacunek_rezysera} USD, krytyk {szacunek_krytyka} USD za edit (jedna poprawka podwaja krytyka)")
+    if szacunek_rezysera is not None and szacunek_krytyka is not None:
+        na_wzor = szacunek_rezysera + 3 * szacunek_krytyka
+        print(f"Szacunek calego pomiaru: najwyzej {round(na_wzor * len(znajdz_wzory()), 2)} USD (na wzor: rezyser, 2 oceny AI, ocena automatu)")
 
-    wyniki_a, wyniki_c = sekcja_a_i_c()
+    wyniki_a, wyniki_c = sekcja_a_i_c(procesy)
     zapisz_sekcje("A", wyniki_a)
     zapisz_sekcje("C", wyniki_c)
 
     if not wyniki_a.get("pominieta"):
         wzory = wyniki_a.get("wzory", [])
         poprawne = sum(1 for w in wzory if (w.get("ai") or {}).get("rezyser"))
-        koszty = [w["ai"]["koszt_usd"] for w in wzory if w.get("ai", {}).get("koszt_usd") is not None]
+        koszty_ai = [w["ai"]["koszt_usd"] for w in wzory if (w.get("ai") or {}).get("koszt_usd") is not None]
+        koszty_wszystkie = [
+            w[tryb]["koszt_usd"] for w in wzory for tryb in TRYBY if (w.get(tryb) or {}).get("koszt_usd") is not None
+        ]
         progi = {
             "scenariusz_poprawny_co_najmniej_4_z_5": poprawne >= 4,
-            "koszt_edytu_ai_ponizej_1_usd": all(k < 1.0 for k in koszty) if koszty else None,
+            "koszt_edytu_ai_ponizej_1_usd": all(k < 1.0 for k in koszty_ai) if koszty_ai else None,
         }
         zapisz_sekcje("progi", progi)
-        print(f"Progi: {progi}")
+        zapisz_sekcje("koszt_pomiaru_usd", round(sum(koszty_wszystkie), 4))
+        print(f"Progi: {progi}, koszt pomiaru: {round(sum(koszty_wszystkie), 4)} USD")
 
     print("Pomiar zakonczony.")
     return 0
