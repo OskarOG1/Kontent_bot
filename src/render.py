@@ -9,6 +9,7 @@ import tempfile
 import time
 from pathlib import Path
 
+import httpx
 import numpy
 import pillow_heif
 from PIL import Image, ImageOps
@@ -17,6 +18,7 @@ import analyze
 import kolor
 import magazyn
 import music
+import rezyser
 import tekst
 
 pillow_heif.register_heif_opener()
@@ -694,6 +696,288 @@ def rozloz_tempo(plan: dict, wzor: dict, uderzenia: list[int], kawalki: list[dic
     }
 
 
+def plan_ze_scenariusza(
+    scenariusz, plan: dict, kawalki_wedlug_numeru: dict, uderzenia: list[int], fps: int, wzor: dict,
+) -> tuple[dict, list[str]]:
+    liczba_klatek = plan["liczba_klatek"]
+    plan_ujecia = plan["ujecia"]
+    sekcje = wzor.get("sekcje")
+
+    twarde = {0, liczba_klatek}
+    if sekcje and sekcje.get("drop_ujecie") is not None:
+        twarde.add(koniec_haka(plan, sekcje))
+    if plan_ujecia:
+        twarde.add(plan_ujecia[-1]["klatka_od"])
+    twarde = sorted(twarde)
+
+    def numer_wzoru_dla(klatka: int) -> int:
+        wynik = 0
+        for ujecie_wzoru in plan_ujecia:
+            if ujecie_wzoru["klatka_od"] <= klatka:
+                wynik = ujecie_wzoru["numer_wzoru"]
+            else:
+                break
+        return wynik
+
+    def nastepna_twarda(klatka: int) -> int:
+        for wartosc in twarde:
+            if wartosc > klatka:
+                return wartosc
+        return liczba_klatek
+
+    def dlugosc_z_uderzen(klatka: int, liczba_uderzen: int) -> int:
+        if uderzenia:
+            start_pozycja = None
+            for pozycja, k in enumerate(uderzenia):
+                if k >= klatka:
+                    start_pozycja = pozycja
+                    break
+            if start_pozycja is not None and start_pozycja + liczba_uderzen < len(uderzenia):
+                return max(1, uderzenia[start_pozycja + liczba_uderzen] - klatka)
+        srednia_klatek_uderzenia = liczba_klatek / len(uderzenia) if uderzenia else fps
+        return max(1, round(liczba_uderzen * srednia_klatek_uderzenia))
+
+    ostrzezenia = []
+    ujecia = []
+    klatka = 0
+
+    for pozycja, ujecie_scenariusza in enumerate(scenariusz.ujecia):
+        if klatka >= liczba_klatek:
+            break
+        kawalek = kawalki_wedlug_numeru.get(ujecie_scenariusza.material)
+        if kawalek is None:
+            ostrzezenia.append(f"ujęcie {pozycja}: nieznany numer materiału {ujecie_scenariusza.material}, pominięte")
+            continue
+
+        typ = kawalek["typ"]
+        if typ != "klip":
+            if ujecie_scenariusza.od_s != 0:
+                ostrzezenia.append(f"ujęcie {pozycja}: zdjęcie nie ma fragmentu, od_s wymuszone na 0")
+            od_s = 0.0
+        else:
+            czas_klipu_s = float(kawalek["czas_s"])
+            od_s = ujecie_scenariusza.od_s
+            if od_s < 0 or od_s >= czas_klipu_s:
+                ostrzezenia.append(f"ujęcie {pozycja}: od_s poza zakresem klipu, przycięte")
+                od_s = max(0.0, min(od_s, max(0.0, czas_klipu_s - 1.0 / fps)))
+
+        granica = nastepna_twarda(klatka)
+        dlugosc = dlugosc_z_uderzen(klatka, ujecie_scenariusza.uderzenia)
+        koniec = min(klatka + dlugosc, granica, liczba_klatek)
+        if typ == "klip":
+            maks_klatek_z_klipu = max(1, round((czas_klipu_s - od_s) * fps))
+            koniec = min(koniec, klatka + maks_klatek_z_klipu)
+        dlugosc = koniec - klatka
+        if dlugosc <= 0:
+            continue
+
+        ujecia.append({
+            "material": str(kawalek["plik"]),
+            "typ": typ,
+            "klatka_od": klatka,
+            "liczba_klatek": dlugosc,
+            "start_w_klipie_s": od_s if typ == "klip" else 0.0,
+            "numer_wzoru": numer_wzoru_dla(klatka),
+            "efekt_scenariusza": {
+                "uderzenie": ujecie_scenariusza.uderzenie,
+                "blysk_s": ujecie_scenariusza.blysk_s,
+                "wstrzas": ujecie_scenariusza.wstrzas,
+                "przejscie": ujecie_scenariusza.przejscie,
+            },
+            "kolaz_scenariusza": list(ujecie_scenariusza.kolaz),
+        })
+        klatka = koniec
+
+    if klatka < liczba_klatek:
+        for ujecie_wzoru in plan_ujecia:
+            koniec_ujecia = ujecie_wzoru["klatka_od"] + ujecie_wzoru["liczba_klatek"]
+            if koniec_ujecia <= klatka:
+                continue
+            nowe = dict(ujecie_wzoru)
+            if nowe["klatka_od"] < klatka:
+                przesuniecie = klatka - nowe["klatka_od"]
+                if nowe["typ"] == "klip":
+                    nowe["start_w_klipie_s"] = nowe.get("start_w_klipie_s", 0.0) + przesuniecie / fps
+                nowe["klatka_od"] = klatka
+                nowe["liczba_klatek"] -= przesuniecie
+            if nowe["liczba_klatek"] > 0:
+                nowe.setdefault("efekt_scenariusza", None)
+                nowe.setdefault("kolaz_scenariusza", None)
+                ujecia.append(nowe)
+            klatka = koniec_ujecia
+
+    plan_wynikowy = {
+        "fps": fps,
+        "start_audio_s": plan["start_audio_s"],
+        "liczba_klatek": liczba_klatek,
+        "ujecia": ujecia,
+    }
+    return plan_wynikowy, ostrzezenia
+
+
+def zastosuj_poprawki(plan: dict, poprawki: list, kawalki_wedlug_numeru: dict, fps: int) -> dict:
+    ujecia = [dict(u) for u in plan["ujecia"]]
+    for poprawka in poprawki:
+        indeks = poprawka.ujecie
+        if not (0 <= indeks < len(ujecia)):
+            continue
+        zmiana = poprawka.zmiana
+        kawalek = kawalki_wedlug_numeru.get(zmiana.material)
+        if kawalek is None:
+            continue
+        oryginal = ujecia[indeks]
+        typ = kawalek["typ"]
+        if typ == "klip":
+            czas_klipu_s = float(kawalek["czas_s"])
+            start_w_klipie_s = max(0.0, min(zmiana.od_s, max(0.0, czas_klipu_s - 1.0 / fps)))
+            maks_klatek = max(1, round((czas_klipu_s - start_w_klipie_s) * fps))
+            liczba_klatek = min(oryginal["liczba_klatek"], maks_klatek)
+        else:
+            start_w_klipie_s = 0.0
+            liczba_klatek = oryginal["liczba_klatek"]
+        ujecia[indeks] = {
+            "material": str(kawalek["plik"]),
+            "typ": typ,
+            "klatka_od": oryginal["klatka_od"],
+            "liczba_klatek": liczba_klatek,
+            "start_w_klipie_s": start_w_klipie_s,
+            "numer_wzoru": oryginal["numer_wzoru"],
+            "efekt_scenariusza": {
+                "uderzenie": zmiana.uderzenie, "blysk_s": zmiana.blysk_s,
+                "wstrzas": zmiana.wstrzas, "przejscie": zmiana.przejscie,
+            },
+            "kolaz_scenariusza": list(zmiana.kolaz),
+        }
+    return {"fps": plan["fps"], "start_audio_s": plan["start_audio_s"], "liczba_klatek": plan["liczba_klatek"], "ujecia": ujecia}
+
+
+def plik_zrodlowy_wzoru(wzor_json: Path) -> Path | None:
+    kandydaci = sorted(Path(wzor_json).parent.glob("zrodlo.*"))
+    return kandydaci[0] if kandydaci else None
+
+
+def zapisz_scenariusz(katalog_projektu: Path, wzor_id: str, wariant: int, scenariusz, ostrzezenia: list[str]) -> None:
+    sciezka = Path(katalog_projektu) / f"scenariusz_{wzor_id}_{wariant}.json"
+    dane = {"scenariusz": scenariusz.model_dump(), "ostrzezenia": ostrzezenia}
+    sciezka.write_text(json.dumps(dane, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def ocen_montaz(klient, model, wzor_json: Path, plan: dict, wyjscie: Path, katalog_pracy: Path) -> tuple:
+    zrodlo_wzoru = plik_zrodlowy_wzoru(wzor_json)
+    if zrodlo_wzoru is None:
+        return None, rezyser.zuzycie(powod="brak źródła wzoru do arkusza krytyka")
+    arkusz = rezyser.arkusz_krytyka(wyjscie, zrodlo_wzoru, Path(katalog_pracy) / "arkusz_krytyka.jpg")
+    opis = rezyser.opis_montazu(plan, plan["fps"])
+    tresc = {"obrazy": [arkusz], "tekst": rezyser.POLECENIE_KRYTYKA + "\n\n" + opis}
+    dane, zuzycie = rezyser.wywolaj_model(klient, model, tresc, rezyser.schemat_oceny())
+    if dane is None:
+        return None, zuzycie
+    ocena = rezyser.zbuduj_ocene(dane)
+    if ocena is None:
+        return None, dict(zuzycie, powod="JSON niezgodny ze schematem")
+    return ocena, zuzycie
+
+
+def rezyseruj(
+    wzor: dict,
+    wzor_json: Path,
+    plan_auto: dict,
+    zwykle: list[dict],
+    wycinki: list[dict],
+    uderzenia_wyn: list[int],
+    fps: int,
+    katalog_projektu: Path,
+    katalog_pracy: Path,
+    wariant: int,
+    model_ai: str,
+    model_ai_zapas: str | None,
+    bez_rezysera: bool,
+    bez_krytyka: bool,
+    prog_oceny_ai: int,
+    klient_ai,
+    montuj,
+    wyjscie: Path,
+) -> tuple[dict, dict, dict]:
+    model = [model_ai, model_ai_zapas] if model_ai_zapas else model_ai
+    klient = klient_ai if klient_ai is not None else httpx.Client()
+
+    kawalki_wedlug_numeru = {i: m for i, m in enumerate(zwykle)}
+    wycinki_wedlug_numeru = {i: w for i, w in enumerate(wycinki)}
+
+    scenariusz = None
+    ostrzezenia = []
+    zuzycie_rezysera = rezyser.zuzycie(powod="reżyser wyłączony")
+    if not bez_rezysera:
+        sciezki_arkuszy = rezyser.arkusze_materialow(zwykle, wycinki, Path(katalog_pracy) / "arkusze_rezysera")
+        opis = rezyser.opis_wzoru(wzor, plan_auto, uderzenia_wyn, zwykle, None)
+        tresc = {"obrazy": sciezki_arkuszy, "tekst": rezyser.POLECENIE_REZYSERA + "\n\n" + opis}
+        dane, zuzycie_rezysera = rezyser.wywolaj_model(klient, model, tresc, rezyser.schemat_scenariusza())
+        if dane is not None:
+            scenariusz = rezyser.zbuduj_scenariusz(dane)
+            if scenariusz is None:
+                zuzycie_rezysera = dict(zuzycie_rezysera, powod="JSON niezgodny ze schematem")
+
+    rezyser_aktywny = scenariusz is not None
+    if rezyser_aktywny:
+        plan_1, ostrzezenia = plan_ze_scenariusza(scenariusz, plan_auto, kawalki_wedlug_numeru, uderzenia_wyn, fps, wzor)
+        zapisz_scenariusz(katalog_projektu, Path(wzor_json).parent.name, wariant, scenariusz, ostrzezenia)
+        wycinki_dla_montazu = wycinki_wedlug_numeru
+    else:
+        plan_1 = plan_auto
+        wycinki_dla_montazu = None
+
+    wynik_1 = montuj(plan_1, wycinki_dla_montazu, Path(katalog_pracy) / "montaz_ai_1", wyjscie)
+
+    ai_info = {
+        "model": model_ai,
+        "rezyser": rezyser_aktywny,
+        "ocena": None,
+        "ocena_przed": None,
+        "poprawka": False,
+        "ostrzezenia": ostrzezenia,
+        "tokeny_wejscia": zuzycie_rezysera.get("wejscie", 0),
+        "tokeny_wyjscia": zuzycie_rezysera.get("wyjscie", 0),
+        "koszt_usd": zuzycie_rezysera.get("koszt_usd"),
+        "powod_pominiecia": None if rezyser_aktywny else zuzycie_rezysera.get("powod"),
+    }
+
+    if bez_krytyka:
+        return plan_1, wynik_1, ai_info
+
+    ocena_1, zuzycie_krytyka_1 = ocen_montaz(klient, model, wzor_json, plan_1, wyjscie, katalog_pracy)
+    ai_info["tokeny_wejscia"] += zuzycie_krytyka_1.get("wejscie", 0)
+    ai_info["tokeny_wyjscia"] += zuzycie_krytyka_1.get("wyjscie", 0)
+    if zuzycie_krytyka_1.get("koszt_usd") is not None:
+        ai_info["koszt_usd"] = (ai_info["koszt_usd"] or 0.0) + zuzycie_krytyka_1["koszt_usd"]
+
+    if ocena_1 is None:
+        if not rezyser_aktywny and ai_info["powod_pominiecia"] is None:
+            ai_info["powod_pominiecia"] = zuzycie_krytyka_1.get("powod")
+        return plan_1, wynik_1, ai_info
+
+    ai_info["ocena"] = ocena_1.ocena
+    if ocena_1.ocena >= prog_oceny_ai or not ocena_1.poprawki:
+        return plan_1, wynik_1, ai_info
+
+    plan_2 = zastosuj_poprawki(plan_1, ocena_1.poprawki, kawalki_wedlug_numeru, fps)
+    wyjscie_2 = Path(wyjscie).with_name(Path(wyjscie).stem + "_ai_poprawka" + Path(wyjscie).suffix)
+    wynik_2 = montuj(plan_2, wycinki_wedlug_numeru, Path(katalog_pracy) / "montaz_ai_2", wyjscie_2)
+    ocena_2, zuzycie_krytyka_2 = ocen_montaz(klient, model, wzor_json, plan_2, wyjscie_2, katalog_pracy)
+    ai_info["tokeny_wejscia"] += zuzycie_krytyka_2.get("wejscie", 0)
+    ai_info["tokeny_wyjscia"] += zuzycie_krytyka_2.get("wyjscie", 0)
+    if zuzycie_krytyka_2.get("koszt_usd") is not None:
+        ai_info["koszt_usd"] = (ai_info["koszt_usd"] or 0.0) + zuzycie_krytyka_2["koszt_usd"]
+
+    ai_info["ocena_przed"] = ocena_1.ocena
+    if ocena_2 is not None and ocena_2.ocena >= ocena_1.ocena:
+        shutil.copyfile(wyjscie_2, wyjscie)
+        ai_info["ocena"] = ocena_2.ocena
+        ai_info["poprawka"] = True
+        return plan_2, wynik_2, ai_info
+
+    return plan_1, wynik_1, ai_info
+
+
 def czas_trwania(sciezka) -> float | None:
     wynik = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(sciezka)],
@@ -1265,6 +1549,173 @@ def przygotuj_teksty(
     return teksty_do_przebiegu, podsumowanie_tekstow
 
 
+def zmontuj(
+    plan: dict,
+    wzor: dict,
+    wycinki: list[dict],
+    wycinki_wedlug_numeru: dict | None,
+    sciezki_robocze: dict,
+    czasy_klipow: dict,
+    katalog_pracy: Path,
+    szerokosc: int,
+    wysokosc: int,
+    fps: int,
+    sila_koloru: float,
+    bez_dynamiki: bool,
+    uderzenia_wyn: list[int],
+    okna_slow: list,
+    utwor: Path | None,
+    limit_mb: float,
+    nakladka: Path | None,
+    znak: Path | None,
+    dlugosc_nakladki_krycie_s: float,
+    teksty_do_przebiegu,
+    warstwa_slow,
+    warstwa_pionowo,
+    plansza: Path | None,
+    wyjscie: Path,
+) -> dict:
+    katalog_pracy = Path(katalog_pracy)
+    katalog_pracy.mkdir(parents=True, exist_ok=True)
+
+    plansza_uzyta = plansza is not None and len(plan["ujecia"]) > 1
+    kolorystyka = wzor.get("kolorystyka")
+    uzyc_kolor = sila_koloru > 0 and kolorystyka is not None
+    sekcje = wzor.get("sekcje")
+    klatka_dropu = koniec_haka(plan, sekcje) if sekcje and sekcje.get("drop_ujecie") is not None else None
+    licznik_zdjec_montazu = 0
+    licznik_klipow = 0
+    wycinki_posortowane = sorted(wycinki, key=lambda material: material["message_id"]) if wycinki else []
+    indeks_puli_kolazu = 0
+    podsumowanie_kolazy = []
+
+    sciezki_segmentow = []
+    for indeks, ujecie in enumerate(plan["ujecia"]):
+        sciezka_segmentu = katalog_pracy / f"segment_{indeks:06d}.mp4"
+        ma_efekt_scenariusza = ujecie.get("efekt_scenariusza") is not None
+        if plansza_uzyta and indeks == len(plan["ujecia"]) - 1:
+            efekt = None if bez_dynamiki else efekt_ujecia(ujecie, -1, klatka_dropu, licznik_zdjec_montazu)
+            segment_planszy(
+                plansza, sciezka_segmentu, ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
+                przejscie=efekt["przejscie"] if efekt else "brak",
+            )
+        else:
+            lut_nazwa = None
+            if uzyc_kolor and ujecie["typ"] == "zdjecie" and ma_alfa_z_pil(Path(ujecie["material"])):
+                zrodlo = None
+            elif uzyc_kolor and ujecie["typ"] == "zdjecie":
+                zrodlo = statystyki_zdjecia(sciezki_robocze[ujecie["material"]], szerokosc=270, wysokosc=480)
+            elif uzyc_kolor:
+                zrodlo = statystyki_klipu(
+                    ujecie["material"], ujecie["start_w_klipie_s"], ujecie["liczba_klatek"] / fps,
+                    czasy_klipow[ujecie["material"]],
+                )
+            else:
+                zrodlo = None
+            if zrodlo is not None:
+                cel = kolor.cel_sekcji(kolorystyka, wzor.get("sekcje"), ujecie["numer_wzoru"])
+                lut = kolor.lut_transferu(zrodlo, cel, sila_koloru)
+                lut_nazwa = f"lut_{indeks:06d}.cube"
+                kolor.zapisz_cube(lut, katalog_pracy / lut_nazwa)
+            katalog_ffmpeg = katalog_pracy if lut_nazwa is not None else None
+            if not bez_dynamiki and ujecie["typ"] == "zdjecie" and klatka_dropu is not None and ujecie["klatka_od"] > klatka_dropu:
+                licznik_zdjec_montazu += 1
+            if ma_efekt_scenariusza:
+                efekt = dict(ujecie["efekt_scenariusza"])
+            elif bez_dynamiki:
+                efekt = None
+            else:
+                efekt = efekt_ujecia(ujecie, indeks, klatka_dropu, licznik_zdjec_montazu)
+            if efekt is not None and klatka_dropu is not None and ujecie["klatka_od"] == klatka_dropu:
+                efekt = dict(efekt, blysk_s=0.3, wstrzas=True)
+            if ujecie["typ"] == "zdjecie":
+                segment_zdjecia(
+                    sciezki_robocze[ujecie["material"]], sciezka_segmentu, indeks, ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
+                    lut_sciezka=lut_nazwa, katalog=katalog_ffmpeg,
+                    uderzenie=efekt["uderzenie"] if efekt else False,
+                    blysk_s=efekt["blysk_s"] if efekt else 0.0,
+                    wstrzas=efekt["wstrzas"] if efekt else False,
+                    przejscie=efekt["przejscie"] if efekt else "brak",
+                )
+            else:
+                licznik_klipow += 1
+                sciezka_kolazu = None
+                if ma_efekt_scenariusza:
+                    numery_kolazu = ujecie.get("kolaz_scenariusza") or []
+                    wybrane = [
+                        wycinki_wedlug_numeru[numer] for numer in numery_kolazu
+                        if wycinki_wedlug_numeru and numer in wycinki_wedlug_numeru
+                    ][:LICZBA_WYCINKOW_KOLAZU]
+                    if wybrane:
+                        uderzenia_lokalne = [
+                            k - ujecie["klatka_od"] for k in uderzenia_wyn
+                            if ujecie["klatka_od"] < k < ujecie["klatka_od"] + ujecie["liczba_klatek"]
+                        ]
+                        sciezka_kolazu = katalog_pracy / f"kolaz_{indeks:06d}.mov"
+                        przygotuj_kolaz(wybrane, uderzenia_lokalne, ujecie["liczba_klatek"], fps, szerokosc, wysokosc, sciezka_kolazu)
+                        podsumowanie_kolazy.append({"ujecie": indeks, "wycinki": [Path(w["plik"]).name for w in wybrane]})
+                elif not bez_dynamiki and wycinki_posortowane and kolaz_kwalifikuje(ujecie, licznik_klipow, klatka_dropu, okna_slow, fps):
+                    wybrane, indeks_puli_kolazu = wybierz_wycinki_kolazu(wycinki_posortowane, indeks_puli_kolazu)
+                    uderzenia_lokalne = [
+                        k - ujecie["klatka_od"] for k in uderzenia_wyn
+                        if ujecie["klatka_od"] < k < ujecie["klatka_od"] + ujecie["liczba_klatek"]
+                    ]
+                    sciezka_kolazu = katalog_pracy / f"kolaz_{indeks:06d}.mov"
+                    przygotuj_kolaz(wybrane, uderzenia_lokalne, ujecie["liczba_klatek"], fps, szerokosc, wysokosc, sciezka_kolazu)
+                    podsumowanie_kolazy.append({"ujecie": indeks, "wycinki": [Path(w["plik"]).name for w in wybrane]})
+                segment_klipu(
+                    ujecie["material"], sciezka_segmentu, ujecie["start_w_klipie_s"], ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
+                    lut_sciezka=lut_nazwa, katalog=katalog_ffmpeg,
+                    uderzenie=efekt["uderzenie"] if efekt else False,
+                    blysk_s=efekt["blysk_s"] if efekt else 0.0,
+                    wstrzas=efekt["wstrzas"] if efekt else False,
+                    przejscie=efekt["przejscie"] if efekt else "brak",
+                    kolaz=sciezka_kolazu,
+                )
+        sciezki_segmentow.append(sciezka_segmentu)
+
+    polaczone = katalog_pracy / "polaczone.mp4"
+    sklej_segmenty(sciezki_segmentow, polaczone)
+
+    tryb_nak = None
+    nakladka_lok = nakladka
+    nakladka_od_s = nakladka_do_s = None
+    if nakladka_lok is not None:
+        tryb_nak = tryb_nakladki(nakladka_lok)
+        nakladka_od_s, nakladka_do_s = okno_nakladki(
+            wzor, plan, plansza_uzyta, tryb=tryb_nak, dlugosc_krycie_s=dlugosc_nakladki_krycie_s,
+        )
+        if (nakladka_do_s - nakladka_od_s) * fps < 1:
+            nakladka_lok = None
+            tryb_nak = None
+            nakladka_od_s = nakladka_do_s = None
+
+    znak_do_s = okno_znaku(plan, plansza_uzyta) if znak is not None else None
+
+    przebieg_koncowy(
+        polaczone, utwor, plan["start_audio_s"], plan["liczba_klatek"], fps, wyjscie, limit_mb,
+        szerokosc=szerokosc, wysokosc=wysokosc,
+        nakladka=nakladka_lok, tryb_nakladki_wartosc=tryb_nak,
+        nakladka_od_s=nakladka_od_s, nakladka_do_s=nakladka_do_s,
+        znak=znak, znak_do_s=znak_do_s,
+        teksty=teksty_do_przebiegu,
+        slowa=warstwa_slow,
+        pionowo=warstwa_pionowo,
+    )
+    zweryfikuj_wynik(wyjscie, szerokosc, wysokosc, fps, plan["liczba_klatek"], limit_mb)
+
+    return {
+        "podsumowanie_kolazy": podsumowanie_kolazy,
+        "plansza_uzyta": plansza_uzyta,
+        "uzyc_kolor": uzyc_kolor,
+        "tryb_nakladki": tryb_nak,
+        "nakladka_od_s": nakladka_od_s,
+        "nakladka_do_s": nakladka_do_s,
+        "znak_do_s": znak_do_s,
+        "klatka_dropu": klatka_dropu,
+    }
+
+
 def renderuj(
     wzor_json: Path,
     katalog_projektu: Path,
@@ -1284,6 +1735,13 @@ def renderuj(
     wariant: int = 0,
     bez_dynamiki: bool = False,
     dlugosc_nakladki_krycie_s: float = DLUGOSC_NAKLADKI_KRYCIE_S,
+    ai: bool = False,
+    model_ai: str = "anthropic/claude-opus-5.5",
+    model_ai_zapas: str | None = None,
+    bez_rezysera: bool = False,
+    bez_krytyka: bool = False,
+    prog_oceny_ai: int = 7,
+    klient_ai=None,
 ) -> dict:
     czas_startu = time.time()
     wzor_json = Path(wzor_json).resolve()
@@ -1374,110 +1832,25 @@ def renderuj(
 
     sciezki_robocze = {str(material["plik"]): material["plik_roboczy"] for material in dobre if material["typ"] == "zdjecie"}
     czasy_klipow = {str(material["plik"]): material["czas_s"] for material in dobre if material["typ"] == "klip"}
-
-    plansza_uzyta = plansza is not None and len(plan["ujecia"]) > 1
-    kolorystyka = wzor.get("kolorystyka")
-    uzyc_kolor = sila_koloru > 0 and kolorystyka is not None
-    sekcje = wzor.get("sekcje")
-    klatka_dropu = koniec_haka(plan, sekcje) if sekcje and sekcje.get("drop_ujecie") is not None else None
-    licznik_zdjec_montazu = 0
-    licznik_klipow = 0
-    wycinki_posortowane = sorted(wycinki, key=lambda material: material["message_id"])
-    indeks_puli_kolazu = 0
     okna_slow = podsumowanie_slow.get("okna", []) if podsumowanie_slow else []
-    podsumowanie_kolazy = []
 
-    sciezki_segmentow = []
-    for indeks, ujecie in enumerate(plan["ujecia"]):
-        sciezka_segmentu = katalog_pracy / f"segment_{indeks:06d}.mp4"
-        if plansza_uzyta and indeks == len(plan["ujecia"]) - 1:
-            efekt = None if bez_dynamiki else efekt_ujecia(ujecie, -1, klatka_dropu, licznik_zdjec_montazu)
-            segment_planszy(
-                plansza, sciezka_segmentu, ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
-                przejscie=efekt["przejscie"] if efekt else "brak",
-            )
-        else:
-            lut_nazwa = None
-            if uzyc_kolor and ujecie["typ"] == "zdjecie" and ma_alfa_z_pil(Path(ujecie["material"])):
-                zrodlo = None
-            elif uzyc_kolor and ujecie["typ"] == "zdjecie":
-                zrodlo = statystyki_zdjecia(sciezki_robocze[ujecie["material"]], szerokosc=270, wysokosc=480)
-            elif uzyc_kolor:
-                zrodlo = statystyki_klipu(
-                    ujecie["material"], ujecie["start_w_klipie_s"], ujecie["liczba_klatek"] / fps,
-                    czasy_klipow[ujecie["material"]],
-                )
-            else:
-                zrodlo = None
-            if zrodlo is not None:
-                cel = kolor.cel_sekcji(kolorystyka, wzor.get("sekcje"), ujecie["numer_wzoru"])
-                lut = kolor.lut_transferu(zrodlo, cel, sila_koloru)
-                lut_nazwa = f"lut_{indeks:06d}.cube"
-                kolor.zapisz_cube(lut, katalog_pracy / lut_nazwa)
-            katalog_ffmpeg = katalog_pracy if lut_nazwa is not None else None
-            if not bez_dynamiki and ujecie["typ"] == "zdjecie" and klatka_dropu is not None and ujecie["klatka_od"] > klatka_dropu:
-                licznik_zdjec_montazu += 1
-            efekt = None if bez_dynamiki else efekt_ujecia(ujecie, indeks, klatka_dropu, licznik_zdjec_montazu)
-            if ujecie["typ"] == "zdjecie":
-                segment_zdjecia(
-                    sciezki_robocze[ujecie["material"]], sciezka_segmentu, indeks, ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
-                    lut_sciezka=lut_nazwa, katalog=katalog_ffmpeg,
-                    uderzenie=efekt["uderzenie"] if efekt else False,
-                    blysk_s=efekt["blysk_s"] if efekt else 0.0,
-                    wstrzas=efekt["wstrzas"] if efekt else False,
-                    przejscie=efekt["przejscie"] if efekt else "brak",
-                )
-            else:
-                licznik_klipow += 1
-                sciezka_kolazu = None
-                if not bez_dynamiki and wycinki_posortowane and kolaz_kwalifikuje(ujecie, licznik_klipow, klatka_dropu, okna_slow, fps):
-                    wybrane, indeks_puli_kolazu = wybierz_wycinki_kolazu(wycinki_posortowane, indeks_puli_kolazu)
-                    uderzenia_lokalne = [
-                        k - ujecie["klatka_od"] for k in uderzenia_wyn
-                        if ujecie["klatka_od"] < k < ujecie["klatka_od"] + ujecie["liczba_klatek"]
-                    ]
-                    sciezka_kolazu = katalog_pracy / f"kolaz_{indeks:06d}.mov"
-                    przygotuj_kolaz(wybrane, uderzenia_lokalne, ujecie["liczba_klatek"], fps, szerokosc, wysokosc, sciezka_kolazu)
-                    podsumowanie_kolazy.append({"ujecie": indeks, "wycinki": [Path(w["plik"]).name for w in wybrane]})
-                segment_klipu(
-                    ujecie["material"], sciezka_segmentu, ujecie["start_w_klipie_s"], ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
-                    lut_sciezka=lut_nazwa, katalog=katalog_ffmpeg,
-                    uderzenie=efekt["uderzenie"] if efekt else False,
-                    blysk_s=efekt["blysk_s"] if efekt else 0.0,
-                    wstrzas=efekt["wstrzas"] if efekt else False,
-                    przejscie=efekt["przejscie"] if efekt else "brak",
-                    kolaz=sciezka_kolazu,
-                )
-        sciezki_segmentow.append(sciezka_segmentu)
-
-    polaczone = katalog_pracy / "polaczone.mp4"
-    sklej_segmenty(sciezki_segmentow, polaczone)
-
-    tryb_nak = None
-    nakladka_od_s = nakladka_do_s = None
-    if nakladka is not None:
-        tryb_nak = tryb_nakladki(nakladka)
-        nakladka_od_s, nakladka_do_s = okno_nakladki(
-            wzor, plan, plansza_uzyta, tryb=tryb_nak, dlugosc_krycie_s=dlugosc_nakladki_krycie_s,
+    def wykonaj_montaz(plan_do_montazu, wycinki_wedlug_numeru, katalog_pracy_montazu, wyjscie_docelowe):
+        return zmontuj(
+            plan_do_montazu, wzor, wycinki, wycinki_wedlug_numeru, sciezki_robocze, czasy_klipow, katalog_pracy_montazu,
+            szerokosc, wysokosc, fps, sila_koloru, bez_dynamiki, uderzenia_wyn, okna_slow,
+            utwor, limit_mb, nakladka, znak, dlugosc_nakladki_krycie_s,
+            teksty_do_przebiegu, warstwa_slow, warstwa_pionowo, plansza, wyjscie_docelowe,
         )
-        if (nakladka_do_s - nakladka_od_s) * fps < 1:
-            nakladka = None
-            tryb_nak = None
-            nakladka_od_s = nakladka_do_s = None
 
-    znak_do_s = okno_znaku(plan, plansza_uzyta) if znak is not None else None
-
-    przebieg_koncowy(
-        polaczone, utwor, plan["start_audio_s"], plan["liczba_klatek"], fps, wyjscie, limit_mb,
-        szerokosc=szerokosc, wysokosc=wysokosc,
-        nakladka=nakladka, tryb_nakladki_wartosc=tryb_nak,
-        nakladka_od_s=nakladka_od_s, nakladka_do_s=nakladka_do_s,
-        znak=znak, znak_do_s=znak_do_s,
-        teksty=teksty_do_przebiegu,
-        slowa=warstwa_slow,
-        pionowo=warstwa_pionowo,
-    )
-    zweryfikuj_wynik(wyjscie, szerokosc, wysokosc, fps, plan["liczba_klatek"], limit_mb)
+    ai_info = None
+    if ai and not bez_dynamiki:
+        plan, wynik_montazu, ai_info = rezyseruj(
+            wzor, wzor_json, plan, zwykle, wycinki, uderzenia_wyn, fps,
+            katalog_projektu, katalog_pracy, wariant, model_ai, model_ai_zapas,
+            bez_rezysera, bez_krytyka, prog_oceny_ai, klient_ai, wykonaj_montaz, wyjscie,
+        )
+    else:
+        wynik_montazu = wykonaj_montaz(plan, None, katalog_pracy / "montaz", wyjscie)
 
     materialy_uzyte = len({u["material"] for u in plan["ujecia"]})
     rozmiar_mb = wyjscie.stat().st_size / (1024 * 1024)
@@ -1508,18 +1881,19 @@ def renderuj(
             "mnoznik": wybor.get("mnoznik") if wybor else 1.0,
         },
         "nakladka": (
-            {"plik": Path(nakladka).name, "tryb": tryb_nak, "od_s": nakladka_od_s, "do_s": nakladka_do_s}
-            if nakladka is not None else None
+            {"plik": Path(nakladka).name, "tryb": wynik_montazu["tryb_nakladki"], "od_s": wynik_montazu["nakladka_od_s"], "do_s": wynik_montazu["nakladka_do_s"]}
+            if nakladka is not None and wynik_montazu["tryb_nakladki"] is not None else None
         ),
-        "plansza": Path(plansza).name if plansza_uzyta else None,
+        "plansza": Path(plansza).name if wynik_montazu["plansza_uzyta"] else None,
         "znak": znak is not None,
         "drop_s": pozycja_dropu_w_planie(wzor, plan["ujecia"], fps),
-        "kolor": {"sila": sila_koloru, "sekcje": bool(wzor.get("sekcje"))} if uzyc_kolor else None,
+        "kolor": {"sila": sila_koloru, "sekcje": bool(wzor.get("sekcje"))} if wynik_montazu["uzyc_kolor"] else None,
         "teksty": podsumowanie_tekstow,
         "slowa": podsumowanie_slow,
         "pionowo": podsumowanie_pionowo,
         "dynamika": podsumowanie_dynamiki,
-        "kolaze": podsumowanie_kolazy,
+        "kolaze": wynik_montazu["podsumowanie_kolazy"],
+        "ai": ai_info,
     }
 
     sciezka_podsumowania = wyjscie.with_suffix(".json")
@@ -1550,6 +1924,12 @@ def glowna(argumenty: list[str] | None = None) -> int:
     parser.add_argument("--wariant", type=int, default=0)
     parser.add_argument("--bez-dynamiki", action="store_true")
     parser.add_argument("--dlugosc-nakladki-krycie", type=float, default=DLUGOSC_NAKLADKI_KRYCIE_S)
+    parser.add_argument("--ai", action="store_true")
+    parser.add_argument("--model-ai", default="anthropic/claude-opus-5.5")
+    parser.add_argument("--model-ai-zapas")
+    parser.add_argument("--bez-rezysera", action="store_true")
+    parser.add_argument("--bez-krytyka", action="store_true")
+    parser.add_argument("--prog-oceny-ai", type=int, default=7)
     ustalone = parser.parse_args(argumenty)
     try:
         renderuj(
@@ -1566,6 +1946,12 @@ def glowna(argumenty: list[str] | None = None) -> int:
             wariant=ustalone.wariant,
             bez_dynamiki=ustalone.bez_dynamiki,
             dlugosc_nakladki_krycie_s=ustalone.dlugosc_nakladki_krycie,
+            ai=ustalone.ai,
+            model_ai=ustalone.model_ai,
+            model_ai_zapas=ustalone.model_ai_zapas,
+            bez_rezysera=ustalone.bez_rezysera,
+            bez_krytyka=ustalone.bez_krytyka,
+            prog_oceny_ai=ustalone.prog_oceny_ai,
         )
     except Exception as blad:
         print(str(blad), file=sys.stderr)

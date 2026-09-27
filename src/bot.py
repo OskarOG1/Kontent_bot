@@ -208,6 +208,8 @@ async def renderuj_zadanie_w_tle(
         argumenty += ["--znak", str(znak)]
     if konf.openrouter_api_key and (konf.ai_rezyser or konf.ai_krytyk):
         argumenty += ["--ai", "--model-ai", konf.model_ai, "--prog-oceny-ai", str(konf.prog_oceny_ai)]
+        if konf.model_ai_zapas:
+            argumenty += ["--model-ai-zapas", konf.model_ai_zapas]
         if not konf.ai_rezyser:
             argumenty += ["--bez-rezysera"]
         if not konf.ai_krytyk:

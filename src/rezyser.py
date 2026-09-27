@@ -8,6 +8,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 LIMIT_TOKENOW_WYJSCIA = 16000
@@ -315,3 +316,182 @@ def opis_wzoru(wzor: dict, plan: dict, uderzenia: list[int], materialy: list[dic
         ],
     }
     return json.dumps(opis, ensure_ascii=False)
+
+
+PRZEJSCIA_DOZWOLONE = ("brak", "smuga", "najazd")
+BLYSKI_DOZWOLONE = (0.0, 0.1, 0.3)
+LICZBA_WYCINKOW_KOLAZU_SCENARIUSZA = 3
+
+
+class Ujecie(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    material: int
+    od_s: float = 0.0
+    uderzenia: int = Field(ge=1, le=8)
+    uderzenie: bool = False
+    blysk_s: float = 0.0
+    wstrzas: bool = False
+    przejscie: str = "brak"
+    kolaz: list[int] = Field(default_factory=list, max_length=LICZBA_WYCINKOW_KOLAZU_SCENARIUSZA)
+
+    @field_validator("przejscie")
+    @classmethod
+    def sprawdz_przejscie(cls, wartosc: str) -> str:
+        if wartosc not in PRZEJSCIA_DOZWOLONE:
+            raise ValueError("przejscie musi być brak, smuga albo najazd")
+        return wartosc
+
+    @field_validator("blysk_s")
+    @classmethod
+    def sprawdz_blysk(cls, wartosc: float) -> float:
+        if wartosc not in BLYSKI_DOZWOLONE:
+            raise ValueError("blysk_s musi być 0, 0.1 albo 0.3")
+        return wartosc
+
+
+class Scenariusz(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ujecia: list[Ujecie]
+    uzasadnienie: str = Field(default="", max_length=300)
+
+
+class Poprawka(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ujecie: int
+    problem: str
+    zmiana: Ujecie
+
+
+class Ocena(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ocena: int = Field(ge=1, le=10)
+    mocne: list[str] = Field(default_factory=list, max_length=3)
+    poprawki: list[Poprawka] = Field(default_factory=list)
+
+
+def zbuduj_scenariusz(dane: dict) -> "Scenariusz | None":
+    try:
+        return Scenariusz.model_validate(dane)
+    except ValidationError:
+        return None
+
+
+def zbuduj_ocene(dane: dict) -> "Ocena | None":
+    try:
+        return Ocena.model_validate(dane)
+    except ValidationError:
+        return None
+
+
+def schemat_scenariusza() -> dict:
+    return Scenariusz.model_json_schema()
+
+
+def schemat_oceny() -> dict:
+    return Ocena.model_json_schema()
+
+
+POLECENIE_REZYSERA = (
+    "Jesteś reżyserem montażu pionowych edytów 9:16 na TikToka dla marki czapek 1993 Supply. "
+    "Wzór ma stałą strukturę: hak (pierwsze sekundy, naturalne kolory, bez nakładki), drop "
+    "(od niego pełnoekranowa nakładka i mocny grading), montaż i plansza końcowa z produktem. "
+    "Z materiałów użytkownika ułóż scenariusz zgodny ze strukturą i rytmem wzoru opisanym w danych. "
+    "Nic z obrazu ani dźwięku wzoru nie trafia do wyniku, wzór pokazuje tylko strukturę i styl. "
+    "Zasady: zdjęcia trwają 1 do 2 uderzeń, klipy 4 do 7 uderzeń i pokazują najlepszy fragment akcji "
+    "(wybierz od_s tak, żeby złapać ruch albo emocję, nie pierwszą sekundę z automatu), najmocniejszy "
+    "materiał otwiera hak i stoi na dropie, kolaże (pole kolaz) stawiaj na klipach w tle montażu. "
+    "Zwróć wyłącznie JSON zgodny z podanym schematem: listę ujęć w kolejności odtwarzania i krótkie "
+    "uzasadnienie wyboru."
+)
+
+KOMORKA_ARKUSZA_KRYTYKA = (108, 192)
+KOLUMNY_ARKUSZA_KRYTYKA = 16
+KLATEK_NA_S_ARKUSZA_KRYTYKA = 2.0
+
+
+def czas_trwania_pliku(sciezka: Path) -> float:
+    wynik = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(sciezka)],
+        stdin=subprocess.DEVNULL, capture_output=True,
+    )
+    return float(wynik.stdout.decode("utf-8", errors="replace").strip())
+
+
+def klatki_o_stalej_czestosci(plik: Path, klatki_na_s: float, czas_pliku_s: float, kx: int, ky: int) -> list[np.ndarray]:
+    liczba_klatek = max(1, math.ceil(czas_pliku_s * klatki_na_s))
+    return klatki_klipu(plik, liczba_klatek, czas_pliku_s, kx, ky)
+
+
+def arkusz_krytyka(
+    wynik: Path, zrodlo_wzoru: Path, cel: Path,
+    klatki_na_s: float = KLATEK_NA_S_ARKUSZA_KRYTYKA, kolumny: int = KOLUMNY_ARKUSZA_KRYTYKA,
+    komorka: tuple[int, int] = KOMORKA_ARKUSZA_KRYTYKA,
+) -> Path:
+    kx, ky = komorka
+    czas_wynik = czas_trwania_pliku(wynik)
+    czas_wzoru = czas_trwania_pliku(zrodlo_wzoru)
+    n = max(1, math.ceil(max(czas_wynik, czas_wzoru) * klatki_na_s))
+
+    klatki_wyniku = klatki_o_stalej_czestosci(wynik, klatki_na_s, czas_wynik, kx, ky)
+    klatki_wzoru = klatki_o_stalej_czestosci(zrodlo_wzoru, klatki_na_s, czas_wzoru, kx, ky)
+
+    puste = np.zeros((ky, kx, 3), dtype=np.uint8)
+    while len(klatki_wyniku) < n:
+        klatki_wyniku.append(puste)
+    while len(klatki_wzoru) < n:
+        klatki_wzoru.append(puste)
+
+    wiersze_grup = math.ceil(n / kolumny)
+    grubosc_linii = 2
+    linia = np.full((grubosc_linii, kolumny * kx, 3), 230, dtype=np.uint8)
+
+    czesci = []
+    for grupa in range(wiersze_grup):
+        wycinek_wzoru = list(klatki_wzoru[grupa * kolumny:(grupa + 1) * kolumny])
+        wycinek_wyniku = list(klatki_wyniku[grupa * kolumny:(grupa + 1) * kolumny])
+        while len(wycinek_wzoru) < kolumny:
+            wycinek_wzoru.append(puste)
+        while len(wycinek_wyniku) < kolumny:
+            wycinek_wyniku.append(puste)
+        if grupa > 0:
+            czesci.append(linia)
+        czesci.append(np.hstack(wycinek_wzoru))
+        czesci.append(np.hstack(wycinek_wyniku))
+
+    siatka = np.vstack(czesci) if czesci else np.zeros((ky, kolumny * kx, 3), dtype=np.uint8)
+    siatka = ogranicz_bok(siatka, BOK_MAKSYMALNY_ARKUSZA)
+    zapisz_jpeg(siatka, cel)
+    return cel
+
+
+def opis_montazu(plan: dict, fps: int) -> str:
+    opis = {
+        "fps": fps,
+        "dlugosc_klatek": plan["liczba_klatek"],
+        "ujecia": [
+            {
+                "ujecie": i,
+                "od_s": round(u["klatka_od"] / fps, 3),
+                "do_s": round((u["klatka_od"] + u["liczba_klatek"]) / fps, 3),
+                "typ": u["typ"],
+                "efekt": u.get("efekt_scenariusza"),
+            }
+            for i, u in enumerate(plan.get("ujecia", []))
+        ],
+    }
+    return json.dumps(opis, ensure_ascii=False)
+
+
+POLECENIE_KRYTYKA = (
+    "Jesteś krytykiem gotowego edytu 9:16 na TikToka dla marki czapek 1993 Supply. Dostajesz arkusz "
+    "klatek wyniku nad arkuszem wzoru (ta sama skala czasu) oraz listę ujęć wyniku z czasami, efektami "
+    "i numerami materiałów. Wzór pokazuje tylko strukturę i styl, jego obraz i dźwięk nie trafiają do "
+    "wyniku, więc nie oceniaj podobieństwa treści, tylko rytm, dynamikę i jakość wyboru materiałów. "
+    "Oceń wynik w skali 1 do 10, wypisz do 3 mocnych stron i listę poprawek (najwyżej po jednej na "
+    "problem): numer ujęcia do zmiany, opis problemu i nowe ujęcie zgodne ze schematem Ujecie. "
+    "Zwróć wyłącznie JSON zgodny z podanym schematem."
+)
