@@ -290,7 +290,22 @@ def podsumowanie_renderu(dane: dict) -> str:
     linia_pionowo = linia_pionowego_pominietego(dane.get("pionowo"))
     if linia_pionowo:
         linie.append(linia_pionowo)
+    linia_ai_wartosc = linia_ai(dane.get("ai"))
+    if linia_ai_wartosc:
+        linie.append(linia_ai_wartosc)
     return "\n".join(linie)
+
+
+def linia_ai(dane_ai: dict | None) -> str | None:
+    if not dane_ai:
+        return None
+    if dane_ai.get("rezyser"):
+        if dane_ai.get("ocena") is not None:
+            sufiks = " (po poprawce)" if dane_ai.get("poprawka") else ""
+            return f"Scenariusz AI, ocena {dane_ai['ocena']}/10{sufiks}."
+        return "Scenariusz AI."
+    powod = dane_ai.get("powod_pominiecia") or "nieznany powód"
+    return f"Scenariusz automatyczny: {powod}."
 
 
 def status_projektu(projekt_id: str, liczba_materialow: int, liczba_linii: int) -> str:
@@ -307,3 +322,9 @@ def status_muzyki(liczba_utworow: int) -> str:
 
 def status_znaku(ma_znak: bool) -> str:
     return f"Znak wodny: {'tak' if ma_znak else 'nie'}."
+
+
+def status_ai(klucz: str | None, model: str) -> str:
+    if not klucz:
+        return "AI: wyłączone (brak klucza)."
+    return f"AI: włączone ({model})."

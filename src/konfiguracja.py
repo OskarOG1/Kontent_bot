@@ -20,6 +20,12 @@ class Konfiguracja:
     styl_tekstu: str = "szeryf"
     pozycja_tekstu: str = "dol"
     dlugosc_nakladki_krycie_s: float = 2.5
+    openrouter_api_key: str | None = None
+    model_ai: str = "anthropic/claude-opus-5.5"
+    model_ai_zapas: str | None = None
+    ai_rezyser: bool = True
+    ai_krytyk: bool = True
+    prog_oceny_ai: int = 7
 
 
 def wczytaj(srodowisko: Mapping[str, str] | None = None) -> Konfiguracja:
@@ -70,6 +76,30 @@ def wczytaj(srodowisko: Mapping[str, str] | None = None) -> Konfiguracja:
     if dlugosc_nakladki_krycie_s < 0:
         raise ValueError("DLUGOSC_NAKLADKI_KRYCIE_S")
 
+    openrouter_api_key = srodowisko.get("OPENROUTER_API_KEY") or None
+    model_ai = srodowisko.get("MODEL_AI") or "anthropic/claude-opus-5.5"
+    model_ai_zapas = srodowisko.get("MODEL_AI_ZAPAS") or None
+
+    def wczytaj_flage(nazwa: str, domyslnie: bool) -> bool:
+        surowa = srodowisko.get(nazwa)
+        if surowa is None or surowa == "":
+            return domyslnie
+        if surowa == "tak":
+            return True
+        if surowa == "nie":
+            return False
+        raise ValueError(nazwa)
+
+    ai_rezyser = wczytaj_flage("AI_REZYSER", True)
+    ai_krytyk = wczytaj_flage("AI_KRYTYK", True)
+
+    try:
+        prog_oceny_ai = int(srodowisko.get("PROG_OCENY_AI", 7))
+    except ValueError:
+        raise ValueError("PROG_OCENY_AI") from None
+    if not 1 <= prog_oceny_ai <= 10:
+        raise ValueError("PROG_OCENY_AI")
+
     return Konfiguracja(
         token=token,
         wlasciciel_id=wlasciciel_id,
@@ -81,6 +111,12 @@ def wczytaj(srodowisko: Mapping[str, str] | None = None) -> Konfiguracja:
         styl_tekstu=styl_tekstu,
         pozycja_tekstu=pozycja_tekstu,
         dlugosc_nakladki_krycie_s=dlugosc_nakladki_krycie_s,
+        openrouter_api_key=openrouter_api_key,
+        model_ai=model_ai,
+        model_ai_zapas=model_ai_zapas,
+        ai_rezyser=ai_rezyser,
+        ai_krytyk=ai_krytyk,
+        prog_oceny_ai=prog_oceny_ai,
     )
 
 

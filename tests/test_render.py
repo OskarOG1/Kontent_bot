@@ -9,8 +9,10 @@ from PIL import Image, ImageOps
 
 import analyze
 import generuj
+import komunikaty
 import kolor
 import render
+import rezyser
 import tekst
 
 
@@ -1093,3 +1095,344 @@ def test_renderuj_bez_linii_tekstu_nie_zmienia_przebiegu_koncowego(tmp_path, mon
     ostatnie_bez = znormalizuj(polecenia_bez[-1], projekt_bez, tmp_path / "bez.mp4")
     ostatnie_pusty = znormalizuj(polecenia_pusty[-1], projekt_pusty, tmp_path / "pusty.mp4")
     assert ostatnie_bez == ostatnie_pusty
+
+
+def plan_wzorca_testowego(liczba_klatek, granice, fps=10, sekcje=None):
+    ujecia = []
+    for indeks, klatka_od in enumerate(granice):
+        koniec = granice[indeks + 1] if indeks + 1 < len(granice) else liczba_klatek
+        ujecia.append({
+            "material": f"wzor_{indeks}", "typ": "zdjecie",
+            "klatka_od": klatka_od, "liczba_klatek": koniec - klatka_od, "numer_wzoru": indeks,
+        })
+    return {"fps": fps, "start_audio_s": 0.0, "liczba_klatek": liczba_klatek, "ujecia": ujecia}
+
+
+def ujecie_scenariusza(material, uderzenia, od_s=0.0, kolaz=None, **kwargs):
+    return rezyser.Ujecie(material=material, uderzenia=uderzenia, od_s=od_s, kolaz=kolaz or [], **kwargs)
+
+
+def test_plan_ze_scenariusza_dlugosci_zgodne_z_uderzeniami():
+    uderzenia = list(range(0, 205, 5))
+    plan = plan_wzorca_testowego(200, [0], fps=10)
+    kawalki = {
+        0: {"plik": "z.jpg", "typ": "zdjecie"},
+        1: {"plik": "k.mp4", "typ": "klip", "czas_s": 10.0},
+    }
+    scenariusz = rezyser.Scenariusz(ujecia=[
+        ujecie_scenariusza(0, 1), ujecie_scenariusza(0, 1), ujecie_scenariusza(0, 1),
+        ujecie_scenariusza(1, 5, od_s=2.0),
+    ])
+
+    wynik, ostrzezenia = render.plan_ze_scenariusza(scenariusz, plan, kawalki, uderzenia, 10, {"sekcje": None})
+
+    assert ostrzezenia == []
+    u = wynik["ujecia"]
+    assert [x["klatka_od"] for x in u[:4]] == [0, 5, 10, 15]
+    assert [x["liczba_klatek"] for x in u[:3]] == [5, 5, 5]
+    assert u[3]["typ"] == "klip"
+    assert u[3]["start_w_klipie_s"] == 2.0
+    assert u[3]["liczba_klatek"] == 25
+
+
+def test_plan_ze_scenariusza_tnie_na_dropie():
+    plan = plan_wzorca_testowego(100, [0, 50], fps=10, sekcje={"drop_ujecie": 1})
+    wzor = {"sekcje": {"drop_ujecie": 1}}
+    kawalki = {0: {"plik": "z.jpg", "typ": "zdjecie"}}
+    scenariusz = rezyser.Scenariusz(ujecia=[ujecie_scenariusza(0, 8)])
+
+    wynik, ostrzezenia = render.plan_ze_scenariusza(scenariusz, plan, kawalki, [], 10, wzor)
+
+    u = wynik["ujecia"]
+    assert u[0]["klatka_od"] == 0
+    assert u[0]["liczba_klatek"] == 50
+    assert u[1]["klatka_od"] == 50
+    assert u[1]["liczba_klatek"] == 50
+    assert sum(x["liczba_klatek"] for x in u) == 100
+
+
+def test_plan_ze_scenariusza_za_krotki_wypelnia_reszte_suma_rowna_calosci():
+    plan = plan_wzorca_testowego(100, [0, 30, 60], fps=10)
+    wzor = {"sekcje": None}
+    kawalki = {0: {"plik": "z.jpg", "typ": "zdjecie"}}
+    scenariusz = rezyser.Scenariusz(ujecia=[ujecie_scenariusza(0, 3)])
+
+    wynik, _ = render.plan_ze_scenariusza(scenariusz, plan, kawalki, [], 10, wzor)
+
+    assert sum(u["liczba_klatek"] for u in wynik["ujecia"]) == 100
+    assert wynik["ujecia"][-1]["klatka_od"] + wynik["ujecia"][-1]["liczba_klatek"] == 100
+
+
+def test_plan_ze_scenariusza_za_dlugi_odrzuca_nadmiar():
+    plan = plan_wzorca_testowego(50, [0], fps=10)
+    wzor = {"sekcje": None}
+    kawalki = {0: {"plik": "z.jpg", "typ": "zdjecie"}}
+    scenariusz = rezyser.Scenariusz(ujecia=[ujecie_scenariusza(0, 3) for _ in range(10)])
+
+    wynik, _ = render.plan_ze_scenariusza(scenariusz, plan, kawalki, [], 10, wzor)
+
+    assert sum(u["liczba_klatek"] for u in wynik["ujecia"]) == 50
+
+
+def test_plan_ze_scenariusza_nieznany_numer_pomijany_z_ostrzezeniem():
+    plan = plan_wzorca_testowego(50, [0], fps=10)
+    wzor = {"sekcje": None}
+    kawalki = {0: {"plik": "z.jpg", "typ": "zdjecie"}}
+    scenariusz = rezyser.Scenariusz(ujecia=[ujecie_scenariusza(99, 2), ujecie_scenariusza(0, 5)])
+
+    wynik, ostrzezenia = render.plan_ze_scenariusza(scenariusz, plan, kawalki, [], 10, wzor)
+
+    assert len(ostrzezenia) == 1
+    assert "99" in ostrzezenia[0]
+    assert len(wynik["ujecia"]) >= 1
+
+
+def test_plan_ze_scenariusza_od_s_poza_zakresem_klipu_przycina_bez_wyjatku():
+    plan = plan_wzorca_testowego(50, [0], fps=10)
+    wzor = {"sekcje": None}
+    kawalki = {0: {"plik": "k.mp4", "typ": "klip", "czas_s": 5.0}}
+    scenariusz = rezyser.Scenariusz(ujecia=[ujecie_scenariusza(0, 2, od_s=999.0)])
+
+    wynik, ostrzezenia = render.plan_ze_scenariusza(scenariusz, plan, kawalki, [], 10, wzor)
+
+    assert len(ostrzezenia) == 1
+    assert wynik["ujecia"][0]["start_w_klipie_s"] < 5.0
+
+
+class OdpowiedzAiTestowa:
+    def __init__(self, dane):
+        self.status_code = 200
+        self._dane = dane
+
+    def json(self):
+        return self._dane
+
+
+def odpowiedz_ai(tresc_json, prompt_tokens=100, completion_tokens=50):
+    return OdpowiedzAiTestowa({
+        "model": "anthropic/claude-opus-5.5",
+        "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens},
+        "choices": [{"finish_reason": "stop", "message": {"content": json.dumps(tresc_json)}}],
+    })
+
+
+class KlientAiTestowy:
+    def __init__(self, odpowiedzi):
+        self.odpowiedzi = list(odpowiedzi)
+        self.wywolania = []
+
+    def post(self, url, headers=None, json=None, timeout=None):
+        self.wywolania.append(json)
+        odpowiedz = self.odpowiedzi.pop(0)
+        if isinstance(odpowiedz, Exception):
+            raise odpowiedz
+        return odpowiedz
+
+
+def wzor_ai_prosty():
+    return {
+        "ciecia_uderzenia": [], "koniec_uderzenia": None,
+        "ciecia_s": [0.0, 3.0], "zrodlo": {"czas_s": 3.5},
+    }
+
+
+def projekt_ai(tmp_path):
+    def dodaj(katalog):
+        for i in range(5):
+            generuj.zdjecie_testowe(katalog / f"000000000{i}_m.jpg", rozmiar=(270, 480), kolor=generuj.kolor_ujecia(i))
+        generuj.klip_testowy(katalog / "0000000005_d.mp4", czas_s=4.0, rozmiar=(270, 480))
+    return zbuduj_projekt(tmp_path, dodaj)
+
+
+def scenariusz_json_dla(liczba_materialow):
+    return {
+        "ujecia": [{"material": i % liczba_materialow, "uderzenia": 2} for i in range(6)],
+        "uzasadnienie": "test",
+    }
+
+
+def test_render_pelny_z_ai_zapisuje_scenariusz_i_ai_rezyser_true(tmp_path, monkeypatch):
+    projekt = projekt_ai(tmp_path)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_ai_prosty()), encoding="utf-8")
+    generuj.klip_testowy(tmp_path / "zrodlo.mp4", czas_s=3.5, rozmiar=(270, 480))
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=180, czas_s=5.0, pierwsze_uderzenie_s=0.1)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+
+    klient = KlientAiTestowy([
+        odpowiedz_ai(scenariusz_json_dla(6)),
+        odpowiedz_ai({"ocena": 9, "mocne": [], "poprawki": []}),
+    ])
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(
+        wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50,
+        ai=True, klient_ai=klient,
+    )
+
+    assert podsumowanie["ai"]["rezyser"] is True
+    assert podsumowanie["ai"]["ocena"] == 9
+    pliki_scenariusza = list(projekt.glob("scenariusz_*.json"))
+    assert len(pliki_scenariusza) == 1
+
+
+def test_render_ai_bez_odpowiedzi_modelu_montuje_automatycznie(tmp_path, monkeypatch):
+    projekt = projekt_ai(tmp_path)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_ai_prosty()), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=180, czas_s=5.0, pierwsze_uderzenie_s=0.1)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+
+    klient = KlientAiTestowy([OdpowiedzAiTestowa({"usage": {}, "choices": []})])
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(
+        wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50,
+        ai=True, bez_krytyka=True, klient_ai=klient,
+    )
+
+    assert podsumowanie["ai"]["rezyser"] is False
+    assert podsumowanie["ai"]["powod_pominiecia"] is not None
+    assert not list(projekt.glob("scenariusz_*.json"))
+
+
+def test_render_bez_ai_polecenia_ffmpeg_bez_zmian(tmp_path, monkeypatch):
+    projekt = projekt_ai(tmp_path)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_ai_prosty()), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=180, czas_s=5.0, pierwsze_uderzenie_s=0.1)
+
+    def wywolaj_model_wybuchowy(*args, **kwargs):
+        raise AssertionError("wywolaj_model nie powinien być wołany bez --ai")
+
+    monkeypatch.setattr(rezyser, "wywolaj_model", wywolaj_model_wybuchowy)
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50)
+
+    assert podsumowanie["ai"] is None
+
+
+def scenariusz_poprawki(indeks_ujecia, material=1):
+    return {"ujecie": indeks_ujecia, "problem": "słaby kadr", "zmiana": {"material": material, "uderzenia": 2}}
+
+
+def test_render_ai_krytyk_niska_ocena_robi_drugi_montaz_i_wybiera_lepsza(tmp_path, monkeypatch):
+    projekt = projekt_ai(tmp_path)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_ai_prosty()), encoding="utf-8")
+    generuj.klip_testowy(tmp_path / "zrodlo.mp4", czas_s=3.5, rozmiar=(270, 480))
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=180, czas_s=5.0, pierwsze_uderzenie_s=0.1)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+
+    klient = KlientAiTestowy([
+        odpowiedz_ai(scenariusz_json_dla(6)),
+        odpowiedz_ai({"ocena": 5, "mocne": [], "poprawki": [scenariusz_poprawki(2)]}),
+        odpowiedz_ai({"ocena": 8, "mocne": [], "poprawki": []}),
+    ])
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(
+        wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50,
+        ai=True, klient_ai=klient,
+    )
+
+    assert podsumowanie["ai"]["ocena"] == 8
+    assert podsumowanie["ai"]["ocena_przed"] == 5
+    assert podsumowanie["ai"]["poprawka"] is True
+    assert len(klient.wywolania) == 3
+    assert wyjscie.exists()
+
+
+def test_render_ai_krytyk_ocena_wysoka_bez_drugiego_montazu(tmp_path, monkeypatch):
+    projekt = projekt_ai(tmp_path)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_ai_prosty()), encoding="utf-8")
+    generuj.klip_testowy(tmp_path / "zrodlo.mp4", czas_s=3.5, rozmiar=(270, 480))
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=180, czas_s=5.0, pierwsze_uderzenie_s=0.1)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+
+    klient = KlientAiTestowy([
+        odpowiedz_ai(scenariusz_json_dla(6)),
+        odpowiedz_ai({"ocena": 8, "mocne": [], "poprawki": [scenariusz_poprawki(2)]}),
+    ])
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(
+        wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50,
+        ai=True, klient_ai=klient,
+    )
+
+    assert podsumowanie["ai"]["ocena"] == 8
+    assert podsumowanie["ai"]["poprawka"] is False
+    assert len(klient.wywolania) == 2
+
+
+def test_render_ai_krytyk_druga_ocena_nizsza_zostaje_pierwsza_wersja(tmp_path, monkeypatch):
+    projekt = projekt_ai(tmp_path)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_ai_prosty()), encoding="utf-8")
+    generuj.klip_testowy(tmp_path / "zrodlo.mp4", czas_s=3.5, rozmiar=(270, 480))
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=180, czas_s=5.0, pierwsze_uderzenie_s=0.1)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+
+    klient = KlientAiTestowy([
+        odpowiedz_ai(scenariusz_json_dla(6)),
+        odpowiedz_ai({"ocena": 5, "mocne": [], "poprawki": [scenariusz_poprawki(2)]}),
+        odpowiedz_ai({"ocena": 3, "mocne": [], "poprawki": []}),
+    ])
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(
+        wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50,
+        ai=True, klient_ai=klient,
+    )
+
+    assert podsumowanie["ai"]["ocena"] == 5
+    assert podsumowanie["ai"]["poprawka"] is False
+    assert len(klient.wywolania) == 3
+
+
+def test_render_ai_krytyk_bez_rezysera_poprawki_tworza_scenariusz(tmp_path, monkeypatch):
+    projekt = projekt_ai(tmp_path)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps(wzor_ai_prosty()), encoding="utf-8")
+    generuj.klip_testowy(tmp_path / "zrodlo.mp4", czas_s=3.5, rozmiar=(270, 480))
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=180, czas_s=5.0, pierwsze_uderzenie_s=0.1)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+
+    klient = KlientAiTestowy([
+        odpowiedz_ai({"ocena": 4, "mocne": [], "poprawki": [scenariusz_poprawki(0)]}),
+        odpowiedz_ai({"ocena": 9, "mocne": [], "poprawki": []}),
+    ])
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(
+        wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50,
+        ai=True, bez_rezysera=True, klient_ai=klient,
+    )
+
+    assert podsumowanie["ai"]["rezyser"] is False
+    assert podsumowanie["ai"]["ocena"] == 9
+    assert podsumowanie["ai"]["poprawka"] is True
+
+
+def test_linia_ai_scenariusz_ocena_po_poprawce():
+    linia = komunikaty.linia_ai({"rezyser": True, "ocena": 8, "poprawka": True})
+    assert linia == "Scenariusz AI, ocena 8/10 (po poprawce)."
+
+
+def test_linia_ai_automatyczny_z_powodem():
+    linia = komunikaty.linia_ai({"rezyser": False, "powod_pominiecia": "brak odpowiedzi modelu"})
+    assert linia == "Scenariusz automatyczny: brak odpowiedzi modelu."
+
+
+def test_linia_ai_brak_gdy_ai_wylaczone():
+    assert komunikaty.linia_ai(None) is None
