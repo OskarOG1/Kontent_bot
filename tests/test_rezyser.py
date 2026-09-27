@@ -361,3 +361,24 @@ def test_opis_montazu_ma_numery_materialow_fragment_klipu_i_plansze():
     assert dane["materialy"] == [
         {"numer": 0, "typ": "zdjecie"}, {"numer": 1, "typ": "klip", "dlugosc_s": 6.0}, {"numer": 2, "typ": "wycinek"},
     ]
+
+
+def test_polecenie_rezysera_opisuje_styl_wzorcowego_editu():
+    for fraza in (
+        "Otwarcie", "Na dropie ujęcie z największym ruchem", "spokojnych klipach z pustym tłem",
+        "Nigdy na twarzach", "Nie powtarzaj materiału", "o 1 uderzenie dłużej",
+    ):
+        assert fraza in rezyser.POLECENIE_REZYSERA
+
+
+def test_polecenie_rezysera_podaje_miejsca_wycinkow_z_renderu():
+    import render
+
+    for x, y in render.POLA_KOLAZU:
+        assert f"{round(x * 100)}%" in rezyser.POLECENIE_REZYSERA
+        assert f"{round(y * 100)}%" in rezyser.POLECENIE_REZYSERA
+
+
+def test_polecenie_krytyka_sprawdza_powtorki_i_miejsce_posagow():
+    assert "powtarzają" in rezyser.POLECENIE_KRYTYKA
+    assert "posągi" in rezyser.POLECENIE_KRYTYKA
