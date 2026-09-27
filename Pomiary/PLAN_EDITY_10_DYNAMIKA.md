@@ -100,7 +100,7 @@ Numery linii z `main` po zadaniu 9.10 (`2330115`). Po części 9 mogą się prze
 - `render.rozdziel_wycinki(materialy) -> tuple[list, list]` zwraca (zwykłe, wycinki): wycinki to zdjęcia z przezroczystością. Wycinki nie wchodzą do kolejki ujęć, tylko do kolaży (10.3). Gdy wszystkie materiały są wycinkami, wszystkie idą do kolejki jak dziś.
 - `render.rozloz_tempo(plan, wzor, uderzenia, kawalki, fps) -> dict`, gdzie `uderzenia` to wynik `uderzenia_wyniku`:
   - twarde cięcia: 0, klatka dropu (`koniec_haka`, gdy wzór ma `sekcje`), początek ostatniego ujęcia wzoru (plansza) i koniec editu;
-  - między twardymi cięciami ujęcia wypełnia się po kolei z `kawalki` (cyklicznie, jak dziś `k % len`);
+  - między twardymi cięciami ujęcia wypełnia się po kolei z `kawalki` (cyklicznie, jak dziś `k % len`, z wyjątkiem z zadania 10.9);
   - zdjęcie trwa do pierwszego uderzenia nie wcześniejszego niż `pozycja + 0.30 s`, a gdy go nie ma, do twardego cięcia;
   - klip kończy się na pierwszym cięciu wzoru w oknie `[pozycja + 2.0 s, pozycja + 3.2 s]`, a gdy go nie ma, na pierwszym uderzeniu w tym oknie, a gdy i go nie ma, po 2,0 s. Nigdy za twardym cięciem;
   - reszta krótsza niż 0,30 s przed twardym cięciem dokleja się do poprzedniego ujęcia;
@@ -320,9 +320,107 @@ Katalog: C:\Dev\edity-bot, gałąź dynamika. Wykonaj zadanie 10.8 z Pomiary/PLA
 ```
 - **Commit:** `Pomiary: pomiar dynamiki po poprawkach`
 
+## Poprawki po ocenie 10.6 do 10.8 (2026-09-27)
+Kod 10.6 i 10.7 jest zgodny z kontraktami, a testy przechodzą: 357 z 357 (sprawdzone ponownie na ffmpeg 6.1.1). Ocena wykazała problemy, z których część poprawiają zadania 10.9 do 10.11 na gałęzi `dynamika`, przed pomiarem 10.8 u właściciela. Reszta czeka na decyzję właściciela.
+- **Kolejka po zawinięciu (luka planu, nie wykonania).** `rozloz_tempo` bierze `kawalki` w kółko od haka. Gdy hak i ostatni element kolejki są kawałkami klipów, po zawinięciu stoją dwa klipy pod rząd. Symulacja na samych planach (wzór 28 s, 18 ujęć, drop na ujęciu 6, plansza 1 s, 164 BPM):
+  - hak zdjęcie, 8 zdjęć i 4 klipy po 12 s (jak próbka pomiaru): 78% zdjęć po dropie, najdłuższa seria klipów 1;
+  - hak klip 7 s, 3 zdjęcia i drugi klip 7 s (kolejka 13 elementów): seria 2;
+  - hak klip 10 s i 5 zdjęć (kolejka 9 elementów): seria 2, raz ten sam klip dwa razy pod rząd.
+  Próbka pomiaru ma hak zdjęcie, więc pomiar tego nie złapie. Zadanie 10.9.
+- `przeplot`: dopisywanie nieużytych zdjęć na koniec nie ma testu. Po usunięciu tej gałęzi kodu 5 z 5 testów przeplotu dalej przechodzi. Zadanie 10.9.
+- **Pomiar B zaniża koszt dynamiki.** Kolaże, słowa i napis pionowy zapisuje `materializuj_warstwe` własnym `Popen`, więc jej ffmpeg nie wchodzi do sumy `-benchmark` ani pod limit 900 s. Czasu procesora Pythona (klatki PIL) pomiar nie liczy, choć blok WSPÓLNE każe `time.process_time()`. Zadanie 10.10.
+- **Pomiar A** nie wymaga udanego renderu wszystkich wzorów: błąd inny niż przekroczenie limitu po cichu usuwa wzór z progów. Wyniki zapisuje dopiero po wszystkich 10 renderach, a reguła 1 każe po każdej sekcji. Zadanie 10.10.
+- **Koszt nakładki `alfa` po 10.7 jest niezmierzony.** Nakładka `alfa` idzie teraz do klipu PNG 1080x1920. Na syntetycznym pierścieniu 600 klatek to 11 MB i około 30 s procesora (maszyna obciążona testami). Pomiar bierze tylko flagę (`krycie`). Zadanie 10.10.
+- Reguły repo: komentarze w `tests/test_nakladka.py` (reguła 2) i nazwy z `_` w `Pomiary/measure_dynamika.py` (reguła 3). Zadania 10.10 i 10.11.
+- Test skali z 10.7 używa nakładki 2:1 ze znacznikami na 21,5% i 75,5% szerokości zamiast 16:9 z 20% i 80%, a odstępstwo nie jest zapisane. Geometria z planu działa: przy skali 0,85 test przechodzi, przy 1,0 pada. Zadanie 10.11.
+- Dziennik po 10.6 do 10.8: nieaktualne „Stan”, problem 13 („naprawiony” bez odtworzenia błędu) i „Następne kroki”. Poprawione razem z tym planem.
+- **Do decyzji właściciela:**
+  - PR #21 scalił 10.1 do 10.5 do `main` 2026-09-26 o 22:38 UTC, zanim powstały commity 10.6 do 10.8. `main` ma więc problem 13, flagę poza kadrem i same klipy po dropie. Poprawki wejdą nowym PR po pomiarze i odbiorze. Jeśli `main` jest już na serwerze, problem 13 grozi tam zawieszeniem renderu z flagą `krycie`;
+  - commity 10.6 do 10.8 mają autora „Claude” i stopkę Co-Authored-By (reguła 5). Przepisanie wymaga force-push na `dynamika`;
+  - pomiar 10.8 nie był uruchomiony na prawdziwym `dane/` (sesja w chmurze bez biblioteki), więc naprawa problemu 13 jest w kodzie, ale nie jest potwierdzona.
+
+Prompt startowy poprawek (jedna sesja):
+```text
+Katalog roboczy: C:\Dev\edity-bot. Wykonaj po kolei zadania 10.9 do 10.11 z Pomiary/PLAN_EDITY_10_DYNAMIKA.md na istniejącej gałęzi `dynamika`, zaczynając od sekcji „Poprawki po ocenie 10.6 do 10.8”. Na starcie przeczytaj Pomiary/ROZWOJ.md (wpis „ocena 10.6 do 10.8”) i dopisuj do niego po każdym zadaniu. Otwieraj tylko pliki wymienione w zadaniu. Po każdym zadaniu uruchom jego weryfikację i zrób commit o nazwie podanej w zadaniu. Pliki robocze trzymaj poza repo. Na koniec zdaj krótki raport.
+```
+
+**Kolejka bez dwóch klipów pod rząd (10.9):**
+- `rozloz_tempo` bierze elementy `kawalki` po kolei i w kółko jak dotąd, z jednym wyjątkiem. Gdy hak (`kawalki[0]`) i ostatni element kolejki są kawałkami klipów, po wyczerpaniu kolejki wraca do drugiego elementu, a nie do haka. Hak jest wtedy w editcie raz, a po ostatnim klipie kolejki wchodzi pierwsze zdjęcie przeplotu.
+- Gdy hak albo ostatni element jest zdjęciem, zawinięcie bez zmian: przy małej liczbie materiałów zdjęcia dalej się przeplatają.
+- `--bez-dynamiki` bez zmian, bo nie woła `rozloz_tempo`.
+
+**Pełny czas procesora i komplet wzorów w pomiarze (10.10):**
+- B: czas procesora renderu to suma trzech części, podawanych osobno i razem dla obu trybów:
+  - `-benchmark` procesów ffmpeg z `render.uruchom_ffmpeg` (jak dziś);
+  - `-benchmark` procesów ffmpeg z `render.materializuj_warstwe`, podmienionej w pomiarze na wersję z tymi samymi argumentami, `-benchmark`, logiem ffmpeg w pliku tymczasowym (nie w potoku, który może się zapełnić) i limitem 900 s;
+  - `time.process_time()` procesu Pythona na czas `render.renderuj`.
+- Narzut liczy się z sumy. Indeks muzyki (`music.indeksuj`) powstaje raz przed sekcją A, żeby analiza nowych utworów nie weszła do pierwszego renderu. Poza sumą zostają krótkie wywołania ffprobe i próbkowanie koloru (`subprocess.run` w `render.py`), obecne w obu trybach.
+- B, dodatkowo (tylko raport): koszt `render.materializuj_nakladke` dla każdej nakładki z `dane/nakladki/` i dla syntetycznego pierścienia z `generuj.pierscien_testowy` (1080x1080). Okno każdej nakładki to `okno_nakladki` jej trybu na planie pierwszego wzoru. W wyniku tryb, okno, liczba klatek, czas procesora i rozmiar pliku.
+- A: nowy próg `wszystkie_wzory_w_obu_trybach`: każdy wzór z `dane/wzory/*.mp4` wyrenderowany z dynamiką i bez niej, bez błędu. W wyniku `liczba_wzorow`.
+- A, B i C zapisywane do `outputs/pomiar_dynamika.json` po każdym wzorze (z `"w_toku": true`), a na końcu ostatecznie.
+- Nazwy w skrypcie bez `_` na początku.
+
+### [Task 10.9: Kolejka bez dwóch klipów pod rząd]
+- **Objective:** wyjątek zawinięcia w `rozloz_tempo` i test dopisywania nieużytych zdjęć w `przeplot`.
+- **Context/Inputs:** kontrakt „Kolejka bez dwóch klipów pod rząd”; `src/render.py` (`rozloz_tempo`, `przeplot`, `wstawki`), `tests/test_dynamika.py`.
+- **Constraints:** testy w `tests/test_dynamika.py` na planach syntetycznych, bez ffmpeg:
+  1. hak klip 7 s, 3 zdjęcia i drugi klip 7 s, kolejka z `przeplot(wstawki(...))`, wzór 28 s z dropem, uderzenia co 11 klatek: w całym planie poza planszą żadne dwa klipy nie stoją obok siebie, a kawałek haka (materiał i `start_w_klipie_s`) występuje raz. Bez poprawki test pada;
+  2. hak zdjęcie i dwa zdjęcia: po wyczerpaniu kolejki wraca hak (materiały po kolei z0, z1, z2, z0);
+  3. `przeplot` z hakiem, 7 zdjęciami reszty i jednym kawałkiem klipu: hak, 3 zdjęcia, klip, a potem 4 nieużyte zdjęcia w kolejności;
+  4. istniejące testy przechodzą.
+- **Prompt:**
+```text
+Katalog: C:\Dev\edity-bot, gałąź dynamika. Wykonaj zadanie 10.9 z Pomiary/PLAN_EDITY_10_DYNAMIKA.md; otwórz src/render.py, tests/test_dynamika.py. Weryfikacja: python -m pytest -q
+```
+- **Commit:** `render: kolejka bez dwóch klipów pod rząd`
+
+### [Task 10.10: Pełny czas procesora i komplet wzorów w pomiarze]
+- **Objective:** zmiany z kontraktu „Pełny czas procesora i komplet wzorów w pomiarze” w `Pomiary/measure_dynamika.py`.
+- **Context/Inputs:** kontrakt; `Pomiary/measure_dynamika.py`, `src/render.py` (`materializuj_warstwe`, `materializuj_nakladke`, `okno_nakladki`, `tryb_nakladki`), `src/music.py` (`indeksuj`), `tests/generuj.py` (`pierscien_testowy`).
+- **Constraints:**
+  - weryfikacja na syntetycznym `dane/` w kopii repo poza repo (wzory i utwory z generatora, zdjęcia, klipy, wycinki, flaga 16:9, plansza, znak): skrypt kończy się kodem 0. A ma wpis dla każdego wzoru (liczby ujęć w obu trybach, udział zdjęć po dropie, najdłuższa seria klipów), B trzy części czasu dla obu trybów i koszt nakładek, C arkusze, a plik wyników istnieje już po pierwszym wzorze;
+  - u właściciela `python Pomiary/measure_dynamika.py` na prawdziwym `dane/`: progi z kontraktu „Pomiar ponownie” i nowy próg `wszystkie_wzory_w_obu_trybach`.
+- **Prompt:**
+```text
+Katalog: C:\Dev\edity-bot, gałąź dynamika. Wykonaj zadanie 10.10 z Pomiary/PLAN_EDITY_10_DYNAMIKA.md; otwórz Pomiary/measure_dynamika.py, src/render.py, src/music.py, tests/generuj.py. Weryfikacja: python Pomiary/measure_dynamika.py
+```
+- **Commit:** `Pomiary: pełny czas procesora i komplet wzorów`
+
+### [Task 10.11: Test skali jak w planie i testy bez komentarzy]
+- **Objective:** test skali z 10.7 na geometrii z planu i `tests/test_nakladka.py` bez komentarzy.
+- **Context/Inputs:** `tests/test_nakladka.py` (`test_nakladka_krycie_skala_miesci_znaczniki_blisko_krawedzi_zrodla`, `test_warstwy_przebiegu_koncowego_jako_klipy_bez_t_loop_stream_loop`).
+- **Constraints:**
+  1. test skali na nakładce 16:9 (640x360) ze znacznikami od 20% i 80% szerokości źródła: przechodzi przy `SKALA_NAKLADKI_KRYCIE = 0.85`, a pada przy 1,0;
+  2. w pliku nie ma komentarzy, a treść asercji się nie zmienia;
+  3. `python -m pytest -q` przechodzi.
+- **Prompt:**
+```text
+Katalog: C:\Dev\edity-bot, gałąź dynamika. Wykonaj zadanie 10.11 z Pomiary/PLAN_EDITY_10_DYNAMIKA.md; otwórz tests/test_nakladka.py, src/render.py. Weryfikacja: python -m pytest -q
+```
+- **Commit:** `testy: skala flagi jak w planie i bez komentarzy`
+
+## Odbiór części 10 (2026-09-27)
+Werdykt: OK z jedną drobną poprawką (10.12).
+- Pomiar 10.8 u właściciela: A w progach na 5 wzorach, żaden z 10 renderów nie przekroczył limitu (problem 13 zamknięty), B 44,1%, arkusze i próbny edit zaakceptowane („mogą być”). Właściciel uruchomił wersję skryptu z 10.8, bez progu `wszystkie_wzory_w_obu_trybach`, ale wszystkie 5 wzorów wyrenderowało się w obu trybach.
+- Kod: funkcje segmentów i `PARAMETRY_KODOWANIA_SEGMENTU` bez zmian względem `main`, warstwy przebiegu końcowego bez `-t`, `-loop` i `-stream_loop` (test dla pięciu trybów), `--bez-dynamiki` odtwarza stary plan, `src/` i `tests/` bez komentarzy.
+- Znalezisko: `render.materializuj_nakladke` bierze domyślne strumienie wejścia, więc nakładka wideo ze ścieżką dźwięku daje klip nakładki z dźwiękiem (ffmpeg 6.1.1: 75 klatek obrazu i 106 ramek AAC, proces kończy się po 0,8 s). Przebieg końcowy bierze tylko `[2:v]`, ale kodowanie dźwięku jest zbędne, a koniec procesu przy `-stream_loop -1` zależy wtedy od tego, jak dana wersja ffmpeg kończy plik z kilkoma strumieniami. Na ffmpeg 7.1 z serwera ten przypadek nie jest sprawdzony. Zadanie 10.12.
+
+**Klip nakładki bez dźwięku (10.12):** `materializuj_nakladke` mapuje tylko pierwszy strumień obrazu wejścia (`-map 0:v:0`) w obu gałęziach (klip `png` i `libx264`).
+
+### [Task 10.12: Klip nakładki bez dźwięku]
+- **Objective:** `-map 0:v:0` w `materializuj_nakladke`.
+- **Context/Inputs:** kontrakt „Klip nakładki bez dźwięku”; `src/render.py` (`materializuj_nakladke`), `tests/test_nakladka.py`, `tests/generuj.py` (generator nakładki z dźwiękiem z `lavfi`).
+- **Constraints:** test w `tests/test_nakladka.py`: nakładka 16:9 z dźwiękiem (1 s) w trybie `krycie` na okno 75 klatek daje klip z samym obrazem i 75 klatkami. Bez poprawki test pada na ścieżce dźwięku. CI sprawdza to na ffmpeg 7.1.
+- **Prompt:**
+```text
+Katalog: C:\Dev\edity-bot, gałąź dynamika. Wykonaj zadanie 10.12 z Pomiary/PLAN_EDITY_10_DYNAMIKA.md; otwórz src/render.py, tests/test_nakladka.py, tests/generuj.py. Weryfikacja: python -m pytest -q
+```
+- **Commit:** `render: klip nakładki bez dźwięku`
+
 ## Gotowe, gdy
 - `python -m pytest -q` przechodzi w całości.
-- Pomiar: A w progach, B zaraportowane, arkusze i próbny edit ocenione przez właściciela.
+- Pomiar: A w progach (także `wszystkie_wzory_w_obu_trybach` z 10.10), B zaraportowane, arkusze i próbny edit ocenione przez właściciela.
+- Zadania 10.6 do 10.11 w `main` nowym PR, bo PR #21 wniósł tylko 10.1 do 10.5.
 - Po wdrożeniu edit z Telegrama na wzorze `0923` ma szybkie zdjęcia, przejścia, kolaż i flagę w kadrze. Każde odstępstwo zapisz jednym zdaniem w `ROZWOJ.md`.
 
 ## Commity
@@ -334,6 +432,10 @@ Katalog: C:\Dev\edity-bot, gałąź dynamika. Wykonaj zadanie 10.8 z Pomiary/PLA
 6. `render: przeplot zdjęć i klipów`
 7. `render: warstwy przebiegu końcowego jako klipy`
 8. `Pomiary: pomiar dynamiki po poprawkach`
+9. `render: kolejka bez dwóch klipów pod rząd`
+10. `Pomiary: pełny czas procesora i komplet wzorów`
+11. `testy: skala flagi jak w planie i bez komentarzy`
+12. `render: klip nakładki bez dźwięku`
 
 ## Odbiór (oceniający)
 ```text
@@ -345,3 +447,4 @@ Katalog: C:\Dev\edity-bot. Oceniasz część 10 według Pomiary/PLAN_EDITY_10_DY
 4. Arkusze `outputs/porownanie_dynamika_*.png`: zdjęcia zmieniają się co uderzenie, klipy trwają dłużej, kolaże nie zasłaniają słów, plansza bez kolażu i znaku.
 5. `src/render.py`: kolejność filtrów w segmencie, parametry kodowania segmentów bez zmian, warstwy bez `-loop 1 -t`, `--bez-dynamiki` odtwarza stary plan.
 6. Po poprawkach 10.6 do 10.8: w przebiegu końcowym przed żadnym `-i` poza dźwiękiem nie ma `-t`, `-loop` ani `-stream_loop`. Na arkuszach zdjęcia są także po dropie, między klipami. Na arkuszu dropu flaga ma wszystkie boczne gwiazdy w kadrze.
+7. Po poprawkach 10.9 do 10.11: testy kolejki z hakiem klipem, test skali na geometrii z planu, `tests/` bez komentarzy. W `outputs/pomiar_dynamika.json` B ma trzy części czasu dla obu trybów i koszt nakładek, A próg `wszystkie_wzory_w_obu_trybach`.
