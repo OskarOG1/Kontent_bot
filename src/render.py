@@ -64,6 +64,13 @@ POLA_KOLAZU = ((0.30, 0.30), (0.70, 0.47), (0.38, 0.66))
 WSKOK_SKALE_KOLAZU = (0.45, 0.85, 1.12, 1.05)
 LICZBA_WYCINKOW_KOLAZU = 3
 MINIMUM_KLIPU_KOLAZU_S = 1.5
+PROG_KANALU_PASA = 40
+UDZIAL_JASNYCH_W_PASIE = 0.02
+MINIMUM_PASA = 0.02
+MINIMUM_KADRU_BEZ_PASOW = 0.5
+LICZBA_KLATEK_PASOW = 6
+SZEROKOSC_KLATKI_PASOW = 320
+ZAPAS_PASA = 2
 
 
 def uruchom_ffmpeg(argumenty: list[str], katalog: Path | None = None) -> None:
@@ -81,6 +88,78 @@ def ma_strumien_wideo(sciezka) -> bool:
         stdin=subprocess.DEVNULL, capture_output=True,
     )
     return wynik.returncode == 0 and wynik.stdout.decode("utf-8", errors="replace").strip() != ""
+
+
+def klatka_do_pasow(sciezka_zrodlowa, czas_s: float) -> numpy.ndarray | None:
+    wynik = subprocess.run(
+        [
+            "ffmpeg", "-nostdin", "-loglevel", "error", "-ss", f"{czas_s:.6f}", "-i", str(sciezka_zrodlowa),
+            "-frames:v", "1", "-vf", f"scale={SZEROKOSC_KLATKI_PASOW}:-2", "-pix_fmt", "rgb24", "-f", "rawvideo", "-",
+        ],
+        stdin=subprocess.DEVNULL, capture_output=True,
+    )
+    bajty_wiersza = SZEROKOSC_KLATKI_PASOW * 3
+    if wynik.returncode != 0 or not wynik.stdout or len(wynik.stdout) % bajty_wiersza != 0:
+        return None
+    return numpy.frombuffer(wynik.stdout, dtype=numpy.uint8).reshape(-1, SZEROKOSC_KLATKI_PASOW, 3)
+
+
+def dlugosc_pasa(udzialy_jasnych) -> int:
+    dlugosc = 0
+    for udzial in udzialy_jasnych:
+        if udzial > UDZIAL_JASNYCH_W_PASIE:
+            break
+        dlugosc += 1
+    return dlugosc
+
+
+def para_pasow(udzialy_jasnych) -> tuple[int, int]:
+    rozmiar = len(udzialy_jasnych)
+    pierwszy = dlugosc_pasa(udzialy_jasnych)
+    drugi = dlugosc_pasa(udzialy_jasnych[::-1])
+    if min(pierwszy, drugi) < MINIMUM_PASA * rozmiar:
+        return 0, 0
+    pierwszy, drugi = pierwszy + ZAPAS_PASA, drugi + ZAPAS_PASA
+    if rozmiar - pierwszy - drugi < MINIMUM_KADRU_BEZ_PASOW * rozmiar:
+        return 0, 0
+    return pierwszy, drugi
+
+
+def pasy_z_klatek(klatki: numpy.ndarray) -> tuple[int, int, int, int]:
+    jasne = klatki.max(axis=3) > PROG_KANALU_PASA
+    gora, dol = para_pasow(jasne.mean(axis=(0, 2)))
+    lewo, prawo = para_pasow(jasne.mean(axis=(0, 1)))
+    return gora, dol, lewo, prawo
+
+
+def wykryj_kadr(sciezka_zrodlowa, czas_s: float) -> dict | None:
+    klatki = []
+    for indeks in range(LICZBA_KLATEK_PASOW):
+        klatka = klatka_do_pasow(sciezka_zrodlowa, czas_s * (indeks + 0.5) / LICZBA_KLATEK_PASOW)
+        if klatka is not None:
+            klatki.append(klatka)
+    if not klatki or len({klatka.shape for klatka in klatki}) != 1:
+        return None
+    stos = numpy.stack(klatki)
+    gora, dol, lewo, prawo = pasy_z_klatek(stos)
+    if gora == dol == lewo == prawo == 0:
+        return None
+    wysokosc, szerokosc = stos.shape[1:3]
+    return {
+        "x": round(lewo / szerokosc, 6),
+        "y": round(gora / wysokosc, 6),
+        "w": round((szerokosc - lewo - prawo) / szerokosc, 6),
+        "h": round((wysokosc - gora - dol) / wysokosc, 6),
+    }
+
+
+def filtr_kadru(kadr: dict | None) -> str:
+    if not kadr:
+        return ""
+    return (
+        f"crop=trunc(iw*{kadr['w']:.6f}/2)*2:trunc(ih*{kadr['h']:.6f}/2)*2:"
+        f"trunc(iw*{kadr['x']:.6f}/2)*2:trunc(ih*{kadr['y']:.6f}/2)*2,"
+    )
 
 
 def przygotuj_zdjecie(sciezka, katalog_pracy: Path, indeks: int, szerokosc: int, wysokosc: int) -> Path:
@@ -184,9 +263,10 @@ def segment_klipu(
     sciezka_zrodlowa, wyjscie: Path, start_s: float, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int,
     lut_sciezka: str | None = None, katalog: Path | None = None,
     uderzenie: bool = False, blysk_s: float = 0.0, wstrzas: bool = False, przejscie: str = "brak",
-    kolaz: Path | None = None,
+    kolaz: Path | None = None, kadr: dict | None = None,
 ) -> None:
     filtr = (
+        f"{filtr_kadru(kadr)}"
         f"scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,"
         f"crop={szerokosc}:{wysokosc},"
         f"fps={fps},"
@@ -254,8 +334,11 @@ def probuj_klatke_klipu(argumenty_czasu: list[str], sciezka_zrodlowa, filtr: str
         return numpy.array(obraz.convert("RGB"))
 
 
-def statystyki_klipu(sciezka_zrodlowa, start_s: float, dlugosc_s: float, czas_klipu_s: float, szerokosc: int = 135, wysokosc: int = 240) -> dict | None:
-    filtr = f"scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,crop={szerokosc}:{wysokosc}"
+def statystyki_klipu(
+    sciezka_zrodlowa, start_s: float, dlugosc_s: float, czas_klipu_s: float, szerokosc: int = 135, wysokosc: int = 240,
+    kadr: dict | None = None,
+) -> dict | None:
+    filtr = f"{filtr_kadru(kadr)}scale={szerokosc}:{wysokosc}:force_original_aspect_ratio=increase,crop={szerokosc}:{wysokosc}"
     efektywna_dlugosc = min(dlugosc_s, czas_klipu_s - start_s)
     klatki = []
     with tempfile.TemporaryDirectory() as katalog_tymczasowy:
@@ -1626,9 +1709,11 @@ def zmontuj(
     warstwa_pionowo,
     plansza: Path | None,
     wyjscie: Path,
+    kadry_klipow: dict | None = None,
 ) -> dict:
     katalog_pracy = Path(katalog_pracy)
     katalog_pracy.mkdir(parents=True, exist_ok=True)
+    kadry_klipow = kadry_klipow or {}
 
     plansza_uzyta = plansza is not None and len(plan["ujecia"]) > 1
     kolorystyka = wzor.get("kolorystyka")
@@ -1660,7 +1745,7 @@ def zmontuj(
             elif uzyc_kolor:
                 zrodlo = statystyki_klipu(
                     ujecie["material"], ujecie["start_w_klipie_s"], ujecie["liczba_klatek"] / fps,
-                    czasy_klipow[ujecie["material"]],
+                    czasy_klipow[ujecie["material"]], kadr=kadry_klipow.get(ujecie["material"]),
                 )
             else:
                 zrodlo = None
@@ -1723,6 +1808,7 @@ def zmontuj(
                     wstrzas=efekt["wstrzas"] if efekt else False,
                     przejscie=efekt["przejscie"] if efekt else "brak",
                     kolaz=sciezka_kolazu,
+                    kadr=kadry_klipow.get(ujecie["material"]),
                 )
         sciezki_segmentow.append(sciezka_segmentu)
 
@@ -1827,7 +1913,7 @@ def renderuj(
             if czas_s is None:
                 materialy_pominiete.append({"plik": Path(material["plik"]).name, "powod": "brak strumienia wideo"})
                 continue
-            material = dict(material, czas_s=czas_s)
+            material = dict(material, czas_s=czas_s, kadr=wykryj_kadr(material["plik"], czas_s))
         do_przygotowania.append(material)
 
     dobre, pominiete_z_przygotowania = przygotuj_materialy(do_przygotowania, katalog_pracy, szerokosc, wysokosc)
@@ -1884,6 +1970,7 @@ def renderuj(
 
     sciezki_robocze = {str(material["plik"]): material["plik_roboczy"] for material in dobre if material["typ"] == "zdjecie"}
     czasy_klipow = {str(material["plik"]): material["czas_s"] for material in dobre if material["typ"] == "klip"}
+    kadry_klipow = {str(material["plik"]): material.get("kadr") for material in dobre if material["typ"] == "klip"}
     okna_slow = podsumowanie_slow.get("okna", []) if podsumowanie_slow else []
 
     def wykonaj_montaz(plan_do_montazu, wycinki_wedlug_numeru, katalog_pracy_montazu, wyjscie_docelowe):
@@ -1892,6 +1979,7 @@ def renderuj(
             szerokosc, wysokosc, fps, sila_koloru, bez_dynamiki, uderzenia_wyn, okna_slow,
             utwor, limit_mb, nakladka, znak, dlugosc_nakladki_krycie_s,
             teksty_do_przebiegu, warstwa_slow, warstwa_pionowo, plansza, wyjscie_docelowe,
+            kadry_klipow=kadry_klipow,
         )
 
     ai_info = None
@@ -1954,6 +2042,7 @@ def renderuj(
         "pionowo": podsumowanie_pionowo,
         "dynamika": podsumowanie_dynamiki,
         "kolaze": wynik_montazu["podsumowanie_kolazy"],
+        "pasy": [{"plik": Path(plik).name, "kadr": kadr} for plik, kadr in kadry_klipow.items() if kadr],
         "ai": ai_info,
     }
 

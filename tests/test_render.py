@@ -1516,9 +1516,9 @@ def licz_montaze(monkeypatch):
     plany = []
     oryginalny = render.zmontuj
 
-    def zmontuj_liczony(plan, *args):
+    def zmontuj_liczony(plan, *args, **kwargs):
         plany.append(plan)
-        return oryginalny(plan, *args)
+        return oryginalny(plan, *args, **kwargs)
 
     monkeypatch.setattr(render, "zmontuj", zmontuj_liczony)
     return plany
@@ -1558,10 +1558,10 @@ def test_render_ai_blad_montazu_po_poprawce_zostawia_pierwsza_wersje(tmp_path, m
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
     oryginalny = render.zmontuj
 
-    def zmontuj_z_bledem(plan, *args):
+    def zmontuj_z_bledem(plan, *args, **kwargs):
         if str(args[-1]).endswith("_ai_poprawka.mp4"):
             raise RuntimeError("test")
-        return oryginalny(plan, *args)
+        return oryginalny(plan, *args, **kwargs)
 
     monkeypatch.setattr(render, "zmontuj", zmontuj_z_bledem)
     klient = KlientAiTestowy([
@@ -1587,10 +1587,10 @@ def test_render_ai_blad_montazu_scenariusza_montuje_automatycznie(tmp_path, monk
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
     oryginalny = render.zmontuj
 
-    def zmontuj_z_bledem(plan, *args):
+    def zmontuj_z_bledem(plan, *args, **kwargs):
         if any(u.get("efekt_scenariusza") for u in plan["ujecia"]):
             raise RuntimeError("test")
-        return oryginalny(plan, *args)
+        return oryginalny(plan, *args, **kwargs)
 
     monkeypatch.setattr(render, "zmontuj", zmontuj_z_bledem)
     klient = KlientAiTestowy([odpowiedz_ai(scenariusz_json_dla(6))])

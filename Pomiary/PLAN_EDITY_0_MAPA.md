@@ -32,7 +32,8 @@ Prawdziwe wzory (`0914`, `0915`, `0921`, `0922`, `0923`, wszystkie 4K, w `dane/w
 | 6 | PLAN_EDITY_6_TEKST | Twoje napisy w haku, styl jak we wzorach, strefy bezpieczne TikToka | wykonana, PR #15, wdrożona 2026-09-25, czcionka szeryfowa zaakceptowana, test lokalny OK | test ręczny | Sonnet |
 | 9 | PLAN_EDITY_9_FABRYKA | restart bez strat, biblioteka wzorów z wyborem, warianty, partie, `/ponow`; nakładka z kryciem (flaga, 9.5, zaraz po części 8); słowa w rytmie i napis pionowy jak w `0923` (9.6 do 9.8, po części 6) | 9.5 do 9.10 i 9.1 do 9.4 scalone (PR #14, #17, #18, #20), odbiór 9.1 do 9.4 OK 2026-09-26 | klip flagi jako nakładka, akceptacja czcionki pisanej | Sonnet |
 | 10 | PLAN_EDITY_10_DYNAMIKA | zdjęcia co uderzenie, klipy 2 do 3,2 s, przejścia na cięciach (uderzenie zoomem, błysk, wstrząs, smuga, najazd), kolaż wycinków w rytmie, flaga cała w kadrze i krótsza | 10.1 do 10.5 na gałęzi `dynamika`, odbiór 2026-09-26: poprawki 10.6 do 10.8 (przeplot zdjęć i klipów, warstwy jako klipy przez problem 13, flaga 0,85) | ocena arkuszy i próbnego editu | Sonnet |
-| 11 | PLAN_EDITY_11_REZYSER | AI (Claude Opus 5.5) układa scenariusz z Twoich materiałów przed montażem i ocenia wynik, z jedną poprawką | zadania 11.1 do 11.4 scalone do `main` (PR #26 i #27, 2026-09-27), testy 404 z 404 bez sieci; odbiór 2026-09-27 bez pomiaru: poprawki przed pomiarem 11.4 (lista w `ROZWOJ.md`), zrobione tego samego dnia na gałęzi `claude/jolly-cray-kzqze8` (testy 423 z 423), bez klucza AI nieaktywne; poprawki scalone w PR #28; pomiar 11.4 u Ciebie na poprawionym kodzie: A w progach (scenariusz poprawny 5 z 5, 0,23 do 0,32 $ za edit, razem 1,80 $); Twój werdykt: za mało dynamiczny, posągi nie na miejscu, więc polecenie reżysera dostało styl `0923` | pomiar na nowym poleceniu i werdykt, decyzje o renderze (miejsca wycinków, pasy kinowe), potem klucz `OPENROUTER_API_KEY` i `MODEL_AI` w `.env` na serwerze i test na Telegramie | Sonnet |
+| 11 | PLAN_EDITY_11_REZYSER | AI (Claude Opus 5.5) układa scenariusz z Twoich materiałów przed montażem i ocenia wynik, z jedną poprawką | zadania 11.1 do 11.4 scalone do `main` (PR #26 i #27, 2026-09-27), testy 404 z 404 bez sieci; odbiór 2026-09-27 bez pomiaru: poprawki przed pomiarem 11.4 (lista w `ROZWOJ.md`), zrobione tego samego dnia na gałęzi `claude/jolly-cray-kzqze8` (testy 423 z 423), bez klucza AI nieaktywne; poprawki scalone w PR #28; pomiar 11.4 u Ciebie na poprawionym kodzie: A w progach (scenariusz poprawny 5 z 5, 0,23 do 0,32 $ za edit, razem 1,80 $); Twój werdykt: za mało dynamiczny, posągi nie na miejscu, więc polecenie reżysera dostało styl `0923` (PR #31, scalony); zmiany renderu poszły do części 12 | pomiar na nowym poleceniu i werdykt, potem klucz `OPENROUTER_API_KEY` i `MODEL_AI` w `.env` na serwerze i test na Telegramie | Sonnet |
+| 12 | PLAN_EDITY_12_STYL | styl `0923` w renderze bez kopiowania: pasy kinowe przycięte, przejścia jak we wzorze (smuga, rozciągnięcie pikseli, najazd), wycinki tylko na spokojnym tle i w miejscach z treści kadru, kolaż w rytmie wzoru z kaflami ze zdjęć, gwiazdy w haku, reżyser zna nowe możliwości | 12.1 (pasy) i 12.2 (przejścia) zrobione 2026-09-29 na `claude/jolly-cray-kzqze8`, testy lokalnie; 12.3 do 12.7 czekają na wykonawcę | scalenie PR z 12.1 i 12.2, sesja wykonawcy, werdykt na arkuszach i próbnych editach z pomiaru 12.7 (część z AI około 1,5 $) | Opus 12.1 i 12.2, Sonnet reszta |
 
 ## Kolejność (poprawiona 2026-09-23)
 1. Zrobione: części 1, 2, 7, 3, 4, 8, 5 i 6.
@@ -43,6 +44,7 @@ Prawdziwe wzory (`0914`, `0915`, `0921`, `0922`, `0923`, wszystkie 4K, w `dane/w
 4. Części 5 i 6: obie zależą od 8, a między sobą nie, więc 6 może iść przed 5.
 5. Część 9.
 6. Część 10 (dynamika) po części 9, bo zmienia te same miejsca `render.renderuj`. Potem część 11 (reżyser i krytyk AI), bo reżyser wybiera z efektów części 10.
+7. Część 12 (styl `0923` w renderze) po części 11, bo zmienia kolaż i przejścia z części 10 oraz schemat reżysera z części 11.
 
 Po każdej części: odbiór, scalenie, `wdroz.ps1` i, gdy trzeba, `analyze.py --wszystkie` na serwerze.
 
@@ -92,6 +94,11 @@ Po każdej części: odbiór, scalenie, `wdroz.ps1` i, gdy trzeba, `analyze.py -
     - gdy AI zawiedzie, montaż idzie automatycznie;
     - szacunek kosztu poniżej 0,50 $ za edit, sprawdzany pomiarem 11.4;
     - miniatury materiałów trafiają przez OpenRouter do dostawcy modelu.
+25. Styl `0923` w renderze (Twoja decyzja z 2026-09-27: „punkt 2, zmiany do treści klipu i resztę, żeby edity bardziej przypominały edit 0923, ale go nie kopiowały bezpośrednio”):
+    - czarne pasy kinowe przycinane przed kadrowaniem 9:16;
+    - wycinki tylko na tle prawie bez ruchu, duże, przy krawędziach, w miejscach kadru wybranych z jego treści;
+    - efekty `0923` (smuga, rozciągnięcie pikseli, najazd, wjazd wycinków, pierścień gwiazd) rysuje render z liczb zmierzonych na wzorze, a obraz wzoru nie trafia do wyniku;
+    - małe zadania robi od razu Opus, resztę wykonawca według części 12.
 
 ## Ryzyka przyjęte świadomie
 - Dźwięk przyspieszony („sped up”) albo w innej tonacji niż plik w bibliotece nie zostanie rozpoznany i wtedy działa dobór po tempie. Odpowiedź: do biblioteki wrzucać tę wersję, która gra na TikToku.
@@ -108,7 +115,7 @@ Po każdej części: odbiór, scalenie, `wdroz.ps1` i, gdy trzeba, `analyze.py -
 Biblioteka to dźwięki wzorów: do `dane/muzyka/` wrzucasz utwór, który gra we wzorze, najlepiej pełną wersję w tym samym tempie i tonacji co na TikToku. Nazwa pliku trafia do podpisu, więc bez dopisków typu „ (1)”. Po dodaniu skopiuj katalog na serwer i zbuduj tam indeks (`docker compose exec bot python src/music.py indeksuj`); bez tego zrobi to pierwszy montaż. Wzór, którego utworu nie ma w bibliotece, dostaje utwór o najbliższym tempie.
 
 ## Poza zakresem
-- posteryzacja i inne efekty obrazu wzoru;
+- posteryzacja i efekty obrazu wzoru inne niż te z części 12;
 - śledzenie twarzy i nakładki na twarze;
 - rozpoznawanie przyspieszonych wersji dźwięku;
 - automatyczna publikacja na TikToku;

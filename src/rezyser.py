@@ -222,10 +222,10 @@ def wczytaj_z_alfa(sciezka: Path, kx: int, ky: int) -> np.ndarray:
     return obraz[:, :, :3]
 
 
-def klatki_klipu(plik: Path, liczba_klatek: int, czas_s: float, kx: int, ky: int) -> list[np.ndarray]:
+def klatki_klipu(plik: Path, liczba_klatek: int, czas_s: float, kx: int, ky: int, przyciecie: str = "") -> list[np.ndarray]:
     czas_s = max(czas_s, 1.0 / 30)
     fps = liczba_klatek / czas_s
-    filtr = f"fps={fps:.10f},scale={kx}:{ky}:force_original_aspect_ratio=increase,crop={kx}:{ky}"
+    filtr = f"fps={fps:.10f},{przyciecie}scale={kx}:{ky}:force_original_aspect_ratio=increase,crop={kx}:{ky}"
     with tempfile.TemporaryDirectory() as katalog:
         surowy = Path(katalog) / "klatki.raw"
         wynik = subprocess.run(
@@ -271,6 +271,8 @@ def z_naglowkiem(obraz: np.ndarray, tekst: str) -> np.ndarray:
 
 
 def arkusze_materialow(materialy: list[dict], wycinki: list[dict], katalog_pracy: Path) -> list[Path]:
+    import render as render_modul
+
     katalog_pracy = Path(katalog_pracy)
     katalog_pracy.mkdir(parents=True, exist_ok=True)
     sciezki = []
@@ -297,7 +299,10 @@ def arkusze_materialow(materialy: list[dict], wycinki: list[dict], katalog_pracy
         if material["typ"] != "klip":
             continue
         czas_s = float(material.get("czas_s", 1.0))
-        klatki = klatki_klipu(Path(material["plik"]), LICZBA_KLATEK_KLIPU, czas_s, kkx, kky)
+        klatki = klatki_klipu(
+            Path(material["plik"]), LICZBA_KLATEK_KLIPU, czas_s, kkx, kky,
+            przyciecie=render_modul.filtr_kadru(material.get("kadr")),
+        )
         if not klatki:
             continue
         obraz = z_naglowkiem(np.hstack(klatki), f"klip {numer}, {czas_s:.1f} s")
