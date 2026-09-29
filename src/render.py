@@ -12,7 +12,7 @@ from pathlib import Path
 import httpx
 import numpy
 import pillow_heif
-from PIL import Image, ImageOps
+from PIL import Image, ImageFilter, ImageOps
 
 import analyze
 import kolor
@@ -69,7 +69,22 @@ UDZIAL_SZEROKOSCI_KOLAZU = 0.55
 UDZIAL_WYSOKOSCI_KOLAZU = 0.36
 POLA_KOLAZU = ((0.30, 0.30), (0.70, 0.47), (0.38, 0.66))
 WSKOK_SKALE_KOLAZU = (0.45, 0.85, 1.12, 1.05)
-LICZBA_WYCINKOW_KOLAZU = 3
+LICZBA_ELEMENTOW_KOLAZU = 5
+MINIMUM_KLATEK_DO_WEJSCIA = 2
+ZAPAS_KONCA_KOLAZU_S = 0.25
+POLOWA_UDERZENIA_S = 0.23
+KLATEK_WJAZDU = 3
+PRZESUNIECIE_WJAZDU = 0.35
+SKALA_WJAZDU = 1.3
+KOPII_ROZMYCIA_RUCHU = 5
+KLATEK_POWIEKSZENIA = 14
+SKALA_POWIEKSZENIA = 2.0
+ROZMYCIE_POWIEKSZENIA_PX = 12.0
+WYSOKOSC_POWIEKSZENIA = 0.95
+DOLNY_WYSTEP_POWIEKSZENIA = 0.05
+SZEROKOSC_KAFLA = 0.45
+WYSOKOSC_KAFLA = 0.28
+WEJSCIA_KOLAZU = ("wjazd", "wskok", "powiekszenie")
 MINIMUM_KLIPU_KOLAZU_S = 1.5
 PROG_KANALU_PASA = 40
 UDZIAL_JASNYCH_W_PASIE = 0.02
@@ -1718,8 +1733,7 @@ def dopasuj_do_pola_kolazu(obraz, szerokosc: int, wysokosc: int):
     return obraz.resize(nowy_rozmiar, Image.LANCZOS)
 
 
-def wybierz_wycinki_kolazu(wycinki_posortowane: list[dict], indeks_puli: int) -> tuple[list[dict], int]:
-    ile = LICZBA_WYCINKOW_KOLAZU
+def wybierz_wycinki_kolazu(wycinki_posortowane: list[dict], indeks_puli: int, ile: int = LICZBA_ELEMENTOW_KOLAZU) -> tuple[list[dict], int]:
     wybrane = [wycinki_posortowane[(indeks_puli + i) % len(wycinki_posortowane)] for i in range(ile)]
     return wybrane, indeks_puli + ile
 
@@ -1741,37 +1755,167 @@ def naloz_obraz(platno, obraz, lewo: int, gora: int) -> None:
     platno.alpha_composite(obraz.crop((x0 - lewo, y0 - gora, x1 - lewo, y1 - gora)), (x0, y0))
 
 
+def polowki_uderzen(uderzenia_lokalne: list[int]) -> list[int]:
+    uderzenia = sorted(set(uderzenia_lokalne))
+    polowki = set(uderzenia)
+    for poprzednie, nastepne in zip(uderzenia, uderzenia[1:]):
+        polowki.add((poprzednie + nastepne) // 2)
+    return sorted(polowki)
+
+
+def czasy_wejsc_kolazu(uderzenia_lokalne: list[int], liczba_klatek: int, fps: float, ile: int = LICZBA_ELEMENTOW_KOLAZU) -> list[int]:
+    granica = liczba_klatek - round(ZAPAS_KONCA_KOLAZU_S * fps)
+    if uderzenia_lokalne:
+        polowki = polowki_uderzen(uderzenia_lokalne)
+    else:
+        krok = max(1, round(POLOWA_UDERZENIA_S * fps))
+        polowki = list(range(MINIMUM_KLATEK_DO_WEJSCIA, liczba_klatek, krok))
+    polowki = [k for k in polowki if MINIMUM_KLATEK_DO_WEJSCIA <= k <= granica]
+    return polowki[:min(ile, LICZBA_ELEMENTOW_KOLAZU)]
+
+
+def uderzenia_ujecia(ujecie: dict, uderzenia_wyn: list[int]) -> list[int]:
+    return [
+        k - ujecie["klatka_od"] for k in uderzenia_wyn
+        if ujecie["klatka_od"] < k < ujecie["klatka_od"] + ujecie["liczba_klatek"]
+    ]
+
+
+def obraz_kafla(sciezka: Path, szerokosc: int, wysokosc: int):
+    obraz = ImageOps.exif_transpose(Image.open(sciezka)).convert("RGBA")
+    rozmiar = (max(1, round(SZEROKOSC_KAFLA * szerokosc)), max(1, round(WYSOKOSC_KAFLA * wysokosc)))
+    return ImageOps.fit(obraz, rozmiar, Image.LANCZOS)
+
+
+def usrednij_platna(platna: list):
+    rozmiar = platna[0].size
+    suma = sum(numpy.asarray(p.convert("RGBa"), dtype=numpy.float32) for p in platna) / len(platna)
+    return Image.frombytes("RGBa", rozmiar, suma.round().astype(numpy.uint8).tobytes()).convert("RGBA")
+
+
+def platno_z_obrazem(obraz, srodek: tuple[float, float], skala: float, szerokosc: int, wysokosc: int):
+    platno = Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
+    szer = max(1, round(obraz.width * skala))
+    wys = max(1, round(obraz.height * skala))
+    wersja = obraz if (szer, wys) == obraz.size else obraz.resize((szer, wys), Image.LANCZOS)
+    naloz_obraz(platno, wersja, round(srodek[0] - szer / 2), round(srodek[1] - wys / 2))
+    return platno
+
+
+def kierunek_do_krawedzi(srodek: tuple[float, float], szerokosc: int, wysokosc: int) -> tuple[float, float]:
+    odleglosci = {
+        (-1.0, 0.0): srodek[0], (1.0, 0.0): szerokosc - srodek[0],
+        (0.0, -1.0): srodek[1], (0.0, 1.0): wysokosc - srodek[1],
+    }
+    return min(odleglosci, key=odleglosci.get)
+
+
+def platno_wjazdu(obraz, srodek: tuple[float, float], przesuniecie: int, szerokosc: int, wysokosc: int):
+    if przesuniecie >= KLATEK_WJAZDU:
+        return platno_z_obrazem(obraz, srodek, 1.0, szerokosc, wysokosc)
+    kierunek = kierunek_do_krawedzi(srodek, szerokosc, wysokosc)
+
+    def stan(postep: float):
+        odsuniecie = (1.0 - postep) * PRZESUNIECIE_WJAZDU
+        pozycja = (
+            srodek[0] + kierunek[0] * odsuniecie * obraz.width,
+            srodek[1] + kierunek[1] * odsuniecie * obraz.height,
+        )
+        return pozycja, 1.0 + (SKALA_WJAZDU - 1.0) * (1.0 - postep)
+
+    poczatek = przesuniecie / KLATEK_WJAZDU
+    koniec = (przesuniecie + 1) / KLATEK_WJAZDU
+    kopie = []
+    for i in range(KOPII_ROZMYCIA_RUCHU):
+        postep = poczatek + (koniec - poczatek) * i / (KOPII_ROZMYCIA_RUCHU - 1)
+        pozycja, skala = stan(postep)
+        kopie.append(platno_z_obrazem(obraz, pozycja, skala, szerokosc, wysokosc))
+    return usrednij_platna(kopie)
+
+
+def platno_wskoku(obraz, srodek: tuple[float, float], przesuniecie: int, szerokosc: int, wysokosc: int):
+    skala = WSKOK_SKALE_KOLAZU[przesuniecie] if przesuniecie < len(WSKOK_SKALE_KOLAZU) else 1.0
+    return platno_z_obrazem(obraz, srodek, skala, szerokosc, wysokosc)
+
+
+def platno_powiekszenia(obraz, srodek: tuple[float, float], przesuniecie: int, szerokosc: int, wysokosc: int):
+    t = min(1.0, przesuniecie / KLATEK_POWIEKSZENIA)
+    lagodnie = 1.0 - (1.0 - t) ** 2
+    skala = SKALA_POWIEKSZENIA - (SKALA_POWIEKSZENIA - 1.0) * lagodnie
+    platno = platno_z_obrazem(obraz, srodek, skala, szerokosc, wysokosc)
+    promien = ROZMYCIE_POWIEKSZENIA_PX * (1.0 - lagodnie) * szerokosc / 1080
+    if promien < 0.05:
+        return platno
+    return platno.convert("RGBa").filter(ImageFilter.GaussianBlur(promien)).convert("RGBA")
+
+
+def srodek_powiekszenia(mapa: numpy.ndarray | None, szerokosc_ulamek: float) -> float:
+    if mapa is None:
+        return 0.5
+    gora = 1.0 + DOLNY_WYSTEP_POWIEKSZENIA - WYSOKOSC_POWIEKSZENIA
+    minimum = -WYSTAWANIE_KOLAZU * szerokosc_ulamek
+    maksimum = 1.0 - szerokosc_ulamek + WYSTAWANIE_KOLAZU * szerokosc_ulamek
+    kandydaci = [minimum + (maksimum - minimum) * i / 10 for i in range(11)]
+    lewo = min(kandydaci, key=lambda x: zajetosc_pod_prostokatem(mapa, x, gora, szerokosc_ulamek, WYSOKOSC_POWIEKSZENIA))
+    return lewo + szerokosc_ulamek / 2
+
+
 def przygotuj_kolaz(
     wycinki_kolazu: list[dict], uderzenia_lokalne: list[int], liczba_klatek: int, fps: float,
     szerokosc: int, wysokosc: int, wyjscie: Path, mapa: numpy.ndarray | None = None, strona: str = "auto",
+    wejscie: str = "wjazd",
 ) -> list[tuple[float, float]] | None:
-    zrodla = [wytnij_do_alfa(Path(w["plik"])) for w in wycinki_kolazu]
+    if wejscie not in WEJSCIA_KOLAZU:
+        raise ValueError(f"nieznane wejscie kolazu: {wejscie}")
     if mapa is None:
+        zrodla = [wytnij_do_alfa(Path(w["plik"])) for w in wycinki_kolazu]
         obrazy = [dopasuj_do_pola_kolazu(obraz, szerokosc, wysokosc) for obraz in zrodla]
         srodki = [(round(POLA_KOLAZU[i][0] * szerokosc), round(POLA_KOLAZU[i][1] * wysokosc)) for i in range(len(obrazy))]
+        poczatki = [uderzenia_lokalne[i] if i < len(uderzenia_lokalne) else liczba_klatek for i in range(len(obrazy))]
+        funkcje = [platno_wskoku] * len(obrazy)
         miejsca = None
     else:
-        rozmiary = rozmiary_wycinkow_kolazu(zrodla, szerokosc, wysokosc)
-        obrazy = [obraz.resize(rozmiar, Image.LANCZOS) for obraz, rozmiar in zip(zrodla, rozmiary)]
-        miejsca = miejsca_kolazu(mapa, [(w / szerokosc, h / wysokosc) for w, h in rozmiary], strona)
-        srodki = [
-            (round(x * szerokosc) + obraz.width // 2, round(y * wysokosc) + obraz.height // 2)
-            for (x, y), obraz in zip(miejsca, obrazy)
+        elementy = list(wycinki_kolazu)[:LICZBA_ELEMENTOW_KOLAZU]
+        if wejscie == "powiekszenie":
+            elementy = elementy[:1]
+        poczatki = czasy_wejsc_kolazu(uderzenia_lokalne, liczba_klatek, fps, len(elementy))
+        if wejscie == "powiekszenie" and elementy and not poczatki:
+            poczatki = [MINIMUM_KLATEK_DO_WEJSCIA]
+        elementy = elementy[:len(poczatki)]
+        if not elementy:
+            materializuj_warstwe(lambda k: Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0)), liczba_klatek, fps, szerokosc, wysokosc, wyjscie)
+            return []
+        zrodla = [
+            obraz_kafla(Path(e["plik"]), szerokosc, wysokosc) if e.get("kafel") else wytnij_do_alfa(Path(e["plik"]))
+            for e in elementy
         ]
-    poczatki = [uderzenia_lokalne[i] if i < len(uderzenia_lokalne) else liczba_klatek for i in range(len(obrazy))]
+        if wejscie == "powiekszenie":
+            wys = WYSOKOSC_POWIEKSZENIA * wysokosc
+            obraz = zrodla[0].resize((max(1, round(zrodla[0].width * wys / zrodla[0].height)), max(1, round(wys))), Image.LANCZOS)
+            obrazy = [obraz]
+            srodek_x = srodek_powiekszenia(mapa, obraz.width / szerokosc)
+            srodki = [(round(srodek_x * szerokosc), round((1.0 + DOLNY_WYSTEP_POWIEKSZENIA) * wysokosc - obraz.height / 2))]
+            miejsca = [(srodek_x - obraz.width / szerokosc / 2, 1.0 + DOLNY_WYSTEP_POWIEKSZENIA - WYSOKOSC_POWIEKSZENIA)]
+            funkcje = [platno_powiekszenia]
+        else:
+            rozmiary = [
+                obraz.size if e.get("kafel") else rozmiar
+                for e, obraz, rozmiar in zip(elementy, zrodla, rozmiary_wycinkow_kolazu(zrodla, szerokosc, wysokosc))
+            ]
+            obrazy = [obraz if obraz.size == rozmiar else obraz.resize(rozmiar, Image.LANCZOS) for obraz, rozmiar in zip(zrodla, rozmiary)]
+            miejsca = miejsca_kolazu(mapa, [(w / szerokosc, h / wysokosc) for w, h in rozmiary], strona)
+            srodki = [
+                (round(x * szerokosc) + obraz.width // 2, round(y * wysokosc) + obraz.height // 2)
+                for (x, y), obraz in zip(miejsca, obrazy)
+            ]
+            funkcje = [platno_wjazdu if wejscie == "wjazd" else platno_wskoku] * len(obrazy)
 
     def klatka_dla(indeks_lokalny: int):
         platno = Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
         for i, obraz in enumerate(obrazy):
             if indeks_lokalny < poczatki[i]:
                 continue
-            przesuniecie = indeks_lokalny - poczatki[i]
-            skala = WSKOK_SKALE_KOLAZU[przesuniecie] if przesuniecie < len(WSKOK_SKALE_KOLAZU) else 1.0
-            szerokosc_klatki = max(1, round(obraz.width * skala))
-            wysokosc_klatki = max(1, round(obraz.height * skala))
-            wersja = obraz.resize((szerokosc_klatki, wysokosc_klatki), Image.LANCZOS)
-            srodek_x, srodek_y = srodki[i]
-            naloz_obraz(platno, wersja, srodek_x - szerokosc_klatki // 2, srodek_y - wysokosc_klatki // 2)
+            platno.alpha_composite(funkcje[i](obraz, srodki[i], indeks_lokalny - poczatki[i], szerokosc, wysokosc))
         return platno
 
     materializuj_warstwe(klatka_dla, liczba_klatek, fps, szerokosc, wysokosc, wyjscie)
@@ -1996,18 +2140,17 @@ def zmontuj(
             )
             kolaze_pominiete.append({"ujecie": indeks, "ruch": round(ruch, 2) if ruch is not None else None})
             return None
-        uderzenia_lokalne = [
-            k - ujecie["klatka_od"] for k in uderzenia_wyn
-            if ujecie["klatka_od"] < k < ujecie["klatka_od"] + ujecie["liczba_klatek"]
-        ]
+        uderzenia_lokalne = uderzenia_ujecia(ujecie, uderzenia_wyn)
         sciezka = katalog_pracy / f"kolaz_{indeks:06d}.mov"
         miejsca = przygotuj_kolaz(
             wybrane, uderzenia_lokalne, ujecie["liczba_klatek"], fps, szerokosc, wysokosc, sciezka,
             mapa=mapa_zajetosci(klatki), strona=ujecie.get("miejsce_kolazu") or "auto",
+            wejscie=ujecie.get("wejscie_kolazu") or "wjazd",
         )
         podsumowanie_kolazy.append({
-            "ujecie": indeks, "wycinki": [Path(w["plik"]).name for w in wybrane],
-            "ruch": round(ruch, 2), "miejsca": [[round(x, 3), round(y, 3)] for x, y in miejsca],
+            "ujecie": indeks, "wycinki": [Path(w["plik"]).name for w in wybrane[:len(miejsca)]],
+            "ruch": round(ruch, 2), "wejscie": ujecie.get("wejscie_kolazu") or "wjazd",
+            "miejsca": [[round(x, 3), round(y, 3)] for x, y in miejsca],
         })
         return sciezka
 
@@ -2056,11 +2199,12 @@ def zmontuj(
                 wybrane = [
                     wycinki_wedlug_numeru[numer] for numer in numery_kolazu
                     if wycinki_wedlug_numeru and numer in wycinki_wedlug_numeru
-                ][:LICZBA_WYCINKOW_KOLAZU]
+                ][:LICZBA_ELEMENTOW_KOLAZU]
                 if wybrane:
                     sciezka_kolazu = kolaz_ujecia(indeks, ujecie, wybrane)
             elif indeks in ujecia_automatu:
-                wybrane, indeks_puli_kolazu = wybierz_wycinki_kolazu(wycinki_posortowane, indeks_puli_kolazu)
+                ile_elementow = max(1, len(czasy_wejsc_kolazu(uderzenia_ujecia(ujecie, uderzenia_wyn), ujecie["liczba_klatek"], fps)))
+                wybrane, indeks_puli_kolazu = wybierz_wycinki_kolazu(wycinki_posortowane, indeks_puli_kolazu, ile_elementow)
                 sciezka_kolazu = kolaz_ujecia(indeks, ujecie, wybrane)
             if ujecie["typ"] == "zdjecie":
                 segment_zdjecia(

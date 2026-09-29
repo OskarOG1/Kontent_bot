@@ -425,3 +425,135 @@ def test_segmenty_bez_kolazu_maja_te_same_polecenia_ffmpeg(tmp_path, monkeypatch
         assert polecenie.count("-i") == 1
         assert "-filter_complex" not in polecenie
         assert "-vf" in polecenie
+
+
+def mapa_z_szumem_na_bokach():
+    mapa = np.zeros((160, 90), dtype=np.float32)
+    mapa[:, :25] = 80.0
+    mapa[:, 65:] = 80.0
+    return mapa
+
+
+def warstwa_rgba(sciezka, szerokosc, wysokosc):
+    wynik = subprocess.run(
+        ["ffmpeg", "-nostdin", "-loglevel", "error", "-i", str(sciezka), "-pix_fmt", "rgba", "-f", "rawvideo", "-"],
+        stdin=subprocess.DEVNULL, capture_output=True, check=True,
+    )
+    return np.frombuffer(wynik.stdout, dtype=np.uint8).reshape(-1, wysokosc, szerokosc, 4)
+
+
+def ramka_alfa(klatka, prog=128):
+    wiersze, kolumny = np.where(klatka[:, :, 3] >= prog)
+    if len(wiersze) == 0:
+        return None
+    return kolumny.min(), wiersze.min(), kolumny.max() + 1, wiersze.max() + 1
+
+
+def wycinek_koloru(katalog, nazwa, kolor):
+    sciezka = katalog / nazwa
+    generuj.zdjecie_kwadrat_na_przezroczystym(sciezka, kolor=kolor, udzial_kwadratu=0.8)
+    return {"plik": str(sciezka)}
+
+
+def test_wejscia_elementow_kolazu_leza_na_polowkach_uderzen_i_nie_w_ostatnich_klatkach():
+    assert render.polowki_uderzen([4, 12, 20]) == [4, 8, 12, 16, 20]
+    assert render.czasy_wejsc_kolazu([4, 12, 20], 40, 30) == [4, 8, 12, 16, 20]
+    assert render.czasy_wejsc_kolazu([4, 12, 19], 20, 30) == [4, 8, 12]
+    assert render.czasy_wejsc_kolazu([0, 6, 12], 60, 30) == [3, 6, 9, 12]
+    assert render.czasy_wejsc_kolazu(list(range(4, 90, 6)), 90, 30) == [4, 7, 10, 13, 16]
+    assert len(render.czasy_wejsc_kolazu(list(range(2, 200, 2)), 200, 30, 9)) == render.LICZBA_ELEMENTOW_KOLAZU
+
+
+def test_kolaz_wprowadza_elementy_na_polowkach_i_nie_wiecej_niz_piec(tmp_path):
+    wycinki = [wycinek_koloru(tmp_path, f"w{i}.png", (220, 30 * i, 30)) for i in range(7)]
+    kolaz = tmp_path / "kolaz.mov"
+
+    miejsca = render.przygotuj_kolaz(wycinki, [4, 12, 20], 40, 30, 270, 480, kolaz, mapa=np.zeros((160, 90), dtype=np.float32))
+    klatki = warstwa_rgba(kolaz, 270, 480)
+
+    assert len(miejsca) == 5 and len(klatki) == 40
+    assert klatki[3, :, :, 3].max() == 0
+    assert klatki[4, :, :, 3].max() > 0
+    assert klatki[39, :, :, 3].max() > 0
+
+    miejsca = render.przygotuj_kolaz(wycinki, [4, 12, 19], 20, 30, 270, 480, tmp_path / "krotki.mov", mapa=np.zeros((160, 90), dtype=np.float32))
+    assert len(miejsca) == 3
+
+    miejsca = render.przygotuj_kolaz(wycinki, list(range(4, 90, 6)), 90, 30, 270, 480, tmp_path / "gesty.mov", mapa=np.zeros((160, 90), dtype=np.float32))
+    assert len(miejsca) == render.LICZBA_ELEMENTOW_KOLAZU
+
+
+def test_wjazd_zaczyna_przesuniety_i_wiekszy_a_w_czwartej_klatce_stoi_na_miejscu():
+    element = Image.new("RGBA", (60, 60), (220, 30, 30, 255))
+    srodek = (200.0, 240.0)
+
+    pierwsza = ramka_alfa(np.asarray(render.platno_wjazdu(element, srodek, 0, 270, 480)), prog=20)
+    trzecia = ramka_alfa(np.asarray(render.platno_wjazdu(element, srodek, 2, 270, 480)), prog=20)
+    czwarta = ramka_alfa(np.asarray(render.platno_wjazdu(element, srodek, 3, 270, 480)))
+
+    assert czwarta == (170, 210, 230, 270)
+    assert render.kierunek_do_krawedzi(srodek, 270, 480) == (1.0, 0.0)
+    assert (pierwsza[2] - pierwsza[0]) > 1.15 * 60
+    assert (pierwsza[0] + pierwsza[2]) / 2 - 200 > 0.2 * 60
+    assert (trzecia[2] - trzecia[0]) < (pierwsza[2] - pierwsza[0])
+    assert 0 < (trzecia[0] + trzecia[2]) / 2 - 200 < (pierwsza[0] + pierwsza[2]) / 2 - 200
+
+
+def test_wjazd_w_kolazu_zaczyna_w_klatce_wejscia_i_stoi_na_miejscu(tmp_path):
+    wycinek = wycinek_koloru(tmp_path, "w.png", (220, 30, 30))
+    kolaz = tmp_path / "kolaz.mov"
+
+    miejsca = render.przygotuj_kolaz([wycinek], [4], 30, 30, 270, 480, kolaz, mapa=mapa_z_szumem_po_lewej(), wejscie="wjazd")
+    klatki = warstwa_rgba(kolaz, 270, 480)
+
+    assert len(miejsca) == 1
+    assert ramka_alfa(klatki[3], prog=1) is None
+    assert ramka_alfa(klatki[4], prog=1) is not None
+    assert ramka_alfa(klatki[7]) == ramka_alfa(klatki[25])
+
+
+def test_powiekszenie_jednego_elementu_z_dwukrotnej_skali_i_rozmycia_do_ostrej_jedynki(tmp_path):
+    wysoki = tmp_path / "wysoki.png"
+    Image.new("RGBA", (30, 180), (30, 30, 220, 255)).save(wysoki)
+    wycinek = {"plik": str(wysoki)}
+    kolaz = tmp_path / "kolaz.mov"
+
+    miejsca = render.przygotuj_kolaz(
+        [wycinek, wycinek_koloru(tmp_path, "w2.png", (30, 220, 30))], [3], 30, 30, 270, 480, kolaz,
+        mapa=mapa_z_szumem_na_bokach(), wejscie="powiekszenie",
+    )
+    klatki = warstwa_rgba(kolaz, 270, 480)
+
+    assert len(miejsca) == 1
+    poczatek = 3
+    docelowa = ramka_alfa(klatki[poczatek + 14])
+    pierwsza = ramka_alfa(klatki[poczatek], prog=20)
+    assert docelowa[3] == 480 and abs((docelowa[3] - docelowa[1]) - 0.90 * 480) < 3
+    assert (pierwsza[2] - pierwsza[0]) > 1.6 * (docelowa[2] - docelowa[0])
+
+    def czesc_czesciowa(klatka):
+        alfa = klatka[:, :, 3]
+        return ((alfa > 0) & (alfa < 255)).sum() / max(1, (alfa > 0).sum())
+
+    assert czesc_czesciowa(klatki[poczatek]) > 5 * czesc_czesciowa(klatki[poczatek + 14]) + 0.05
+    assert klatki[poczatek + 14, :, :, 3].max() == 255
+
+
+def test_kafel_to_prostokat_ze_zwyklego_zdjecia_w_jego_kolorze(tmp_path):
+    zdjecie = tmp_path / "zdjecie.jpg"
+    generuj.zdjecie_testowe(zdjecie, rozmiar=(600, 400), kolor=(0, 200, 0))
+    kolaz = tmp_path / "kolaz.mov"
+
+    miejsca = render.przygotuj_kolaz(
+        [{"plik": str(zdjecie), "kafel": True}], [3], 20, 30, 270, 480, kolaz, mapa=mapa_z_szumem_po_lewej(),
+    )
+    klatki = warstwa_rgba(kolaz, 270, 480)
+
+    x, y = miejsca[0]
+    szerokosc_kafla, wysokosc_kafla = round(0.45 * 270), round(0.28 * 480)
+    srodek_x = min(269, max(0, round(x * 270) + szerokosc_kafla // 2))
+    srodek_y = min(479, max(0, round(y * 480) + wysokosc_kafla // 2))
+    piksel = klatki[15, srodek_y, srodek_x].astype(int)
+    assert piksel[3] == 255 and piksel[1] > 150 and piksel[0] < 80
+    ramka = ramka_alfa(klatki[15])
+    assert abs((ramka[2] - ramka[0]) - min(szerokosc_kafla, 270 - max(0, round(x * 270)))) <= 3 or ramka[0] == 0 or ramka[2] == 270

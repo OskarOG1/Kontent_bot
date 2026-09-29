@@ -86,6 +86,13 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-29: zadanie 12.4 (kolaż w rytmie wzoru), gałąź `styl`
+- Start: gałąź `styl` założona z `origin/claude/loving-cannon-rdgo03` (tam leżało już 12.3, `main` go nie miał). Jedna poprawka po drodze: test `test_render_ai_scenariusz_na_wzorze_z_dropem_...` zakładał dokładnie jeden kolaż, a automat 12.3 słusznie dokłada kolaż w uzupełnieniu ujęć wzoru bez scenariusza; test sprawdza teraz kolaż scenariusza i to, że w ujęciach 0 do 2 jest tylko on.
+- Zrobione: `polowki_uderzen`, `czasy_wejsc_kolazu` (półuderzenia, pierwsze najwcześniej w klatce 2, odpadają wejścia w ostatnich 0,25 s, najwyżej `LICZBA_ELEMENTOW_KOLAZU` 5; bez uderzeń w ujęciu krok 0,23 s), wejścia `wjazd` (3 klatki, przesunięcie 35% ku najbliższej krawędzi, skala 1,3, rozmycie ruchu z 5 kopii), `wskok` (dawne skale) i `powiekszenie` (jeden element, wysokość 95%, dół 5% poza kadrem, skala 2,0 do 1,0 przez 14 klatek, rozmycie Gaussa 12 px do 0), kafle (`kafel: True` w elemencie: zdjęcie dopasowane „cover” do 45% x 28%). `przygotuj_kolaz` dostaje `wejscie`; bez mapy zostaje ścieżka dawna (stałe pola, `wskok`).
+- Automat bierze tyle wycinków, ile półuderzeń mieści ujęcie (najwyżej 5). Podsumowanie `kolaze` ma `wejscie`, a `wycinki` liczy tylko elementy, które weszły.
+- Kafle przyjdą ze scenariusza dopiero w 12.6 (numeracja zwykłych zdjęć w `kolaz`), `wejscie_kolazu` z ujęcia też (`ujecie.get`, na razie domyślnie `wjazd`).
+- Testy: `tests/test_styl.py` 30 z 30, pełny zestaw 456 z 456 (533 s).
+
 ### 2026-09-29: zadanie 12.3 (kolaż na spokojnym tle), gałąź `claude/loving-cannon-rdgo03`
 - Zrobione: `klatki_tla`, `ruch_tla`, `mapa_zajetosci`, `miejsca_kolazu`, bramka ruchu (`PROG_RUCHU_KOLAZU` 5,0) dla scenariusza i automatu, kolaż na zdjęciu (`segment_zdjecia(kolaz=...)`), podsumowanie `kolaze` (`ruch`, `miejsca`) i `kolaze_pominiete`. Automat: najwyżej 3 najspokojniejsze ujęcia co najmniej 3 s od siebie zamiast reguły „co drugi klip”, więc `kolaz_kwalifikuje` nie ma już parametru `numer_klipu`.
 - Środowisko sesji: Linux, Python 3.13 (venv poza repo), ffmpeg 6.1 (serwer i CI mają 7.1), brak `dane/` i klucza AI. Zadanie 12.7 da się tu napisać, ale nie zmierzyć.
