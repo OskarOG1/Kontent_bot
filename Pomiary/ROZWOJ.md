@@ -86,6 +86,12 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-29: odbiór 12.3 do 12.7 (Opus), gałąź `styl`
+- **Ruch tła 0,0 w kolażach AI to nie błąd:** wszystkie kolaże AI stoją na zdjęciach (4 identyczne klatki). Pominięte kolaże AI na klipach mają ruch 5,33 i 53,4, więc pomiar klipów działa.
+- **Zero kolaży automatu jest zgodne z kontraktem:** w planie automatu (0923) zdjęcia trwają 0,4 do 0,7 s, a co najmniej 1,5 s mają tylko klipy. Ruch tła tych klipów wynosi 12,7 do 50,4 (próg 5,0), bo nagrania właściciela są ruchome. Do decyzji właściciela: (a) zostawić, (b) automat wydłuża jedno zdjęcie w haku do 1,5 s pod kolaż, (c) podnieść próg dla automatu.
+- **Błąd naprawiony:** w AI okno gwiazd startowało na 0,0 s i nakładało się na kolaż otwarcia. Reżyser dał `gwiazdy` na ujęciu z kolażem mimo zakazu w poleceniu. `okno_gwiazd` w scenariuszu pomija teraz ujęcia z kolażem (odstępstwo od kontraktu 12.5: okno ze scenariusza liczy tylko ujęcia z `gwiazdy` bez kolażu). Testy: `test_okno_gwiazd_ze_scenariusza...` i `test_render_ai_ze_wszystkimi_nowymi_polami...` (gwiazdy kończą się przed kolażem).
+- Koszt AI 2,09 USD przekroczył zgodę 1,5 USD, a szacunek skryptu był za niski. Napis w skrypcie zmieniony z „najwyżej” na „około”.
+
 ### 2026-09-29: zadanie 12.7 (pomiar stylu), gałąź `styl`
 - **Wynik:** progi B spełnione (ruch tła każdego z 16 kolaży w progu 5,0, żaden kolaż nie zaczyna się na dropie, 10 z 10 renderów bez błędu), arkusze i próbne edity powstały. Koszt AI **2,09 USD** (5 edytów, 0,38 do 0,50 USD każdy), czyli powyżej szacunku skryptu (najwyżej 1,82 USD); zgoda właściciela była na 1,5 USD, więc przekroczona.
 - Sekcja A (pasy): 29 klipów `dane/nagrania`, 5 z wykrytymi pasami, mediana 1,85 s na klip (jeden klip 8K 33 s).

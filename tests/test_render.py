@@ -1743,8 +1743,9 @@ def test_render_ai_ze_wszystkimi_nowymi_polami_scenariusza_konczy_sie_kodem_0(tm
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
 
     ujecia = [
+        {"material": 0, "uderzenia": 6, "gwiazdy": True},
         {"material": 3, "uderzenia": 6, "kolaz": [4, 0, 1], "wejscie_kolazu": "wjazd", "miejsce_kolazu": "prawo", "gwiazdy": True},
-        {"material": 3, "uderzenia": 6, "kolaz": [4], "wejscie_kolazu": "powiekszenie", "gwiazdy": True},
+        {"material": 3, "uderzenia": 6, "kolaz": [4], "wejscie_kolazu": "powiekszenie"},
         {"material": 3, "uderzenia": 6, "kolaz": [4, 2], "wejscie_kolazu": "wskok", "miejsce_kolazu": "dol"},
     ] + [{"material": i % 3, "uderzenia": 1} for i in range(20)]
     klient = KlientAiTestowy([
@@ -1759,4 +1760,5 @@ def test_render_ai_ze_wszystkimi_nowymi_polami_scenariusza_konczy_sie_kodem_0(tm
 
     assert wyjscie.exists() and podsumowanie["ai"]["rezyser"] is True
     assert podsumowanie["gwiazdy"] is not None
+    assert podsumowanie["gwiazdy"]["do_s"] <= min(k["start_s"] for k in podsumowanie["kolaze"])
     assert {k["wejscie"] for k in podsumowanie["kolaze"]} >= {"wjazd", "powiekszenie", "wskok"}
