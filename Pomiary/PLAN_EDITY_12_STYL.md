@@ -1,7 +1,7 @@
 # Część 12: styl `0923` w renderze (pasy kinowe, kolaż na spokojnym tle, efekty wzoru)
 
 **Zależy od:** części 10 (kolaż, przejścia) i 11 (reżyser, krytyk, polecenie ze stylem `0923`).
-**Gałąź:** zadania 12.1 i 12.2 zrobił Opus 2026-09-29 na `claude/jolly-cray-kzqze8` (do scalenia nowym PR, bo PR #31 jest już scalony). Zadania 12.3 do 12.7: gałąź `styl` od `main` po tym scaleniu.
+**Gałąź:** zadania 12.1 i 12.2 zrobił Opus 2026-09-29 na `claude/jolly-cray-kzqze8` (PR #32, scalony 2026-09-29). Zadania 12.3 do 12.7: gałąź `styl` od `main` po tym scaleniu.
 **Efekt:** edity bliższe `0923` bez kopiowania jego obrazu:
 - klipy z czarnymi pasami kinowymi wypełniają cały kadr (12.1);
 - przejścia jak w `0923`: pionowa smuga, która znika w 7 klatkach, rozciągnięcie pikseli i najazd na każdym ujęciu, nie tylko na planszy (12.2);
