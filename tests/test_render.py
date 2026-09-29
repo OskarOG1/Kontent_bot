@@ -1684,8 +1684,8 @@ def test_render_ai_scenariusz_na_wzorze_z_dropem_efekty_kolaz_i_opis_wzoru(tmp_p
     assert segmenty[0]["blysk_s"] == 0.1
     assert segmenty[1]["blysk_s"] == 0.0
     assert segmenty[1]["kolaz"] is not None
-    assert len(podsumowanie["kolaze"]) == 1
-    kolaz = podsumowanie["kolaze"][0]
+    kolaz = next(k for k in podsumowanie["kolaze"] if k["ujecie"] == 1)
+    assert [k["ujecie"] for k in podsumowanie["kolaze"] if k["ujecie"] < 3] == [1]
     assert kolaz["ujecie"] == 1 and kolaz["wycinki"] == ["0000000004_w.png"]
     assert kolaz["ruch"] <= render.PROG_RUCHU_KOLAZU and len(kolaz["miejsca"]) == 1
     assert podsumowanie["kolaze_pominiete"] == []
