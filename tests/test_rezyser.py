@@ -266,14 +266,14 @@ def test_schematy_bez_ograniczen_nieobslugiwanych_i_ze_wszystkimi_polami_wymagan
 
 def test_schemat_scenariusza_ma_dozwolone_wartosci_efektow_i_uderzen():
     ujecie = rezyser.schemat_scenariusza()["$defs"]["Ujecie"]["properties"]
-    assert ujecie["przejscie"]["enum"] == ["brak", "smuga", "najazd"]
+    assert ujecie["przejscie"]["enum"] == ["brak", "smuga", "najazd", "rozciagniecie"]
     assert ujecie["blysk_s"]["enum"] == [0.0, 0.1, 0.3]
     assert ujecie["uderzenia"]["enum"] == list(range(1, 9))
     assert rezyser.schemat_oceny()["properties"]["ocena"]["enum"] == list(range(1, 11))
 
 
 def test_polecenie_rezysera_wymienia_efekty_i_numeracje():
-    for fraza in ("smuga", "najazd", "0.1", "0.3", "kolaz", "Wycinki nie są ujęciami"):
+    for fraza in ("smuga", "najazd", "rozciagniecie", "0.1", "0.3", "kolaz", "Wycinki nie są ujęciami"):
         assert fraza in rezyser.POLECENIE_REZYSERA
 
 

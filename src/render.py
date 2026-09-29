@@ -56,7 +56,14 @@ KLATEK_UDERZENIA_ZOOM = 5
 SILA_NAJAZDU = 0.35
 KLATEK_NAJAZDU = 6
 KLATEK_WSTRZASU = 15
-FILTR_SMUGI = "gblur=sigma=1:sigmaV=60:enable='lt(n,4)'"
+FILTR_SMUGI = (
+    "gblur=sigma=1:sigmaV=80:enable='lt(n,3)',"
+    "gblur=sigma=1:sigmaV=35:enable='between(n,3,4)',"
+    "gblur=sigma=1:sigmaV=12:enable='between(n,5,6)'"
+)
+FILTR_NAJAZDU = "gblur=sigma=18:enable='lt(n,3)'"
+LINIA_ROZCIAGNIECIA = 0.45
+KLATEK_ROZCIAGNIECIA = 10
 KOTWICA_ZOOM = "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
 UDZIAL_SZEROKOSCI_KOLAZU = 0.55
 UDZIAL_WYSOKOSCI_KOLAZU = 0.36
@@ -183,7 +190,10 @@ def przygotuj_zdjecie(sciezka, katalog_pracy: Path, indeks: int, szerokosc: int,
     return wyjscie
 
 
-def wyrazenie_zoom(numer_ujecia: int, liczba_klatek: int, uderzenie: bool = False) -> str:
+def wyrazenie_zoom(
+    numer_ujecia: int, liczba_klatek: int, uderzenie: bool = False,
+    sila_uderzenia: float = SILA_UDERZENIA_ZOOM, klatki_uderzenia: int = KLATEK_UDERZENIA_ZOOM,
+) -> str:
     if liczba_klatek <= 1:
         krok = 0.0
     else:
@@ -196,7 +206,17 @@ def wyrazenie_zoom(numer_ujecia: int, liczba_klatek: int, uderzenie: bool = Fals
         baza = f"(1+{krok:.8f}*on)"
     else:
         baza = f"({ZOOM_MAKSYMALNY}-{krok:.8f}*on)"
-    return f"{baza}*(1+{SILA_UDERZENIA_ZOOM}*pow(max(0,1-on/{KLATEK_UDERZENIA_ZOOM}),2))"
+    return f"{baza}*(1+{sila_uderzenia}*pow(max(0,1-on/{klatki_uderzenia}),2))"
+
+
+def filtr_rozciagniecia(szerokosc: int, wysokosc: int, wejscie: str, wyjscie: str) -> str:
+    linia = round(wysokosc * LINIA_ROZCIAGNIECIA / 2) * 2
+    return (
+        f"[{wejscie}]split[roz_a][roz_b];"
+        f"[roz_b]crop={szerokosc}:2:0:{linia},scale={szerokosc}:{wysokosc - linia}:flags=neighbor,"
+        f"format=yuva420p,fade=t=out:start_frame=0:nb_frames={KLATEK_ROZCIAGNIECIA}:alpha=1[roz_s];"
+        f"[roz_a][roz_s]overlay=0:{linia}:enable='lt(n,{KLATEK_ROZCIAGNIECIA})',format=yuv420p[{wyjscie}]"
+    )
 
 
 def filtr_wstrzasu(szerokosc: int, wysokosc: int) -> str:
@@ -220,9 +240,32 @@ def efekt_ujecia(ujecie: dict, indeks: int, klatka_dropu: int | None, licznik_zd
         blysk_s, wstrzas = 0.0, False
     przejscie = "brak"
     po_dropie = klatka_dropu is not None and ujecie["klatka_od"] > klatka_dropu
-    if not na_dropie and ujecie["typ"] == "zdjecie" and po_dropie and licznik_zdjec_montazu % 3 == 0:
-        przejscie = "smuga"
+    if indeks == 1 and not na_dropie:
+        przejscie = "najazd"
+    elif not na_dropie and ujecie["typ"] == "zdjecie" and po_dropie and licznik_zdjec_montazu % 3 == 0:
+        przejscie = "smuga" if (licznik_zdjec_montazu // 3) % 2 == 1 else "rozciagniecie"
     return {"uderzenie": True, "blysk_s": blysk_s, "wstrzas": wstrzas, "przejscie": przejscie}
+
+
+def filtr_przejscia(przejscie: str) -> str:
+    if przejscie == "smuga":
+        return f",{FILTR_SMUGI}"
+    if przejscie == "najazd":
+        return f",{FILTR_NAJAZDU}"
+    return ""
+
+
+def koncowka_segmentu(blysk_s: float) -> str:
+    koncowka = f",fade=t=in:st=0:d={blysk_s}:color=white" if blysk_s > 0 else ""
+    return koncowka + ",setsar=1"
+
+
+def graf_z_rozciagnieciem(filtr: str, koncowka: str, szerokosc: int, wysokosc: int) -> str:
+    return (
+        f"[0:v]{filtr}[przed];"
+        f"{filtr_rozciagniecia(szerokosc, wysokosc, 'przed', 'po')};"
+        f"[po]{koncowka.lstrip(',')}"
+    )
 
 
 def segment_zdjecia(
@@ -232,8 +275,14 @@ def segment_zdjecia(
 ) -> None:
     szerokosc_robocza = szerokosc * MNOZNIK_ROBOCZY_ZOOM
     wysokosc_robocza = wysokosc * MNOZNIK_ROBOCZY_ZOOM
-    wyrazenie = wyrazenie_zoom(numer_ujecia, liczba_klatek, uderzenie=uderzenie)
-    kotwica = f":{KOTWICA_ZOOM}" if uderzenie else ""
+    najazd = przejscie == "najazd"
+    if najazd:
+        wyrazenie = wyrazenie_zoom(
+            numer_ujecia, liczba_klatek, uderzenie=True, sila_uderzenia=SILA_NAJAZDU, klatki_uderzenia=KLATEK_NAJAZDU,
+        )
+    else:
+        wyrazenie = wyrazenie_zoom(numer_ujecia, liczba_klatek, uderzenie=uderzenie)
+    kotwica = f":{KOTWICA_ZOOM}" if uderzenie or najazd else ""
     filtr = (
         f"scale={szerokosc_robocza}:{wysokosc_robocza}:force_original_aspect_ratio=increase,"
         f"crop={szerokosc_robocza}:{wysokosc_robocza},"
@@ -244,14 +293,18 @@ def segment_zdjecia(
         filtr += f",lut3d={lut_sciezka}"
     if wstrzas:
         filtr += f",{filtr_wstrzasu(szerokosc, wysokosc)}"
-    if przejscie == "smuga":
-        filtr += f",{FILTR_SMUGI}"
-    if blysk_s > 0:
-        filtr += f",fade=t=in:st=0:d={blysk_s}:color=white"
-    filtr += ",setsar=1"
+    filtr += filtr_przejscia(przejscie)
+    koncowka = koncowka_segmentu(blysk_s)
+    if przejscie == "rozciagniecie":
+        argumenty_filtra = [
+            "-filter_complex", f"{graf_z_rozciagnieciem(filtr, koncowka, szerokosc, wysokosc)}[baza]",
+            "-map", "[baza]",
+        ]
+    else:
+        argumenty_filtra = ["-vf", filtr + koncowka]
     uruchom_ffmpeg([
         "-loop", "1", "-i", str(sciezka_przygotowana),
-        "-vf", filtr,
+        *argumenty_filtra,
         "-frames:v", str(liczba_klatek),
         "-an",
         *PARAMETRY_KODOWANIA_SEGMENTU,
@@ -272,29 +325,41 @@ def segment_klipu(
         f"fps={fps},"
         f"tpad=stop_mode=clone:stop=-1"
     )
-    if uderzenie:
-        wyrazenie = f"(1+{SILA_UDERZENIA_ZOOM}*pow(max(0,1-on/{KLATEK_UDERZENIA_ZOOM}),2))"
+    if uderzenie or przejscie == "najazd":
+        sila, klatki = (SILA_NAJAZDU, KLATEK_NAJAZDU) if przejscie == "najazd" else (SILA_UDERZENIA_ZOOM, KLATEK_UDERZENIA_ZOOM)
+        wyrazenie = f"(1+{sila}*pow(max(0,1-on/{klatki}),2))"
         filtr += f",zoompan=z='{wyrazenie}':{KOTWICA_ZOOM}:d=1:s={szerokosc}x{wysokosc}:fps={fps}"
     if lut_sciezka is not None:
         filtr += f",lut3d={lut_sciezka}"
     if wstrzas:
         filtr += f",{filtr_wstrzasu(szerokosc, wysokosc)}"
-    if przejscie == "smuga":
-        filtr += f",{FILTR_SMUGI}"
-    if blysk_s > 0:
-        filtr += f",fade=t=in:st=0:d={blysk_s}:color=white"
-    filtr += ",setsar=1"
-    if kolaz is None:
+    filtr += filtr_przejscia(przejscie)
+    koncowka = koncowka_segmentu(blysk_s)
+    if przejscie == "rozciagniecie":
+        graf_bazy = graf_z_rozciagnieciem(filtr, koncowka, szerokosc, wysokosc)
+    else:
+        graf_bazy = f"[0:v]{filtr}{koncowka}"
+    if kolaz is None and przejscie != "rozciagniecie":
         uruchom_ffmpeg([
             "-ss", f"{start_s:.6f}", "-i", str(sciezka_zrodlowa),
-            "-vf", filtr,
+            "-vf", filtr + koncowka,
+            "-frames:v", str(liczba_klatek),
+            "-an",
+            *PARAMETRY_KODOWANIA_SEGMENTU,
+            str(wyjscie),
+        ], katalog=katalog)
+    elif kolaz is None:
+        uruchom_ffmpeg([
+            "-ss", f"{start_s:.6f}", "-i", str(sciezka_zrodlowa),
+            "-filter_complex", f"{graf_bazy}[baza]",
+            "-map", "[baza]",
             "-frames:v", str(liczba_klatek),
             "-an",
             *PARAMETRY_KODOWANIA_SEGMENTU,
             str(wyjscie),
         ], katalog=katalog)
     else:
-        filtr_complex = f"[0:v]{filtr}[baza];[1:v]format=rgba[nak];[baza][nak]overlay=format=auto[out]"
+        filtr_complex = f"{graf_bazy}[baza];[1:v]format=rgba[nak];[baza][nak]overlay=format=auto[out]"
         uruchom_ffmpeg([
             "-ss", f"{start_s:.6f}", "-i", str(sciezka_zrodlowa),
             "-i", str(kolaz),
@@ -372,7 +437,7 @@ def segment_planszy(
         wyrazenie = f"(1+{SILA_NAJAZDU}*pow(max(0,1-on/{KLATEK_NAJAZDU}),2))"
         ogon += (
             f",zoompan=z='{wyrazenie}':{KOTWICA_ZOOM}:d=1:s={szerokosc}x{wysokosc}:fps={fps},"
-            f"gblur=sigma=18:enable='lt(n,3)'"
+            f"{FILTR_NAJAZDU}"
         )
     if not jest_zdjeciem:
         ogon += ",tpad=stop_mode=clone:stop=-1"

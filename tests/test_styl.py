@@ -2,6 +2,7 @@ import json
 import subprocess
 
 import numpy as np
+from PIL import Image
 
 import generuj
 import render
@@ -169,3 +170,88 @@ def test_renderuj_klip_z_pasami_na_liscie_pasow(tmp_path):
 
     assert [wpis["plik"] for wpis in podsumowanie["pasy"]] == ["0000000003_d.mp4"]
     assert podsumowanie["pasy"][0]["kadr"]["h"] < 0.8
+
+
+def zdjecie_w_paski(sciezka, rozmiar=(540, 960), pas=24):
+    obraz = np.zeros((rozmiar[1], rozmiar[0], 3), dtype=np.uint8)
+    for indeks, gora in enumerate(range(0, rozmiar[1], pas)):
+        obraz[gora:gora + pas] = (230, 200, 40) if indeks % 2 == 0 else (30, 60, 200)
+    Image.fromarray(obraz).save(sciezka)
+    return sciezka
+
+
+def segment_zdjecia_testowy(tmp_path, nazwa, przejscie, liczba_klatek=14, zdjecie=None):
+    zrodlo = zdjecie or zdjecie_w_paski(tmp_path / f"{nazwa}.png")
+    praca = tmp_path / f"praca_{nazwa}"
+    praca.mkdir()
+    przygotowane = render.przygotuj_zdjecie(zrodlo, praca, 0, 270, 480)
+    wyjscie = tmp_path / f"{nazwa}.mp4"
+    render.segment_zdjecia(
+        przygotowane, wyjscie, numer_ujecia=0, liczba_klatek=liczba_klatek, fps=30, szerokosc=270, wysokosc=480,
+        przejscie=przejscie,
+    )
+    return klatki_wideo(wyjscie, 270, 480)
+
+
+def zmiennosc_pionowa(klatka, od, do):
+    return float(np.abs(np.diff(klatka[od:do].astype(np.int32), axis=0)).sum())
+
+
+def test_smuga_slabnie_przez_siedem_klatek(tmp_path):
+    klatki = segment_zdjecia_testowy(tmp_path, "smuga", "smuga")
+    bez = segment_zdjecia_testowy(tmp_path, "bez", "brak")
+
+    ostrosc = [zmiennosc_pionowa(k, 100, 380) for k in klatki]
+    assert len(klatki) == 14
+    assert ostrosc[1] < ostrosc[3] < ostrosc[5] < ostrosc[8]
+    assert abs(ostrosc[8] - zmiennosc_pionowa(bez[8], 100, 380)) < 0.05 * ostrosc[8]
+
+
+def test_rozciagniecie_daje_pionowe_smugi_pod_linia_i_znika(tmp_path):
+    klatki = segment_zdjecia_testowy(tmp_path, "rozciagniecie", "rozciagniecie")
+
+    linia = round(480 * render.LINIA_ROZCIAGNIECIA)
+    assert len(klatki) == 14
+    assert zmiennosc_pionowa(klatki[0], linia + 20, 470) < 0.1 * zmiennosc_pionowa(klatki[12], linia + 20, 470)
+    assert zmiennosc_pionowa(klatki[0], 10, linia - 20) > 0.5 * zmiennosc_pionowa(klatki[12], 10, linia - 20)
+    assert zmiennosc_pionowa(klatki[5], linia + 20, 470) > zmiennosc_pionowa(klatki[0], linia + 20, 470)
+
+
+def test_najazd_na_zdjeciu_i_klipie_rozmywa_pierwsze_klatki(tmp_path):
+    klatki_zdjecia = segment_zdjecia_testowy(tmp_path, "najazd", "najazd")
+    klip = klip_lavfi(tmp_path / "paski.mp4", "testsrc2=size=480x270:rate=30")
+    wyjscie = tmp_path / "najazd_klip.mp4"
+    render.segment_klipu(klip, wyjscie, start_s=0.0, liczba_klatek=12, fps=30, szerokosc=270, wysokosc=480, przejscie="najazd")
+    klatki_klipu = klatki_wideo(wyjscie, 270, 480)
+
+    assert zmiennosc_pionowa(klatki_zdjecia[0], 100, 380) < 0.5 * zmiennosc_pionowa(klatki_zdjecia[10], 100, 380)
+    assert zmiennosc_pionowa(klatki_klipu[0], 0, 480) < 0.5 * zmiennosc_pionowa(klatki_klipu[10], 0, 480)
+
+
+def test_rozciagniecie_na_klipie_z_kolazem(tmp_path):
+    klip = klip_lavfi(tmp_path / "klip.mp4", "testsrc2=size=480x270:rate=30")
+    wycinek = tmp_path / "wycinek.png"
+    generuj.zdjecie_kwadrat_na_przezroczystym(wycinek)
+    kolaz = tmp_path / "kolaz.mov"
+    render.przygotuj_kolaz([{"plik": str(wycinek)}], [3], 12, 30, 270, 480, kolaz)
+    wyjscie = tmp_path / "segment.mp4"
+
+    render.segment_klipu(
+        klip, wyjscie, start_s=0.0, liczba_klatek=12, fps=30, szerokosc=270, wysokosc=480,
+        przejscie="rozciagniecie", blysk_s=0.1, kolaz=kolaz,
+    )
+
+    assert len(klatki_wideo(wyjscie, 270, 480)) == 12
+
+
+def test_efekt_ujecia_drugie_ujecie_najazd_i_zmiana_smugi_z_rozciagnieciem():
+    drugie = render.efekt_ujecia({"typ": "zdjecie", "klatka_od": 10}, 1, None, 0)
+    drugie_na_dropie = render.efekt_ujecia({"typ": "klip", "klatka_od": 10}, 1, 10, 0)
+    po_dropie = [render.efekt_ujecia({"typ": "zdjecie", "klatka_od": 60}, 7, 10, licznik)["przejscie"] for licznik in range(1, 13)]
+
+    assert drugie["przejscie"] == "najazd"
+    assert drugie_na_dropie["przejscie"] == "brak" and drugie_na_dropie["wstrzas"] is True
+    assert po_dropie == [
+        "brak", "brak", "smuga", "brak", "brak", "rozciagniecie",
+        "brak", "brak", "smuga", "brak", "brak", "rozciagniecie",
+    ]

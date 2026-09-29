@@ -364,7 +364,7 @@ class Ujecie(BaseModel):
     uderzenie: bool = Field(default=False, description="krótki zoom na początku ujęcia")
     blysk_s: Literal[0.0, 0.1, 0.3] = Field(default=0.0, description="biały błysk na początku ujęcia w sekundach")
     wstrzas: bool = Field(default=False, description="wstrząs kadru przez pierwsze pół sekundy")
-    przejscie: Literal["brak", "smuga", "najazd"] = Field(default="brak", description="wejście ujęcia")
+    przejscie: Literal["brak", "smuga", "najazd", "rozciagniecie"] = Field(default="brak", description="wejście ujęcia")
     kolaz: list[int] = Field(default_factory=list, description="najwyżej 3 numery wycinków, tylko na klipach")
 
     @field_validator("kolaz", mode="before")
@@ -500,9 +500,12 @@ POLECENIE_REZYSERA = (
     "od_s ustaw na najmocniejszej akcji, nie na pierwszej sekundzie klipu; od_s plus długość ujęcia musi "
     "zmieścić się w klipie.\n"
     "Efekty na początku ujęcia: uderzenie (krótki zoom w rytmie), blysk_s (biały błysk 0, 0.1 albo 0.3 s), "
-    "wstrzas (wstrząs kadru przez pół sekundy), przejscie (brak albo smuga, czyli rozmycie ruchu na pierwszych "
-    "klatkach; najazd działa tylko na planszy). Automat daje każdemu ujęciu uderzenie, klipom błysk 0.1, "
-    "a co trzeciemu zdjęciu po dropie smugę. Ujęcie na dropie i tak dostaje błysk 0.3 i wstrząs.\n"
+    "wstrzas (wstrząs kadru przez pół sekundy) i przejscie: brak, smuga (pionowe rozmycie, które znika "
+    "w 7 klatkach), rozciagniecie (pionowe smugi z rozciągniętego wiersza kadru, znikają w 10 klatkach) "
+    "albo najazd (mocny zoom z rozmyciem na pierwszych klatkach). Automat daje każdemu ujęciu uderzenie, "
+    "klipom błysk 0.1, drugiemu ujęciu najazd, a co trzeciemu zdjęciu po dropie na zmianę smugę "
+    "i rozciagniecie. Ujęcie na dropie i tak dostaje błysk 0.3 i wstrząs. Tak jak we wzorze: pierwsze "
+    "ujęcie po otwarciu wchodzi najazdem, a obraz, grafika albo mapa smugą albo rozciagnieciem.\n"
     "Zwróć wyłącznie JSON zgodny z podanym schematem: listę ujęć w kolejności odtwarzania i krótkie "
     "uzasadnienie wyboru (najwyżej 300 znaków)."
 )
