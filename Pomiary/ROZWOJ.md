@@ -86,6 +86,12 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-29: zadanie 12.3 (kolaż na spokojnym tle), gałąź `claude/loving-cannon-rdgo03`
+- Zrobione: `klatki_tla`, `ruch_tla`, `mapa_zajetosci`, `miejsca_kolazu`, bramka ruchu (`PROG_RUCHU_KOLAZU` 5,0) dla scenariusza i automatu, kolaż na zdjęciu (`segment_zdjecia(kolaz=...)`), podsumowanie `kolaze` (`ruch`, `miejsca`) i `kolaze_pominiete`. Automat: najwyżej 3 najspokojniejsze ujęcia co najmniej 3 s od siebie zamiast reguły „co drugi klip”, więc `kolaz_kwalifikuje` nie ma już parametru `numer_klipu`.
+- Środowisko sesji: Linux, Python 3.13 (venv poza repo), ffmpeg 6.1 (serwer i CI mają 7.1), brak `dane/` i klucza AI. Zadanie 12.7 da się tu napisać, ale nie zmierzyć.
+- Gałąź robocza nadana przez sesję to `claude/loving-cannon-rdgo03`, nie `styl` z planu.
+- Testy: `tests/test_styl.py` 24 z 24; pełny zestaw w toku.
+
 ### 2026-09-29 (plan części 12, zadania 12.1 i 12.2, Opus)
 - **Wymaganie właściciela (2026-09-27):** „dopisz do planu a jak jest mało do zrobienia to zrób sam: punkt 2, zmiany do treści klipu i resztę, żeby edity bardziej przypominały edit 0923, ale go nie kopiowały bezpośrednio”. Punkt 2 to zmiany renderu z poprzedniego raportu: miejsca wycinków z treści klipu, pasy kinowe, efekty `0923`.
 - **Plan:** `Pomiary/PLAN_EDITY_12_STYL.md`, 7 zadań. Całość nie jest mała (kolaż, gwiazdy, reżyser, pomiar), więc Opus zrobił dwa małe zadania (12.1, 12.2), a 12.3 do 12.7 są dla wykonawcy. Mapa: wiersz 12, decyzja 25, kolejność 7.

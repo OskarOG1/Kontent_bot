@@ -78,6 +78,18 @@ MINIMUM_KADRU_BEZ_PASOW = 0.5
 LICZBA_KLATEK_PASOW = 6
 SZEROKOSC_KLATKI_PASOW = 320
 ZAPAS_PASA = 2
+PROG_RUCHU_KOLAZU = 5.0
+SZEROKOSC_TLA = 90
+WYSOKOSC_TLA = 160
+UDZIALY_KLATEK_TLA = (0.125, 0.375, 0.625, 0.875)
+OKNO_MAPY_ZAJETOSCI = 9
+WAGA_RUCHU_W_MAPIE = 2.0
+WYSTAWANIE_KOLAZU = 0.08
+WYSOKOSC_WYCINKA_KOLAZU = 0.5
+WYSOKOSC_JEDNEGO_WYCINKA_KOLAZU = 0.6
+SZEROKOSC_MAKS_WYCINKA_KOLAZU = 0.6
+MAKSIMUM_KOLAZY_AUTOMATU = 3
+ODSTEP_KOLAZY_AUTOMATU_S = 3.0
 
 
 def uruchom_ffmpeg(argumenty: list[str], katalog: Path | None = None) -> None:
@@ -272,6 +284,7 @@ def segment_zdjecia(
     sciezka_przygotowana: Path, wyjscie: Path, numer_ujecia: int, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int,
     lut_sciezka: str | None = None, katalog: Path | None = None,
     uderzenie: bool = False, blysk_s: float = 0.0, wstrzas: bool = False, przejscie: str = "brak",
+    kolaz: Path | None = None,
 ) -> None:
     szerokosc_robocza = szerokosc * MNOZNIK_ROBOCZY_ZOOM
     wysokosc_robocza = wysokosc * MNOZNIK_ROBOCZY_ZOOM
@@ -295,6 +308,22 @@ def segment_zdjecia(
         filtr += f",{filtr_wstrzasu(szerokosc, wysokosc)}"
     filtr += filtr_przejscia(przejscie)
     koncowka = koncowka_segmentu(blysk_s)
+    if kolaz is not None:
+        if przejscie == "rozciagniecie":
+            graf_bazy = graf_z_rozciagnieciem(filtr, koncowka, szerokosc, wysokosc)
+        else:
+            graf_bazy = f"[0:v]{filtr}{koncowka}"
+        uruchom_ffmpeg([
+            "-loop", "1", "-i", str(sciezka_przygotowana),
+            "-i", str(kolaz),
+            "-filter_complex", f"{graf_bazy}[baza];[1:v]format=rgba[nak];[baza][nak]overlay=format=auto[out]",
+            "-map", "[out]",
+            "-frames:v", str(liczba_klatek),
+            "-an",
+            *PARAMETRY_KODOWANIA_SEGMENTU,
+            str(wyjscie),
+        ], katalog=katalog)
+        return
     if przejscie == "rozciagniecie":
         argumenty_filtra = [
             "-filter_complex", f"{graf_z_rozciagnieciem(filtr, koncowka, szerokosc, wysokosc)}[baza]",
@@ -1546,9 +1575,7 @@ def materializuj_warstwe(generator_klatek, liczba_klatek: int, fps: float, szero
         raise RuntimeError(f"ffmpeg zakonczyl sie kodem {kod}: {blad}")
 
 
-def kolaz_kwalifikuje(ujecie: dict, numer_klipu: int, klatka_dropu: int | None, okna_slow: list, fps: float) -> bool:
-    if numer_klipu % 2 != 1:
-        return False
+def kolaz_kwalifikuje(ujecie: dict, klatka_dropu: int | None, okna_slow: list, fps: float) -> bool:
     if ujecie["liczba_klatek"] / fps < MINIMUM_KLIPU_KOLAZU_S:
         return False
     if klatka_dropu is not None and ujecie["klatka_od"] == klatka_dropu:
@@ -1559,6 +1586,120 @@ def kolaz_kwalifikuje(ujecie: dict, numer_klipu: int, klatka_dropu: int | None, 
         if poczatek < do and od < koniec:
             return False
     return True
+
+
+def na_szarosc(obraz_rgb: numpy.ndarray) -> numpy.ndarray:
+    return obraz_rgb.astype(numpy.float32) @ numpy.array([0.299, 0.587, 0.114], dtype=numpy.float32)
+
+
+def klatki_tla(ujecie: dict, sciezki_robocze: dict, kadry_klipow: dict, fps: float, czasy_klipow: dict | None = None) -> numpy.ndarray | None:
+    if ujecie["typ"] == "zdjecie":
+        klatka = na_szarosc(obraz_do_statystyk(sciezki_robocze[ujecie["material"]], SZEROKOSC_TLA, WYSOKOSC_TLA))
+        return numpy.stack([klatka] * len(UDZIALY_KLATEK_TLA))
+    start_s = ujecie["start_w_klipie_s"]
+    dlugosc_s = ujecie["liczba_klatek"] / fps
+    if czasy_klipow and ujecie["material"] in czasy_klipow:
+        dlugosc_s = min(dlugosc_s, czasy_klipow[ujecie["material"]] - start_s)
+    if dlugosc_s <= 0:
+        return None
+    filtr = (
+        f"{filtr_kadru(kadry_klipow.get(ujecie['material']))}"
+        f"scale={SZEROKOSC_TLA}:{WYSOKOSC_TLA}:force_original_aspect_ratio=increase,crop={SZEROKOSC_TLA}:{WYSOKOSC_TLA}"
+    )
+    klatki = []
+    with tempfile.TemporaryDirectory() as katalog_tymczasowy:
+        for indeks, udzial in enumerate(UDZIALY_KLATEK_TLA):
+            klatka = probuj_klatke_klipu(
+                ["-ss", f"{start_s + dlugosc_s * udzial:.6f}"], ujecie["material"], filtr, Path(katalog_tymczasowy) / f"tlo_{indeks}.png",
+            )
+            if klatka is not None:
+                klatki.append(na_szarosc(klatka))
+    if len(klatki) < 2:
+        return None
+    return numpy.stack(klatki)
+
+
+def ruch_tla(klatki: numpy.ndarray) -> float:
+    if len(klatki) < 2:
+        return 0.0
+    return float(numpy.abs(numpy.diff(klatki.astype(numpy.float32), axis=0)).mean())
+
+
+def rozmycie_okna(mapa: numpy.ndarray, okno: int) -> numpy.ndarray:
+    promien = okno // 2
+    dopelniona = numpy.pad(mapa, promien, mode="edge")
+    sumy = numpy.pad(dopelniona.cumsum(axis=0).cumsum(axis=1), ((1, 0), (1, 0)))
+    return (sumy[okno:, okno:] - sumy[:-okno, okno:] - sumy[okno:, :-okno] + sumy[:-okno, :-okno]) / (okno * okno)
+
+
+def mapa_zajetosci(klatki: numpy.ndarray) -> numpy.ndarray:
+    k = klatki.astype(numpy.float32)
+    dx = numpy.zeros_like(k)
+    dx[:, :, 1:] = numpy.abs(numpy.diff(k, axis=2))
+    dy = numpy.zeros_like(k)
+    dy[:, 1:, :] = numpy.abs(numpy.diff(k, axis=1))
+    gradient = (dx + dy).mean(axis=0)
+    ruch = numpy.abs(numpy.diff(k, axis=0)).mean(axis=0) if len(k) > 1 else numpy.zeros_like(gradient)
+    return rozmycie_okna(gradient + WAGA_RUCHU_W_MAPIE * ruch, OKNO_MAPY_ZAJETOSCI)
+
+
+STRONY_KANDYDATOW = {
+    "gora": {"lg", "pg", "g"},
+    "dol": {"ld", "pd", "d"},
+    "lewo": {"lg", "ld", "l"},
+    "prawo": {"pg", "pd", "p"},
+}
+
+
+def kandydaci_kolazu(szerokosc: float, wysokosc: float) -> dict:
+    lewo = -WYSTAWANIE_KOLAZU * szerokosc
+    prawo = 1 - szerokosc + WYSTAWANIE_KOLAZU * szerokosc
+    gora = -WYSTAWANIE_KOLAZU * wysokosc
+    dol = 1 - wysokosc + WYSTAWANIE_KOLAZU * wysokosc
+    return {
+        "lg": (lewo, gora), "pg": (prawo, gora), "ld": (lewo, dol), "pd": (prawo, dol),
+        "l": (lewo, (1 - wysokosc) / 2), "p": (prawo, (1 - wysokosc) / 2),
+        "g": ((1 - szerokosc) / 2, gora), "d": ((1 - szerokosc) / 2, dol),
+    }
+
+
+def zajetosc_pod_prostokatem(mapa: numpy.ndarray, x: float, y: float, szerokosc: float, wysokosc: float) -> float:
+    wiersze, kolumny = mapa.shape
+    x0, x1 = max(0, round(x * kolumny)), min(kolumny, round((x + szerokosc) * kolumny))
+    y0, y1 = max(0, round(y * wiersze)), min(wiersze, round((y + wysokosc) * wiersze))
+    if x1 <= x0 or y1 <= y0:
+        return float("inf")
+    return float(mapa[y0:y1, x0:x1].mean())
+
+
+def miejsca_kolazu(mapa: numpy.ndarray, rozmiary: list[tuple[float, float]], strona: str = "auto") -> list[tuple[float, float]]:
+    dozwolone = STRONY_KANDYDATOW.get(strona)
+    uzyte: set[str] = set()
+    wynik = []
+    for szerokosc, wysokosc in rozmiary:
+        kandydaci = {
+            nazwa: pozycja for nazwa, pozycja in kandydaci_kolazu(szerokosc, wysokosc).items()
+            if dozwolone is None or nazwa in dozwolone
+        }
+        wolni = [nazwa for nazwa in kandydaci if nazwa not in uzyte]
+        if not wolni:
+            uzyte = set()
+            wolni = list(kandydaci)
+        najlepszy = min(wolni, key=lambda nazwa: zajetosc_pod_prostokatem(mapa, *kandydaci[nazwa], szerokosc, wysokosc))
+        uzyte.add(najlepszy)
+        wynik.append(kandydaci[najlepszy])
+    return wynik
+
+
+def wybierz_kolaze_automatu(kandydaci: list[tuple[float, int]], ujecia: list[dict], fps: float) -> set[int]:
+    wybrane: list[int] = []
+    for _, indeks in sorted(kandydaci):
+        if len(wybrane) >= MAKSIMUM_KOLAZY_AUTOMATU:
+            break
+        start_s = ujecia[indeks]["klatka_od"] / fps
+        if all(abs(start_s - ujecia[inny]["klatka_od"] / fps) >= ODSTEP_KOLAZY_AUTOMATU_S for inny in wybrane):
+            wybrane.append(indeks)
+    return set(wybrane)
 
 
 def wytnij_do_alfa(sciezka: Path):
@@ -1583,13 +1724,41 @@ def wybierz_wycinki_kolazu(wycinki_posortowane: list[dict], indeks_puli: int) ->
     return wybrane, indeks_puli + ile
 
 
+def rozmiary_wycinkow_kolazu(obrazy: list, szerokosc: int, wysokosc: int) -> list[tuple[int, int]]:
+    udzial_wysokosci = WYSOKOSC_JEDNEGO_WYCINKA_KOLAZU if len(obrazy) == 1 else WYSOKOSC_WYCINKA_KOLAZU
+    rozmiary = []
+    for obraz in obrazy:
+        skala = min(udzial_wysokosci * wysokosc / obraz.height, SZEROKOSC_MAKS_WYCINKA_KOLAZU * szerokosc / obraz.width)
+        rozmiary.append((max(1, round(obraz.width * skala)), max(1, round(obraz.height * skala))))
+    return rozmiary
+
+
+def naloz_obraz(platno, obraz, lewo: int, gora: int) -> None:
+    x0, y0 = max(0, lewo), max(0, gora)
+    x1, y1 = min(platno.width, lewo + obraz.width), min(platno.height, gora + obraz.height)
+    if x1 <= x0 or y1 <= y0:
+        return
+    platno.alpha_composite(obraz.crop((x0 - lewo, y0 - gora, x1 - lewo, y1 - gora)), (x0, y0))
+
+
 def przygotuj_kolaz(
     wycinki_kolazu: list[dict], uderzenia_lokalne: list[int], liczba_klatek: int, fps: float,
-    szerokosc: int, wysokosc: int, wyjscie: Path,
-) -> None:
-    obrazy = [dopasuj_do_pola_kolazu(wytnij_do_alfa(Path(w["plik"])), szerokosc, wysokosc) for w in wycinki_kolazu]
+    szerokosc: int, wysokosc: int, wyjscie: Path, mapa: numpy.ndarray | None = None, strona: str = "auto",
+) -> list[tuple[float, float]] | None:
+    zrodla = [wytnij_do_alfa(Path(w["plik"])) for w in wycinki_kolazu]
+    if mapa is None:
+        obrazy = [dopasuj_do_pola_kolazu(obraz, szerokosc, wysokosc) for obraz in zrodla]
+        srodki = [(round(POLA_KOLAZU[i][0] * szerokosc), round(POLA_KOLAZU[i][1] * wysokosc)) for i in range(len(obrazy))]
+        miejsca = None
+    else:
+        rozmiary = rozmiary_wycinkow_kolazu(zrodla, szerokosc, wysokosc)
+        obrazy = [obraz.resize(rozmiar, Image.LANCZOS) for obraz, rozmiar in zip(zrodla, rozmiary)]
+        miejsca = miejsca_kolazu(mapa, [(w / szerokosc, h / wysokosc) for w, h in rozmiary], strona)
+        srodki = [
+            (round(x * szerokosc) + obraz.width // 2, round(y * wysokosc) + obraz.height // 2)
+            for (x, y), obraz in zip(miejsca, obrazy)
+        ]
     poczatki = [uderzenia_lokalne[i] if i < len(uderzenia_lokalne) else liczba_klatek for i in range(len(obrazy))]
-    srodki = [(round(POLA_KOLAZU[i][0] * szerokosc), round(POLA_KOLAZU[i][1] * wysokosc)) for i in range(len(obrazy))]
 
     def klatka_dla(indeks_lokalny: int):
         platno = Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
@@ -1602,10 +1771,11 @@ def przygotuj_kolaz(
             wysokosc_klatki = max(1, round(obraz.height * skala))
             wersja = obraz.resize((szerokosc_klatki, wysokosc_klatki), Image.LANCZOS)
             srodek_x, srodek_y = srodki[i]
-            platno.alpha_composite(wersja, (srodek_x - szerokosc_klatki // 2, srodek_y - wysokosc_klatki // 2))
+            naloz_obraz(platno, wersja, srodek_x - szerokosc_klatki // 2, srodek_y - wysokosc_klatki // 2)
         return platno
 
     materializuj_warstwe(klatka_dla, liczba_klatek, fps, szerokosc, wysokosc, wyjscie)
+    return miejsca
 
 
 def uderzenia_wyniku(uderzenia_utworu: list[float], start_audio_s: float, liczba_klatek: int, fps: float) -> list[int]:
@@ -1786,10 +1956,60 @@ def zmontuj(
     sekcje = wzor.get("sekcje")
     klatka_dropu = koniec_haka(plan, sekcje) if sekcje and sekcje.get("drop_ujecie") is not None else None
     licznik_zdjec_montazu = 0
-    licznik_klipow = 0
     wycinki_posortowane = sorted(wycinki, key=lambda material: material["message_id"]) if wycinki else []
     indeks_puli_kolazu = 0
     podsumowanie_kolazy = []
+    kolaze_pominiete = []
+    ostrzezenia_kolazy = []
+    tla_ujec = {}
+
+    def tlo_ujecia(indeks: int, ujecie: dict):
+        if indeks not in tla_ujec:
+            tla_ujec[indeks] = klatki_tla(ujecie, sciezki_robocze, kadry_klipow, fps, czasy_klipow)
+        return tla_ujec[indeks]
+
+    ujecia_automatu: set[int] = set()
+    if not bez_dynamiki and wycinki_posortowane:
+        kandydaci = []
+        for indeks, ujecie in enumerate(plan["ujecia"]):
+            if plansza_uzyta and indeks == len(plan["ujecia"]) - 1:
+                continue
+            if ujecie.get("efekt_scenariusza") is not None:
+                continue
+            if not kolaz_kwalifikuje(ujecie, klatka_dropu, okna_slow, fps):
+                continue
+            klatki = tlo_ujecia(indeks, ujecie)
+            if klatki is None:
+                continue
+            ruch = ruch_tla(klatki)
+            if ruch <= PROG_RUCHU_KOLAZU:
+                kandydaci.append((ruch, indeks))
+        ujecia_automatu = wybierz_kolaze_automatu(kandydaci, plan["ujecia"], fps)
+
+    def kolaz_ujecia(indeks: int, ujecie: dict, wybrane: list[dict]) -> Path | None:
+        klatki = tlo_ujecia(indeks, ujecie)
+        ruch = ruch_tla(klatki) if klatki is not None else None
+        if klatki is None or ruch > PROG_RUCHU_KOLAZU:
+            ostrzezenia_kolazy.append(
+                f"ujęcie {indeks}: tło w ruchu ({ruch:.2f}), kolaż pominięty" if ruch is not None
+                else f"ujęcie {indeks}: tło nie do zmierzenia, kolaż pominięty"
+            )
+            kolaze_pominiete.append({"ujecie": indeks, "ruch": round(ruch, 2) if ruch is not None else None})
+            return None
+        uderzenia_lokalne = [
+            k - ujecie["klatka_od"] for k in uderzenia_wyn
+            if ujecie["klatka_od"] < k < ujecie["klatka_od"] + ujecie["liczba_klatek"]
+        ]
+        sciezka = katalog_pracy / f"kolaz_{indeks:06d}.mov"
+        miejsca = przygotuj_kolaz(
+            wybrane, uderzenia_lokalne, ujecie["liczba_klatek"], fps, szerokosc, wysokosc, sciezka,
+            mapa=mapa_zajetosci(klatki), strona=ujecie.get("miejsce_kolazu") or "auto",
+        )
+        podsumowanie_kolazy.append({
+            "ujecie": indeks, "wycinki": [Path(w["plik"]).name for w in wybrane],
+            "ruch": round(ruch, 2), "miejsca": [[round(x, 3), round(y, 3)] for x, y in miejsca],
+        })
+        return sciezka
 
     sciezki_segmentow = []
     for indeks, ujecie in enumerate(plan["ujecia"]):
@@ -1830,6 +2050,18 @@ def zmontuj(
                 efekt = efekt_ujecia(ujecie, indeks, klatka_dropu, licznik_zdjec_montazu)
             if efekt is not None and klatka_dropu is not None and ujecie["klatka_od"] == klatka_dropu:
                 efekt = dict(efekt, blysk_s=0.3, wstrzas=True)
+            sciezka_kolazu = None
+            if ma_efekt_scenariusza:
+                numery_kolazu = ujecie.get("kolaz_scenariusza") or []
+                wybrane = [
+                    wycinki_wedlug_numeru[numer] for numer in numery_kolazu
+                    if wycinki_wedlug_numeru and numer in wycinki_wedlug_numeru
+                ][:LICZBA_WYCINKOW_KOLAZU]
+                if wybrane:
+                    sciezka_kolazu = kolaz_ujecia(indeks, ujecie, wybrane)
+            elif indeks in ujecia_automatu:
+                wybrane, indeks_puli_kolazu = wybierz_wycinki_kolazu(wycinki_posortowane, indeks_puli_kolazu)
+                sciezka_kolazu = kolaz_ujecia(indeks, ujecie, wybrane)
             if ujecie["typ"] == "zdjecie":
                 segment_zdjecia(
                     sciezki_robocze[ujecie["material"]], sciezka_segmentu, indeks, ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
@@ -1838,33 +2070,9 @@ def zmontuj(
                     blysk_s=efekt["blysk_s"] if efekt else 0.0,
                     wstrzas=efekt["wstrzas"] if efekt else False,
                     przejscie=efekt["przejscie"] if efekt else "brak",
+                    kolaz=sciezka_kolazu,
                 )
             else:
-                licznik_klipow += 1
-                sciezka_kolazu = None
-                if ma_efekt_scenariusza:
-                    numery_kolazu = ujecie.get("kolaz_scenariusza") or []
-                    wybrane = [
-                        wycinki_wedlug_numeru[numer] for numer in numery_kolazu
-                        if wycinki_wedlug_numeru and numer in wycinki_wedlug_numeru
-                    ][:LICZBA_WYCINKOW_KOLAZU]
-                    if wybrane:
-                        uderzenia_lokalne = [
-                            k - ujecie["klatka_od"] for k in uderzenia_wyn
-                            if ujecie["klatka_od"] < k < ujecie["klatka_od"] + ujecie["liczba_klatek"]
-                        ]
-                        sciezka_kolazu = katalog_pracy / f"kolaz_{indeks:06d}.mov"
-                        przygotuj_kolaz(wybrane, uderzenia_lokalne, ujecie["liczba_klatek"], fps, szerokosc, wysokosc, sciezka_kolazu)
-                        podsumowanie_kolazy.append({"ujecie": indeks, "wycinki": [Path(w["plik"]).name for w in wybrane]})
-                elif not bez_dynamiki and wycinki_posortowane and kolaz_kwalifikuje(ujecie, licznik_klipow, klatka_dropu, okna_slow, fps):
-                    wybrane, indeks_puli_kolazu = wybierz_wycinki_kolazu(wycinki_posortowane, indeks_puli_kolazu)
-                    uderzenia_lokalne = [
-                        k - ujecie["klatka_od"] for k in uderzenia_wyn
-                        if ujecie["klatka_od"] < k < ujecie["klatka_od"] + ujecie["liczba_klatek"]
-                    ]
-                    sciezka_kolazu = katalog_pracy / f"kolaz_{indeks:06d}.mov"
-                    przygotuj_kolaz(wybrane, uderzenia_lokalne, ujecie["liczba_klatek"], fps, szerokosc, wysokosc, sciezka_kolazu)
-                    podsumowanie_kolazy.append({"ujecie": indeks, "wycinki": [Path(w["plik"]).name for w in wybrane]})
                 segment_klipu(
                     ujecie["material"], sciezka_segmentu, ujecie["start_w_klipie_s"], ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
                     lut_sciezka=lut_nazwa, katalog=katalog_ffmpeg,
@@ -1909,6 +2117,8 @@ def zmontuj(
 
     return {
         "podsumowanie_kolazy": podsumowanie_kolazy,
+        "kolaze_pominiete": kolaze_pominiete,
+        "ostrzezenia_kolazy": ostrzezenia_kolazy,
         "plansza_uzyta": plansza_uzyta,
         "uzyc_kolor": uzyc_kolor,
         "tryb_nakladki": tryb_nak,
@@ -2066,6 +2276,9 @@ def renderuj(
     else:
         wynik_montazu = wykonaj_montaz(plan, None, katalog_pracy / "montaz", wyjscie)
 
+    if ai_info is not None:
+        ai_info["ostrzezenia"] += wynik_montazu["ostrzezenia_kolazy"]
+
     materialy_uzyte = len({u["material"] for u in plan["ujecia"]})
     rozmiar_mb = wyjscie.stat().st_size / (1024 * 1024)
 
@@ -2107,6 +2320,7 @@ def renderuj(
         "pionowo": podsumowanie_pionowo,
         "dynamika": podsumowanie_dynamiki,
         "kolaze": wynik_montazu["podsumowanie_kolazy"],
+        "kolaze_pominiete": wynik_montazu["kolaze_pominiete"],
         "pasy": [{"plik": Path(plik).name, "kadr": kadr} for plik, kadr in kadry_klipow.items() if kadr],
         "ai": ai_info,
     }

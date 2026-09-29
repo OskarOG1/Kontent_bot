@@ -255,3 +255,173 @@ def test_efekt_ujecia_drugie_ujecie_najazd_i_zmiana_smugi_z_rozciagnieciem():
         "brak", "brak", "smuga", "brak", "brak", "rozciagniecie",
         "brak", "brak", "smuga", "brak", "brak", "rozciagniecie",
     ]
+
+
+def mapa_z_szumem_po_lewej():
+    mapa = np.zeros((160, 90), dtype=np.float32)
+    mapa[:, :45] = np.random.default_rng(1).uniform(50, 100, (160, 45))
+    return mapa
+
+
+def test_ruch_tla_zero_dla_takich_samych_klatek_i_duzy_dla_szumu():
+    klatka = np.full((160, 90), 120.0, dtype=np.float32)
+    szum = np.random.default_rng(0).uniform(0, 255, (4, 160, 90)).astype(np.float32)
+
+    assert render.ruch_tla(np.stack([klatka] * 4)) == 0.0
+    assert render.ruch_tla(szum) > render.PROG_RUCHU_KOLAZU
+
+
+def test_miejsca_kolazu_wybieraja_gladka_strone_i_strone_z_polecenia():
+    mapa = mapa_z_szumem_po_lewej()
+    rozmiary = [(0.4, 0.5)] * 3
+
+    miejsca = render.miejsca_kolazu(mapa, rozmiary)
+
+    assert len(set(miejsca)) == 3
+    for x, y in miejsca:
+        assert x + 0.2 > 0.5
+        assert x >= -0.08 * 0.4 - 1e-9 and x + 0.4 <= 1 + 0.08 * 0.4 + 1e-9
+        assert y >= -0.08 * 0.5 - 1e-9 and y + 0.5 <= 1 + 0.08 * 0.5 + 1e-9
+
+    u_gory = render.miejsca_kolazu(mapa, rozmiary, strona="gora")
+    assert len(u_gory) == 3
+    for _, y in u_gory:
+        assert y < 0.05
+
+
+def test_mapa_zajetosci_ma_wymiary_kadru_i_wyzsze_wartosci_na_szumie():
+    klatki = np.stack([mapa_z_szumem_po_lewej()] * 4)
+
+    mapa = render.mapa_zajetosci(klatki)
+
+    assert mapa.shape == (160, 90)
+    assert mapa[:, :35].mean() > 5 * mapa[:, 55:].mean() + 1
+
+
+def zmontuj_ze_stubami(tmp_path, monkeypatch, ujecia, wycinki, numery=None, wzor=None):
+    monkeypatch.setattr(render, "sklej_segmenty", lambda *args, **kwargs: None)
+    monkeypatch.setattr(render, "przebieg_koncowy", lambda *args, **kwargs: None)
+    monkeypatch.setattr(render, "zweryfikuj_wynik", lambda *args, **kwargs: None)
+    segmenty = {}
+
+    def zapisz(zrodlo, wyjscie, *args, **kwargs):
+        segmenty[int(wyjscie.stem.split("_")[-1])] = kwargs.get("kolaz")
+
+    monkeypatch.setattr(render, "segment_klipu", zapisz)
+    monkeypatch.setattr(render, "segment_zdjecia", zapisz)
+    liczba_klatek = sum(u["liczba_klatek"] for u in ujecia)
+    plan = {"fps": 30, "start_audio_s": 0.0, "liczba_klatek": liczba_klatek, "ujecia": ujecia}
+    czasy = {u["material"]: 3.0 for u in ujecia if u["typ"] == "klip"}
+    wynik = render.zmontuj(
+        plan, wzor or {}, wycinki, numery, {}, czasy, tmp_path / "montaz", 270, 480, 30, 0.0, False, [], [],
+        None, 50, None, None, 2.5, None, None, None, None, tmp_path / "wynik.mp4",
+    )
+    return wynik, segmenty
+
+
+def ujecie_klipu(material, od, dlugosc=60, **kwargs):
+    return {
+        "material": str(material), "typ": "klip", "klatka_od": od, "liczba_klatek": dlugosc,
+        "start_w_klipie_s": 0.0, "numer_wzoru": 0, **kwargs,
+    }
+
+
+def klipy_tla(tmp_path):
+    spokojny = tmp_path / "spokojny.mp4"
+    generuj.klip_testowy(spokojny, czas_s=3.0, rozmiar=(270, 480), kolor=(0, 200, 0))
+    ruchomy = tmp_path / "ruchomy.mp4"
+    generuj.szum(ruchomy, 3.0, (270, 480))
+    wycinek = tmp_path / "wycinek.png"
+    generuj.zdjecie_kwadrat_na_przezroczystym(wycinek)
+    return spokojny, ruchomy, wycinek
+
+
+def test_kolaz_ze_scenariusza_odpada_na_tle_w_ruchu_i_zostaje_na_spokojnym(tmp_path, monkeypatch):
+    spokojny, ruchomy, wycinek = klipy_tla(tmp_path)
+    efekt = {"uderzenie": False, "blysk_s": 0.0, "wstrzas": False, "przejscie": "brak"}
+    ujecia = [
+        ujecie_klipu(ruchomy, 0, efekt_scenariusza=efekt, kolaz_scenariusza=[7]),
+        ujecie_klipu(spokojny, 60, efekt_scenariusza=efekt, kolaz_scenariusza=[7]),
+    ]
+
+    wynik, segmenty = zmontuj_ze_stubami(
+        tmp_path, monkeypatch, ujecia, [{"plik": str(wycinek), "message_id": 7}], {7: {"plik": str(wycinek), "message_id": 7}},
+    )
+
+    assert segmenty[0] is None and segmenty[1] is not None
+    assert [w["ujecie"] for w in wynik["podsumowanie_kolazy"]] == [1]
+    assert wynik["podsumowanie_kolazy"][0]["ruch"] <= render.PROG_RUCHU_KOLAZU
+    assert len(wynik["podsumowanie_kolazy"][0]["miejsca"]) == 1
+    assert [w["ujecie"] for w in wynik["kolaze_pominiete"]] == [0]
+    assert wynik["kolaze_pominiete"][0]["ruch"] > render.PROG_RUCHU_KOLAZU
+    assert len(wynik["ostrzezenia_kolazy"]) == 1
+    assert wynik["ostrzezenia_kolazy"][0].startswith("ujęcie 0: tło w ruchu (")
+    assert wynik["ostrzezenia_kolazy"][0].endswith("), kolaż pominięty")
+
+
+def test_kolaz_automatu_tylko_na_spokojnym_tle_najwyzej_trzy_i_co_trzy_sekundy(tmp_path, monkeypatch):
+    spokojny, ruchomy, wycinek = klipy_tla(tmp_path)
+    ujecia = [ujecie_klipu(ruchomy if i == 1 else spokojny, i * 60) for i in range(6)]
+
+    wynik, segmenty = zmontuj_ze_stubami(tmp_path, monkeypatch, ujecia, [{"plik": str(wycinek), "message_id": 7}])
+
+    wybrane = [w["ujecie"] for w in wynik["podsumowanie_kolazy"]]
+    assert wybrane == [0, 2, 4]
+    assert segmenty[1] is None
+    starty = [ujecia[i]["klatka_od"] / 30 for i in wybrane]
+    assert all(b - a >= render.ODSTEP_KOLAZY_AUTOMATU_S for a, b in zip(starty, starty[1:]))
+    assert wynik["kolaze_pominiete"] == []
+
+
+def test_kolaz_automatu_nie_stoi_na_dropie(tmp_path, monkeypatch):
+    spokojny, _, wycinek = klipy_tla(tmp_path)
+    ujecia = [ujecie_klipu(spokojny, 0), ujecie_klipu(spokojny, 60)]
+    monkeypatch.setattr(render, "koniec_haka", lambda plan, sekcje: 0)
+
+    wynik, _ = zmontuj_ze_stubami(
+        tmp_path, monkeypatch, ujecia, [{"plik": str(wycinek), "message_id": 7}], wzor={"sekcje": {"drop_ujecie": 1}},
+    )
+
+    assert [w["ujecie"] for w in wynik["podsumowanie_kolazy"]] == [1]
+
+
+def test_kolaz_na_zdjeciu_widac_w_wybranym_miejscu(tmp_path):
+    zdjecie = tmp_path / "tlo.jpg"
+    generuj.zdjecie_testowe(zdjecie, rozmiar=(270, 480), kolor=(0, 200, 0))
+    wycinek = tmp_path / "wycinek.png"
+    generuj.zdjecie_kwadrat_na_przezroczystym(wycinek)
+    kolaz = tmp_path / "kolaz.mov"
+
+    miejsca = render.przygotuj_kolaz(
+        [{"plik": str(wycinek)}], [3], 15, 30, 270, 480, kolaz, mapa=mapa_z_szumem_po_lewej(),
+    )
+    wyjscie = tmp_path / "segment.mp4"
+    render.segment_zdjecia(zdjecie, wyjscie, 0, 15, 30, 270, 480, kolaz=kolaz)
+    klatki = klatki_wideo(wyjscie, 270, 480)
+
+    assert len(klatki) == 15
+    x, y = miejsca[0]
+    bok = 0.6 * 270
+    srodek_x = min(269, max(0, round((x * 270) + bok / 2)))
+    srodek_y = min(479, max(0, round((y * 480) + bok / 2)))
+    assert srodek_x > 135
+    piksel = klatki[12, srodek_y, srodek_x].astype(int)
+    assert piksel[0] - piksel[1] > 100
+    przed = klatki[1, srodek_y, srodek_x].astype(int)
+    assert przed[1] - przed[0] > 100
+
+
+def test_segmenty_bez_kolazu_maja_te_same_polecenia_ffmpeg(tmp_path, monkeypatch):
+    zdjecie = tmp_path / "tlo.jpg"
+    generuj.zdjecie_testowe(zdjecie, rozmiar=(270, 480), kolor=(0, 200, 0))
+    klip = klip_lavfi(tmp_path / "klip.mp4", "testsrc2=size=480x270:rate=30")
+    polecenia = []
+    monkeypatch.setattr(render, "uruchom_ffmpeg", lambda argumenty, katalog=None: polecenia.append(argumenty))
+
+    render.segment_zdjecia(zdjecie, tmp_path / "a.mp4", 0, 12, 30, 270, 480)
+    render.segment_klipu(klip, tmp_path / "b.mp4", 0.0, 12, 30, 270, 480)
+
+    for polecenie in polecenia:
+        assert polecenie.count("-i") == 1
+        assert "-filter_complex" not in polecenie
+        assert "-vf" in polecenie
