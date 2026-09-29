@@ -222,10 +222,10 @@ def wczytaj_z_alfa(sciezka: Path, kx: int, ky: int) -> np.ndarray:
     return obraz[:, :, :3]
 
 
-def klatki_klipu(plik: Path, liczba_klatek: int, czas_s: float, kx: int, ky: int) -> list[np.ndarray]:
+def klatki_klipu(plik: Path, liczba_klatek: int, czas_s: float, kx: int, ky: int, przyciecie: str = "") -> list[np.ndarray]:
     czas_s = max(czas_s, 1.0 / 30)
     fps = liczba_klatek / czas_s
-    filtr = f"fps={fps:.10f},scale={kx}:{ky}:force_original_aspect_ratio=increase,crop={kx}:{ky}"
+    filtr = f"fps={fps:.10f},{przyciecie}scale={kx}:{ky}:force_original_aspect_ratio=increase,crop={kx}:{ky}"
     with tempfile.TemporaryDirectory() as katalog:
         surowy = Path(katalog) / "klatki.raw"
         wynik = subprocess.run(
@@ -271,6 +271,8 @@ def z_naglowkiem(obraz: np.ndarray, tekst: str) -> np.ndarray:
 
 
 def arkusze_materialow(materialy: list[dict], wycinki: list[dict], katalog_pracy: Path) -> list[Path]:
+    import render as render_modul
+
     katalog_pracy = Path(katalog_pracy)
     katalog_pracy.mkdir(parents=True, exist_ok=True)
     sciezki = []
@@ -297,7 +299,10 @@ def arkusze_materialow(materialy: list[dict], wycinki: list[dict], katalog_pracy
         if material["typ"] != "klip":
             continue
         czas_s = float(material.get("czas_s", 1.0))
-        klatki = klatki_klipu(Path(material["plik"]), LICZBA_KLATEK_KLIPU, czas_s, kkx, kky)
+        klatki = klatki_klipu(
+            Path(material["plik"]), LICZBA_KLATEK_KLIPU, czas_s, kkx, kky,
+            przyciecie=render_modul.filtr_kadru(material.get("kadr")),
+        )
         if not klatki:
             continue
         obraz = z_naglowkiem(np.hstack(klatki), f"klip {numer}, {czas_s:.1f} s")
@@ -359,7 +364,7 @@ class Ujecie(BaseModel):
     uderzenie: bool = Field(default=False, description="krótki zoom na początku ujęcia")
     blysk_s: Literal[0.0, 0.1, 0.3] = Field(default=0.0, description="biały błysk na początku ujęcia w sekundach")
     wstrzas: bool = Field(default=False, description="wstrząs kadru przez pierwsze pół sekundy")
-    przejscie: Literal["brak", "smuga", "najazd"] = Field(default="brak", description="wejście ujęcia")
+    przejscie: Literal["brak", "smuga", "najazd", "rozciagniecie"] = Field(default="brak", description="wejście ujęcia")
     kolaz: list[int] = Field(default_factory=list, description="najwyżej 3 numery wycinków, tylko na klipach")
 
     @field_validator("kolaz", mode="before")
@@ -495,9 +500,12 @@ POLECENIE_REZYSERA = (
     "od_s ustaw na najmocniejszej akcji, nie na pierwszej sekundzie klipu; od_s plus długość ujęcia musi "
     "zmieścić się w klipie.\n"
     "Efekty na początku ujęcia: uderzenie (krótki zoom w rytmie), blysk_s (biały błysk 0, 0.1 albo 0.3 s), "
-    "wstrzas (wstrząs kadru przez pół sekundy), przejscie (brak albo smuga, czyli rozmycie ruchu na pierwszych "
-    "klatkach; najazd działa tylko na planszy). Automat daje każdemu ujęciu uderzenie, klipom błysk 0.1, "
-    "a co trzeciemu zdjęciu po dropie smugę. Ujęcie na dropie i tak dostaje błysk 0.3 i wstrząs.\n"
+    "wstrzas (wstrząs kadru przez pół sekundy) i przejscie: brak, smuga (pionowe rozmycie, które znika "
+    "w 7 klatkach), rozciagniecie (pionowe smugi z rozciągniętego wiersza kadru, znikają w 10 klatkach) "
+    "albo najazd (mocny zoom z rozmyciem na pierwszych klatkach). Automat daje każdemu ujęciu uderzenie, "
+    "klipom błysk 0.1, drugiemu ujęciu najazd, a co trzeciemu zdjęciu po dropie na zmianę smugę "
+    "i rozciagniecie. Ujęcie na dropie i tak dostaje błysk 0.3 i wstrząs. Tak jak we wzorze: pierwsze "
+    "ujęcie po otwarciu wchodzi najazdem, a obraz, grafika albo mapa smugą albo rozciagnieciem.\n"
     "Zwróć wyłącznie JSON zgodny z podanym schematem: listę ujęć w kolejności odtwarzania i krótkie "
     "uzasadnienie wyboru (najwyżej 300 znaków)."
 )
