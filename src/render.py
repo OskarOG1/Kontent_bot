@@ -909,6 +909,20 @@ def fragment_klipu(od_s: float, czas_klipu_s: float, liczba_klatek: int, fps: in
     return od_s, None
 
 
+def oczysc_kolaz_scenariusza(numery: list[int], kawalki_wedlug_numeru: dict, etykieta: str) -> tuple[list[int], list[str]]:
+    zostaje = []
+    ostrzezenia = []
+    for numer in numery:
+        kawalek = kawalki_wedlug_numeru.get(numer)
+        if kawalek is None:
+            ostrzezenia.append(f"{etykieta}: nieznany numer {numer} w kolażu, pominięty")
+        elif kawalek["typ"] == "klip":
+            ostrzezenia.append(f"{etykieta}: klip {numer} w kolażu, pominięty")
+        else:
+            zostaje.append(numer)
+    return zostaje, ostrzezenia
+
+
 def plan_ze_scenariusza(
     scenariusz, plan: dict, kawalki_wedlug_numeru: dict, uderzenia: list[int], fps: int, wzor: dict,
 ) -> tuple[dict, list[str]]:
@@ -982,6 +996,11 @@ def plan_ze_scenariusza(
                 ostrzezenia.append(f"ujęcie {pozycja}: zdjęcie nie ma fragmentu, od_s wymuszone na 0")
             od_s = 0.0
 
+        kolaz_numery, ostrzezenia_kolazu = oczysc_kolaz_scenariusza(
+            ujecie_scenariusza.kolaz, kawalki_wedlug_numeru, f"ujęcie {pozycja}",
+        )
+        ostrzezenia += ostrzezenia_kolazu
+
         ujecia.append({
             "material": str(kawalek["plik"]),
             "typ": typ,
@@ -995,7 +1014,10 @@ def plan_ze_scenariusza(
                 "wstrzas": ujecie_scenariusza.wstrzas,
                 "przejscie": ujecie_scenariusza.przejscie,
             },
-            "kolaz_scenariusza": list(ujecie_scenariusza.kolaz),
+            "kolaz_scenariusza": kolaz_numery,
+            "wejscie_kolazu": ujecie_scenariusza.wejscie_kolazu,
+            "miejsce_kolazu": ujecie_scenariusza.miejsce_kolazu,
+            "gwiazdy": ujecie_scenariusza.gwiazdy,
         })
         klatka = koniec
 
@@ -1046,6 +1068,10 @@ def zastosuj_poprawki(plan: dict, poprawki: list, kawalki_wedlug_numeru: dict, f
             start_w_klipie_s, ostrzezenie = fragment_klipu(zmiana.od_s, float(kawalek["czas_s"]), oryginal["liczba_klatek"], fps)
             if ostrzezenie:
                 ostrzezenia.append(f"poprawka ujęcia {indeks}: {ostrzezenie}")
+        kolaz_numery, ostrzezenia_kolazu = oczysc_kolaz_scenariusza(
+            zmiana.kolaz, kawalki_wedlug_numeru, f"poprawka ujęcia {indeks}",
+        )
+        ostrzezenia += ostrzezenia_kolazu
         ujecia[indeks] = {
             "material": str(kawalek["plik"]),
             "typ": typ,
@@ -1057,7 +1083,10 @@ def zastosuj_poprawki(plan: dict, poprawki: list, kawalki_wedlug_numeru: dict, f
                 "uderzenie": zmiana.uderzenie, "blysk_s": zmiana.blysk_s,
                 "wstrzas": zmiana.wstrzas, "przejscie": zmiana.przejscie,
             },
-            "kolaz_scenariusza": list(zmiana.kolaz),
+            "kolaz_scenariusza": kolaz_numery,
+            "wejscie_kolazu": zmiana.wejscie_kolazu,
+            "miejsce_kolazu": zmiana.miejsce_kolazu,
+            "gwiazdy": zmiana.gwiazdy,
         }
     plan_poprawiony = {"fps": plan["fps"], "start_audio_s": plan["start_audio_s"], "liczba_klatek": plan["liczba_klatek"], "ujecia": ujecia}
     return plan_poprawiony, ostrzezenia
@@ -1077,13 +1106,19 @@ def zapisz_scenariusz(katalog_projektu: Path, wzor_id: str, wariant: int, scenar
 def ocen_montaz(
     klient, model, wzor_json: Path, plan: dict, wyjscie: Path, katalog_pracy: Path,
     materialy: list[dict] | None = None, wycinki: list[dict] | None = None, plansza_uzyta: bool = False,
+    wynik_montazu: dict | None = None,
 ) -> tuple:
     zrodlo_wzoru = plik_zrodlowy_wzoru(wzor_json)
     if zrodlo_wzoru is None:
         return None, rezyser.zuzycie(powod="brak źródła wzoru do arkusza krytyka")
     try:
         arkusz = rezyser.arkusz_krytyka(wyjscie, zrodlo_wzoru, Path(katalog_pracy) / "arkusz_krytyka.jpg")
-        opis = rezyser.opis_montazu(plan, plan["fps"], materialy, wycinki, plansza_uzyta)
+        wynik_montazu = wynik_montazu or {}
+        opis = rezyser.opis_montazu(
+            plan, plan["fps"], materialy, wycinki, plansza_uzyta,
+            kolaze=wynik_montazu.get("podsumowanie_kolazy"), kolaze_pominiete=wynik_montazu.get("kolaze_pominiete"),
+            gwiazdy=wynik_montazu.get("gwiazdy"),
+        )
         tresc = {"obrazy": [arkusz], "tekst": rezyser.POLECENIE_KRYTYKA + "\n\n" + opis}
         dane, zuzycie = rezyser.wywolaj_model(klient, model, tresc, rezyser.schemat_oceny())
     except Exception as wyjatek:
@@ -1131,6 +1166,10 @@ def rezyseruj(
     zwykle_wedlug_numeru, wycinki_wedlug_numeru = rezyser.numeracja(zwykle, wycinki)
     materialy_wedlug_numeru = dict(zwykle_wedlug_numeru)
     materialy_wedlug_numeru.update({numer: dict(wycinek, typ="wycinek") for numer, wycinek in wycinki_wedlug_numeru.items()})
+    elementy_kolazu = dict(wycinki_wedlug_numeru)
+    for numer, material in zwykle_wedlug_numeru.items():
+        if material["typ"] == "zdjecie":
+            elementy_kolazu[numer] = {"plik": material.get("plik_roboczy") or material["plik"], "kafel": True}
 
     scenariusz = None
     plan_1 = plan_auto
@@ -1160,7 +1199,7 @@ def rezyseruj(
     if rezyser_aktywny:
         zapisz_scenariusz(katalog_projektu, Path(wzor_json).parent.name, wariant, scenariusz, ostrzezenia)
         try:
-            wynik_1 = montuj(plan_1, wycinki_wedlug_numeru, Path(katalog_pracy) / "montaz_ai_1", wyjscie)
+            wynik_1 = montuj(plan_1, elementy_kolazu, Path(katalog_pracy) / "montaz_ai_1", wyjscie)
         except Exception as wyjatek:
             rezyser_aktywny = False
             zuzycie_rezysera = dict(zuzycie_rezysera, powod=f"błąd montażu scenariusza: {type(wyjatek).__name__}")
@@ -1187,7 +1226,7 @@ def rezyseruj(
 
     plansza_uzyta = bool(wynik_1.get("plansza_uzyta"))
     ocena_1, zuzycie_krytyka_1 = ocen_montaz(
-        klient, model, wzor_json, plan_1, wyjscie, katalog_pracy, zwykle, wycinki, plansza_uzyta,
+        klient, model, wzor_json, plan_1, wyjscie, katalog_pracy, zwykle, wycinki, plansza_uzyta, wynik_1,
     )
     dolicz_zuzycie(ai_info, zuzycie_krytyka_1)
 
@@ -1208,14 +1247,14 @@ def rezyseruj(
 
     wyjscie_2 = Path(wyjscie).with_name(Path(wyjscie).stem + "_ai_poprawka" + Path(wyjscie).suffix)
     try:
-        wynik_2 = montuj(plan_2, wycinki_wedlug_numeru, Path(katalog_pracy) / "montaz_ai_2", wyjscie_2)
+        wynik_2 = montuj(plan_2, elementy_kolazu, Path(katalog_pracy) / "montaz_ai_2", wyjscie_2)
     except Exception as wyjatek:
         ai_info["ostrzezenia"].append(f"montaż po poprawce nieudany: {type(wyjatek).__name__}")
         wyjscie_2.unlink(missing_ok=True)
         return plan_1, wynik_1, ai_info
 
     ocena_2, zuzycie_krytyka_2 = ocen_montaz(
-        klient, model, wzor_json, plan_2, wyjscie_2, katalog_pracy, zwykle, wycinki, bool(wynik_2.get("plansza_uzyta")),
+        klient, model, wzor_json, plan_2, wyjscie_2, katalog_pracy, zwykle, wycinki, bool(wynik_2.get("plansza_uzyta")), wynik_2,
     )
     dolicz_zuzycie(ai_info, zuzycie_krytyka_2)
     if ocena_2 is None:

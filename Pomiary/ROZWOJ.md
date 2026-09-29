@@ -86,6 +86,11 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-29: zadanie 12.6 (reżyser i krytyk znają styl 0923), gałąź `styl`
+- Zrobione: `rezyser.Ujecie` ma `wejscie_kolazu` (`wjazd`/`wskok`/`powiekszenie`), `miejsce_kolazu` (`auto`/`gora`/`dol`/`lewo`/`prawo`), `gwiazdy` (bool), a `kolaz` przycina do 5 (`LICZBA_ELEMENTOW_KOLAZU_SCENARIUSZA`). `plan_ze_scenariusza` i `zastosuj_poprawki` przenoszą pola do ujęcia planu, a `oczysc_kolaz_scenariusza` odrzuca numer klipu i nieznany numer z ostrzeżeniem („klip N w kolażu, pominięty”); numer zwykłego zdjęcia zostaje i daje kafel (`rezyseruj` buduje `elementy_kolazu` z wycinków i zdjęć `kafel: True`, `plik_roboczy`).
+- `POLECENIE_REZYSERA`: zdanie o stałych miejscach zniknęło, w jego miejsce bramka ruchu tła, miejsca wybiera render, `miejsce_kolazu`, kafle, `powiekszenie` przed planszą, `gwiazdy` na 2 do 3 ujęciach haka. Otwarcie: 3 do 5 elementów co pół uderzenia. `POLECENIE_KRYTYKA` sprawdza tło, rozmiary, miejsca i pierścień gwiazd. `opis_montazu` dostaje `kolaze`, `kolaze_pominiete`, `gwiazdy` (z wyniku montażu przez `ocen_montaz(..., wynik_montazu)`) i podaje elementy, wejście, miejsca, ruch tła, przejście, gwiazdy.
+- Testy: 471 z 471 (498 s), w tym pełny render z podmienionym modelem używającym wszystkich nowych pól.
+
 ### 2026-09-29: zadanie 12.5 (gwiazdy w haku), gałąź `styl`
 - Zrobione: `obraz_gwiazd` (12 złotych pięcioramiennych gwiazd na okręgu o środku kadru, r(t) = W·(0,40 − 0,34·e^(−t/1,5)), obrót 140°/s, gwiazda k od klatki k), `okno_gwiazd` (automat: od drugiego ujęcia 4,6 s, przycięte przed pierwszym późniejszym ujęciem z kolażem i przed uderzeniem poprzedzającym drop; scenariusz: od pierwszego ujęcia z `gwiazdy` przez kolejne; okno krótsze niż 1 s nie powstaje), `przygotuj_gwiazdy` (klip RGBA z `materializuj_warstwe`), warstwa w `przebieg_koncowy` nad nakładką i pod napisami (`gwiazdy=`), `zmontuj(gwiazdy_w_haku=...)`, `renderuj(gwiazdy_w_haku=True)`, CLI `--bez-gwiazd`, `GWIAZDY_W_HAKU` (`tak`/`nie`, inaczej `ValueError`) w konfiguracji i `.env.example`, bot dokłada `--bez-gwiazd`. `--bez-dynamiki` wyłącza gwiazdy. Podsumowanie: `gwiazdy: {od_s, do_s}` albo `null`.
 - Tryb scenariusza rozpoznaje plan po `efekt_scenariusza`; pole `gwiazdy` w ujęciu plan zacznie wypełniać 12.6.

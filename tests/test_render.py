@@ -1701,3 +1701,62 @@ def test_render_ai_scenariusz_na_wzorze_z_dropem_efekty_kolaz_i_opis_wzoru(tmp_p
     assert len(opis["okna_tekstow"]["slowa"]) == 3
     assert {"numer": 4, "typ": "wycinek"} in opis["materialy"]
     assert sum(1 for c in tresc if c["type"] == "image_url") == 3
+
+
+def test_scenariusz_przycina_kolaz_do_piec_odrzuca_klip_i_nieznany_numer_a_zdjecie_daje_kafel():
+    zdjecie = {"plik": "/p/a.jpg", "typ": "zdjecie"}
+    klip = {"plik": "/p/k.mp4", "typ": "klip", "czas_s": 5.0}
+    wycinek = {"plik": "/p/w.png", "typ": "wycinek"}
+    numery = {0: zdjecie, 1: klip, 2: wycinek}
+    plan = {"fps": 30, "start_audio_s": 0.0, "liczba_klatek": 90, "ujecia": [
+        {"material": "/p/a.jpg", "typ": "zdjecie", "klatka_od": 0, "liczba_klatek": 90, "start_w_klipie_s": 0.0, "numer_wzoru": 0},
+    ]}
+    scenariusz = rezyser.zbuduj_scenariusz({"ujecia": [{
+        "material": 0, "uderzenia": 8, "kolaz": [2, 0, 1, 9, 2, 2, 2], "wejscie_kolazu": "powiekszenie",
+        "miejsce_kolazu": "gora", "gwiazdy": True,
+    }]})
+
+    wynik, ostrzezenia = render.plan_ze_scenariusza(scenariusz, plan, numery, [], 30, {})
+
+    ujecie = wynik["ujecia"][0]
+    assert ujecie["kolaz_scenariusza"] == [2, 0, 2]
+    assert ujecie["wejscie_kolazu"] == "powiekszenie" and ujecie["miejsce_kolazu"] == "gora" and ujecie["gwiazdy"] is True
+    assert any("klip 1 w kolażu, pominięty" in o for o in ostrzezenia)
+    assert any("nieznany numer 9" in o for o in ostrzezenia)
+
+
+def test_render_ai_ze_wszystkimi_nowymi_polami_scenariusza_konczy_sie_kodem_0(tmp_path, monkeypatch):
+    def dodaj(katalog):
+        for i in range(3):
+            generuj.zdjecie_testowe(katalog / f"000000000{i}_m.jpg", rozmiar=(270, 480), kolor=generuj.kolor_ujecia(i))
+        generuj.klip_testowy(katalog / "0000000003_d.mp4", czas_s=5.0, rozmiar=(270, 480), kolor=(0, 200, 0))
+        generuj.zdjecie_kwadrat_na_przezroczystym(katalog / "0000000004_w.png")
+
+    projekt = zbuduj_projekt(tmp_path, dodaj)
+    wzor_json = tmp_path / "wzor.json"
+    wzor_json.write_text(json.dumps({
+        "ciecia_uderzenia": [], "koniec_uderzenia": None, "ciecia_s": [0.0, 3.0, 9.0],
+        "zrodlo": {"czas_s": 12.0}, "sekcje": {"drop_s": None, "drop_ujecie": 1, "koniec_haka_uderzenia": None},
+    }), encoding="utf-8")
+    utwor = tmp_path / "klik.wav"
+    generuj.klik(utwor, bpm=180, czas_s=13.0, pierwsze_uderzenie_s=0.1)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+
+    ujecia = [
+        {"material": 3, "uderzenia": 6, "kolaz": [4, 0, 1], "wejscie_kolazu": "wjazd", "miejsce_kolazu": "prawo", "gwiazdy": True},
+        {"material": 3, "uderzenia": 6, "kolaz": [4], "wejscie_kolazu": "powiekszenie", "gwiazdy": True},
+        {"material": 3, "uderzenia": 6, "kolaz": [4, 2], "wejscie_kolazu": "wskok", "miejsce_kolazu": "dol"},
+    ] + [{"material": i % 3, "uderzenia": 1} for i in range(20)]
+    klient = KlientAiTestowy([
+        odpowiedz_ai({"ujecia": ujecia, "uzasadnienie": "test"}),
+        odpowiedz_ai({"ocena": 9, "mocne": [], "poprawki": []}),
+    ])
+
+    wyjscie = tmp_path / "wynik.mp4"
+    podsumowanie = render.renderuj(
+        wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=30, limit_mb=50, ai=True, klient_ai=klient,
+    )
+
+    assert wyjscie.exists() and podsumowanie["ai"]["rezyser"] is True
+    assert podsumowanie["gwiazdy"] is not None
+    assert {k["wejscie"] for k in podsumowanie["kolaze"]} >= {"wjazd", "powiekszenie", "wskok"}
