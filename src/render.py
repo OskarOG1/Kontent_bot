@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 import random
 import statistics
 import shutil
@@ -12,7 +13,7 @@ from pathlib import Path
 import httpx
 import numpy
 import pillow_heif
-from PIL import Image, ImageFilter, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 import analyze
 import kolor
@@ -84,6 +85,16 @@ WYSOKOSC_POWIEKSZENIA = 0.95
 DOLNY_WYSTEP_POWIEKSZENIA = 0.05
 SZEROKOSC_KAFLA = 0.45
 WYSOKOSC_KAFLA = 0.28
+LICZBA_GWIAZD = 12
+KOLOR_GWIAZD = (255, 204, 0, 255)
+OBROT_GWIAZD_STOPNIE_NA_S = 140.0
+ROZPIETOSC_GWIAZDY = 0.14
+MINIMUM_ROZPIETOSCI_GWIAZDY_PX = 4
+PROMIEN_POCZATKOWY_GWIAZD = 0.06
+PROMIEN_KONCOWY_GWIAZD = 0.40
+CZAS_ROZSZERZANIA_GWIAZD_S = 1.5
+DLUGOSC_OKNA_GWIAZD_S = 4.6
+MINIMUM_OKNA_GWIAZD_S = 1.0
 WEJSCIA_KOLAZU = ("wjazd", "wskok", "powiekszenie")
 MINIMUM_KLIPU_KOLAZU_S = 1.5
 PROG_KANALU_PASA = 40
@@ -1312,6 +1323,7 @@ def przebieg_koncowy(
     teksty: list[dict] | None = None,
     slowa: dict | None = None,
     pionowo: dict | None = None,
+    gwiazdy: dict | None = None,
 ) -> None:
     polaczone_wideo = Path(polaczone_wideo)
     czas_trwania_s = liczba_klatek / fps
@@ -1362,6 +1374,16 @@ def przebieg_koncowy(
             f"[1:a]afade=t=out:st={poczatek_wyciszenia:.6f}:d={wyciszenie_s:.6f}[a]"
         )
         mapa_wideo = "[v]"
+
+    if gwiazdy is not None:
+        indeks_wejscia = wejscia.count("-i")
+        wejscia += ["-i", str(gwiazdy["plik"])]
+        filtr += (
+            f";[{indeks_wejscia}:v]setpts=PTS+{gwiazdy['od_s']:.6f}/TB[gwiazdy];"
+            f"{mapa_wideo}[gwiazdy]overlay=eval=frame:enable="
+            f"'between(t,{gwiazdy['od_s']:.6f},{gwiazdy['do_s']:.6f})'[vg]"
+        )
+        mapa_wideo = "[vg]"
 
     if teksty:
         fade_s = 4 / fps
@@ -1588,6 +1610,72 @@ def materializuj_warstwe(generator_klatek, liczba_klatek: int, fps: float, szero
     if kod != 0:
         blad = proces.stderr.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"ffmpeg zakonczyl sie kodem {kod}: {blad}")
+
+
+def promien_gwiazd(t_s: float, szerokosc: int) -> float:
+    return szerokosc * (
+        PROMIEN_KONCOWY_GWIAZD - (PROMIEN_KONCOWY_GWIAZD - PROMIEN_POCZATKOWY_GWIAZD) * math.exp(-t_s / CZAS_ROZSZERZANIA_GWIAZD_S)
+    )
+
+
+def obraz_gwiazd(indeks_klatki: int, fps: float, szerokosc: int, wysokosc: int):
+    obraz = Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
+    rysunek = ImageDraw.Draw(obraz)
+    t_s = indeks_klatki / fps
+    promien = promien_gwiazd(t_s, szerokosc)
+    rozpietosc = max(MINIMUM_ROZPIETOSCI_GWIAZDY_PX, ROZPIETOSC_GWIAZDY * promien)
+    zewnetrzny = rozpietosc / 2
+    wewnetrzny = zewnetrzny * 0.4
+    obrot = OBROT_GWIAZD_STOPNIE_NA_S * t_s
+    for k in range(min(LICZBA_GWIAZD, indeks_klatki + 1)):
+        kat = math.radians(-90.0 + 360.0 * k / LICZBA_GWIAZD + obrot)
+        srodek_x = szerokosc / 2 + promien * math.cos(kat)
+        srodek_y = wysokosc / 2 + promien * math.sin(kat)
+        wierzcholki = []
+        for i in range(10):
+            r = zewnetrzny if i % 2 == 0 else wewnetrzny
+            a = kat + math.radians(-90.0 + 36.0 * i)
+            wierzcholki.append((srodek_x + r * math.cos(a), srodek_y + r * math.sin(a)))
+        rysunek.polygon(wierzcholki, fill=KOLOR_GWIAZD)
+    return obraz
+
+
+def okno_gwiazd(plan: dict, klatka_dropu: int | None, uderzenia_wyn: list[int], ujecia_z_kolazem: list[int], fps: float) -> tuple[int, int] | None:
+    ujecia = plan["ujecia"]
+    ze_scenariusza = any(u.get("efekt_scenariusza") is not None for u in ujecia)
+    if ze_scenariusza:
+        numery = {i for i, u in enumerate(ujecia) if u.get("gwiazdy")}
+        if not numery:
+            return None
+        pierwsze = min(numery)
+        ostatnie = pierwsze
+        while ostatnie + 1 in numery:
+            ostatnie += 1
+        od = ujecia[pierwsze]["klatka_od"]
+        do = ujecia[ostatnie]["klatka_od"] + ujecia[ostatnie]["liczba_klatek"]
+    else:
+        if len(ujecia) < 2:
+            return None
+        od = ujecia[1]["klatka_od"]
+        do = od + round(DLUGOSC_OKNA_GWIAZD_S * fps)
+        pozniejsze = [ujecia[i]["klatka_od"] for i in ujecia_z_kolazem if ujecia[i]["klatka_od"] > od]
+        if pozniejsze:
+            do = min(do, min(pozniejsze))
+        if klatka_dropu is not None:
+            przed_dropem = [k for k in uderzenia_wyn if k < klatka_dropu]
+            if przed_dropem:
+                do = min(do, max(przed_dropem))
+    do = min(do, plan["liczba_klatek"])
+    if do - od < MINIMUM_OKNA_GWIAZD_S * fps:
+        return None
+    return od, do
+
+
+def przygotuj_gwiazdy(okno: tuple[int, int], katalog_pracy: Path, szerokosc: int, wysokosc: int, fps: float) -> dict:
+    od, do = okno
+    sciezka = katalog_pracy / "gwiazdy.mov"
+    materializuj_warstwe(lambda k: obraz_gwiazd(k, fps, szerokosc, wysokosc), do - od, fps, szerokosc, wysokosc, sciezka)
+    return {"plik": sciezka, "od_s": round(od / fps, 6), "do_s": round(do / fps, 6)}
 
 
 def kolaz_kwalifikuje(ujecie: dict, klatka_dropu: int | None, okna_slow: list, fps: float) -> bool:
@@ -2089,6 +2177,7 @@ def zmontuj(
     plansza: Path | None,
     wyjscie: Path,
     kadry_klipow: dict | None = None,
+    gwiazdy_w_haku: bool = False,
 ) -> dict:
     katalog_pracy = Path(katalog_pracy)
     katalog_pracy.mkdir(parents=True, exist_ok=True)
@@ -2247,6 +2336,12 @@ def zmontuj(
 
     znak_do_s = okno_znaku(plan, plansza_uzyta) if znak is not None else None
 
+    warstwa_gwiazd = None
+    if gwiazdy_w_haku and not bez_dynamiki:
+        okno = okno_gwiazd(plan, klatka_dropu, uderzenia_wyn, [w["ujecie"] for w in podsumowanie_kolazy], fps)
+        if okno is not None:
+            warstwa_gwiazd = przygotuj_gwiazdy(okno, katalog_pracy, szerokosc, wysokosc, fps)
+
     przebieg_koncowy(
         polaczone, utwor, plan["start_audio_s"], plan["liczba_klatek"], fps, wyjscie, limit_mb,
         szerokosc=szerokosc, wysokosc=wysokosc,
@@ -2256,6 +2351,7 @@ def zmontuj(
         teksty=teksty_do_przebiegu,
         slowa=warstwa_slow,
         pionowo=warstwa_pionowo,
+        gwiazdy=warstwa_gwiazd,
     )
     zweryfikuj_wynik(wyjscie, szerokosc, wysokosc, fps, plan["liczba_klatek"], limit_mb)
 
@@ -2270,6 +2366,7 @@ def zmontuj(
         "nakladka_do_s": nakladka_do_s,
         "znak_do_s": znak_do_s,
         "klatka_dropu": klatka_dropu,
+        "gwiazdy": {"od_s": warstwa_gwiazd["od_s"], "do_s": warstwa_gwiazd["do_s"]} if warstwa_gwiazd else None,
     }
 
 
@@ -2298,6 +2395,7 @@ def renderuj(
     bez_rezysera: bool = False,
     bez_krytyka: bool = False,
     prog_oceny_ai: int = 7,
+    gwiazdy_w_haku: bool = True,
     klient_ai=None,
 ) -> dict:
     czas_startu = time.time()
@@ -2398,7 +2496,7 @@ def renderuj(
             szerokosc, wysokosc, fps, sila_koloru, bez_dynamiki, uderzenia_wyn, okna_slow,
             utwor, limit_mb, nakladka, znak, dlugosc_nakladki_krycie_s,
             teksty_do_przebiegu, warstwa_slow, warstwa_pionowo, plansza, wyjscie_docelowe,
-            kadry_klipow=kadry_klipow,
+            kadry_klipow=kadry_klipow, gwiazdy_w_haku=gwiazdy_w_haku,
         )
 
     ai_info = None
@@ -2465,6 +2563,7 @@ def renderuj(
         "dynamika": podsumowanie_dynamiki,
         "kolaze": wynik_montazu["podsumowanie_kolazy"],
         "kolaze_pominiete": wynik_montazu["kolaze_pominiete"],
+        "gwiazdy": wynik_montazu["gwiazdy"],
         "pasy": [{"plik": Path(plik).name, "kadr": kadr} for plik, kadr in kadry_klipow.items() if kadr],
         "ai": ai_info,
     }
@@ -2496,6 +2595,7 @@ def glowna(argumenty: list[str] | None = None) -> int:
     parser.add_argument("--pozycja-tekstu", choices=sorted(tekst.POZYCJE), default="dol")
     parser.add_argument("--wariant", type=int, default=0)
     parser.add_argument("--bez-dynamiki", action="store_true")
+    parser.add_argument("--bez-gwiazd", action="store_true")
     parser.add_argument("--dlugosc-nakladki-krycie", type=float, default=DLUGOSC_NAKLADKI_KRYCIE_S)
     parser.add_argument("--ai", action="store_true")
     parser.add_argument("--model-ai", default="anthropic/claude-opus-5.5")
@@ -2525,6 +2625,7 @@ def glowna(argumenty: list[str] | None = None) -> int:
             bez_rezysera=ustalone.bez_rezysera,
             bez_krytyka=ustalone.bez_krytyka,
             prog_oceny_ai=ustalone.prog_oceny_ai,
+            gwiazdy_w_haku=not ustalone.bez_gwiazd,
         )
     except Exception as blad:
         print(str(blad), file=sys.stderr)

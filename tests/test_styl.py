@@ -298,7 +298,7 @@ def test_mapa_zajetosci_ma_wymiary_kadru_i_wyzsze_wartosci_na_szumie():
     assert mapa[:, :35].mean() > 5 * mapa[:, 55:].mean() + 1
 
 
-def zmontuj_ze_stubami(tmp_path, monkeypatch, ujecia, wycinki, numery=None, wzor=None):
+def zmontuj_ze_stubami(tmp_path, monkeypatch, ujecia, wycinki, numery=None, wzor=None, gwiazdy=False, bez_dynamiki=False):
     monkeypatch.setattr(render, "sklej_segmenty", lambda *args, **kwargs: None)
     monkeypatch.setattr(render, "przebieg_koncowy", lambda *args, **kwargs: None)
     monkeypatch.setattr(render, "zweryfikuj_wynik", lambda *args, **kwargs: None)
@@ -313,8 +313,9 @@ def zmontuj_ze_stubami(tmp_path, monkeypatch, ujecia, wycinki, numery=None, wzor
     plan = {"fps": 30, "start_audio_s": 0.0, "liczba_klatek": liczba_klatek, "ujecia": ujecia}
     czasy = {u["material"]: 3.0 for u in ujecia if u["typ"] == "klip"}
     wynik = render.zmontuj(
-        plan, wzor or {}, wycinki, numery, {}, czasy, tmp_path / "montaz", 270, 480, 30, 0.0, False, [], [],
+        plan, wzor or {}, wycinki, numery, {}, czasy, tmp_path / "montaz", 270, 480, 30, 0.0, bez_dynamiki, [], [],
         None, 50, None, None, 2.5, None, None, None, None, tmp_path / "wynik.mp4",
+        gwiazdy_w_haku=gwiazdy,
     )
     return wynik, segmenty
 
@@ -557,3 +558,149 @@ def test_kafel_to_prostokat_ze_zwyklego_zdjecia_w_jego_kolorze(tmp_path):
     assert piksel[3] == 255 and piksel[1] > 150 and piksel[0] < 80
     ramka = ramka_alfa(klatki[15])
     assert abs((ramka[2] - ramka[0]) - min(szerokosc_kafla, 270 - max(0, round(x * 270)))) <= 3 or ramka[0] == 0 or ramka[2] == 270
+
+
+def plan_z_ujeciami(dlugosci, kolejne=None):
+    kolejne = kolejne or {}
+    ujecia = []
+    klatka = 0
+    for i, dlugosc in enumerate(dlugosci):
+        ujecia.append({"klatka_od": klatka, "liczba_klatek": dlugosc, "typ": "klip", "material": f"m{i}", **kolejne.get(i, {})})
+        klatka += dlugosc
+    return {"fps": 30, "liczba_klatek": klatka, "ujecia": ujecia}
+
+
+def plamy_zlote(klatka):
+    return (klatka[:, :, 0] > 200) & (klatka[:, :, 1] > 150) & (klatka[:, :, 2] < 60) & (klatka[:, :, 3] > 200)
+
+
+def kat_pierscienia(klatka):
+    wiersze, kolumny = np.where(klatka[:, :, 3] > 0)
+    kat = np.arctan2(wiersze - klatka.shape[0] / 2, kolumny - klatka.shape[1] / 2)
+    return np.degrees(np.angle(np.exp(1j * 12 * kat).sum())) / 12
+
+
+def pozycje_gwiazd(t_s, szerokosc=270, wysokosc=480):
+    promien = szerokosc * (0.40 - 0.34 * np.exp(-t_s / 1.5))
+    obrot = np.radians(140 * t_s)
+    wynik = []
+    for k in range(12):
+        kat = -np.pi / 2 + 2 * np.pi * k / 12 + obrot
+        wynik.append((round(szerokosc / 2 + promien * np.cos(kat)), round(wysokosc / 2 + promien * np.sin(kat))))
+    return promien, wynik
+
+
+def test_klatka_gwiazd_po_sekundzie_ma_dwanascie_zlotych_plam_na_okregu_o_srodku_kadru(tmp_path):
+    warstwa = tmp_path / "gwiazdy.mov"
+    render.materializuj_warstwe(lambda k: render.obraz_gwiazd(k, 30, 270, 480), 40, 30, 270, 480, warstwa)
+    klatka = warstwa_rgba(warstwa, 270, 480)[30]
+
+    promien, pozycje = pozycje_gwiazd(1.0)
+    zlote = plamy_zlote(klatka)
+    wiersze, kolumny = np.where(klatka[:, :, 3] > 0)
+    odleglosci = np.hypot(kolumny - 135, wiersze - 240)
+    assert zlote.sum() > 0.8 * (klatka[:, :, 3] > 0).sum()
+    assert abs(odleglosci.mean() - promien) < 0.05 * promien
+    assert odleglosci.max() < 1.15 * promien and odleglosci.min() > 0.85 * promien
+
+    zajete = np.zeros((480, 270), dtype=bool)
+    for x, y in pozycje:
+        assert zlote[y - 1:y + 2, x - 1:x + 2].any()
+        zajete[max(0, y - 8):y + 9, max(0, x - 8):x + 9] = True
+    assert ((klatka[:, :, 3] > 0) & ~zajete).sum() == 0
+
+
+def test_gwiazdy_pojawiaja_sie_po_kolei_i_okrag_obraca_sie_o_140_stopni_na_sekunde(tmp_path):
+    warstwa = tmp_path / "gwiazdy.mov"
+    render.materializuj_warstwe(lambda k: render.obraz_gwiazd(k, 30, 270, 480), 45, 30, 270, 480, warstwa)
+    klatki = warstwa_rgba(warstwa, 270, 480)
+
+    ilosc = [int((klatka[:, :, 3] > 0).sum()) for klatka in klatki]
+    assert ilosc[0] > 0 and ilosc[3] > ilosc[0] and ilosc[11] > ilosc[5]
+
+    for k in (20, 30, 40):
+        roznica = (kat_pierscienia(klatki[k + 1]) - kat_pierscienia(klatki[k]) + 15) % 30 - 15
+        assert abs(roznica - 140 / 30) < 1.0
+
+
+def test_okno_gwiazd_automatu_zaczyna_na_drugim_ujeciu_trwa_4_6_s_i_konczy_przed_dropem_i_kolazem():
+    plan = plan_z_ujeciami([60, 200, 60, 60])
+    assert render.okno_gwiazd(plan, None, [], [], 30) == (60, 60 + round(4.6 * 30))
+    assert render.okno_gwiazd(plan, None, [], [2], 30) == (60, 198)
+    assert render.okno_gwiazd(plan_z_ujeciami([60, 100, 100, 60]), None, [], [2], 30) == (60, 160)
+
+    plan = plan_z_ujeciami([60, 200, 60, 60])
+    assert render.okno_gwiazd(plan, 200, [30, 90, 150, 170, 200], [], 30) == (60, 170)
+
+    assert render.okno_gwiazd(plan_z_ujeciami([60, 100]), 130, [30, 80, 130], [], 30) is None
+    assert render.okno_gwiazd(plan_z_ujeciami([60]), None, [], [], 30) is None
+
+
+def test_okno_gwiazd_ze_scenariusza_obejmuje_kolejne_ujecia_z_gwiazdami():
+    efekt = {"uderzenie": False, "blysk_s": 0.0, "wstrzas": False, "przejscie": "brak"}
+    plan = plan_z_ujeciami(
+        [40, 40, 40, 40, 40],
+        {i: {"efekt_scenariusza": efekt, "gwiazdy": i in (1, 2, 4)} for i in range(5)},
+    )
+    assert render.okno_gwiazd(plan, None, [], [], 30) == (40, 120)
+
+    bez = plan_z_ujeciami([40, 40, 40], {i: {"efekt_scenariusza": efekt, "gwiazdy": False} for i in range(3)})
+    assert render.okno_gwiazd(bez, None, [], [], 30) is None
+
+    krotkie = plan_z_ujeciami([10, 10, 10], {i: {"efekt_scenariusza": efekt, "gwiazdy": i == 1} for i in range(3)})
+    assert render.okno_gwiazd(krotkie, None, [], [], 30) is None
+
+
+def ujecia_do_gwiazd():
+    return [
+        {"material": "a", "typ": "klip", "klatka_od": 0, "liczba_klatek": 60, "start_w_klipie_s": 0.0, "numer_wzoru": 0},
+        {"material": "b", "typ": "klip", "klatka_od": 60, "liczba_klatek": 120, "start_w_klipie_s": 0.0, "numer_wzoru": 0},
+    ]
+
+
+def test_gwiazdy_wylaczone_flaga_konfiguracja_i_bez_dynamiki_daja_brak_warstwy(tmp_path, monkeypatch):
+    wynik, _ = zmontuj_ze_stubami(tmp_path / "a", monkeypatch, ujecia_do_gwiazd(), [], gwiazdy=True)
+    assert wynik["gwiazdy"] == {"od_s": 2.0, "do_s": 6.0}
+    assert (tmp_path / "a" / "montaz" / "gwiazdy.mov").exists()
+
+    wynik, _ = zmontuj_ze_stubami(tmp_path / "b", monkeypatch, ujecia_do_gwiazd(), [], gwiazdy=False)
+    assert wynik["gwiazdy"] is None
+    assert not (tmp_path / "b" / "montaz" / "gwiazdy.mov").exists()
+
+    wynik, _ = zmontuj_ze_stubami(tmp_path / "c", monkeypatch, ujecia_do_gwiazd(), [], gwiazdy=True, bez_dynamiki=True)
+    assert wynik["gwiazdy"] is None
+    assert not (tmp_path / "c" / "montaz" / "gwiazdy.mov").exists()
+
+
+def test_flaga_bez_gwiazd_wylacza_gwiazdy_w_renderze(tmp_path, monkeypatch):
+    przekazane = []
+    monkeypatch.setattr(render, "renderuj", lambda *args, **kwargs: przekazane.append(kwargs))
+    baza = ["--wzor", "w.json", "--projekt", str(tmp_path), "--wyjscie", str(tmp_path / "w.mp4")]
+
+    assert render.glowna(baza) == 0
+    assert render.glowna(baza + ["--bez-gwiazd"]) == 0
+    assert [k["gwiazdy_w_haku"] for k in przekazane] == [True, False]
+
+
+def test_przebieg_koncowy_dostaje_gwiazdy_jako_klip_bez_petli_i_nad_napisami(tmp_path, monkeypatch):
+    polecenia = []
+    monkeypatch.setattr(render, "uruchom_ffmpeg", lambda argumenty, katalog=None: polecenia.append(argumenty))
+    warstwa = tmp_path / "gwiazdy.mov"
+    render.materializuj_warstwe(lambda k: render.obraz_gwiazd(k, 30, 270, 480), 45, 30, 270, 480, warstwa)
+    napis = tmp_path / "napis.webm"
+    napis.write_bytes(b"")
+
+    render.przebieg_koncowy(
+        tmp_path / "polaczone.mp4", tmp_path / "utwor.wav", 0.0, 150, 30, tmp_path / "wynik.mp4", 50,
+        szerokosc=270, wysokosc=480,
+        teksty=[{"plik": napis, "od_s": 0.5, "do_s": 3.0}],
+        gwiazdy={"plik": warstwa, "od_s": 1.0, "do_s": 2.5},
+    )
+
+    polecenie = polecenia[-1]
+    indeks = polecenie.index(str(warstwa))
+    assert polecenie[indeks - 1] == "-i"
+    assert "-t" not in polecenie[indeks - 3:indeks]
+    assert "-loop" not in polecenie and "-stream_loop" not in polecenie
+    filtr = polecenie[polecenie.index("-filter_complex") + 1]
+    assert filtr.index("[gwiazdy]overlay") < filtr.index("[tekst0]overlay")

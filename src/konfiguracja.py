@@ -26,6 +26,7 @@ class Konfiguracja:
     ai_rezyser: bool = True
     ai_krytyk: bool = True
     prog_oceny_ai: int = 7
+    gwiazdy_w_haku: bool = True
 
 
 def wczytaj(srodowisko: Mapping[str, str] | None = None) -> Konfiguracja:
@@ -92,6 +93,7 @@ def wczytaj(srodowisko: Mapping[str, str] | None = None) -> Konfiguracja:
 
     ai_rezyser = wczytaj_flage("AI_REZYSER", True)
     ai_krytyk = wczytaj_flage("AI_KRYTYK", True)
+    gwiazdy_w_haku = wczytaj_flage("GWIAZDY_W_HAKU", True)
 
     try:
         prog_oceny_ai = int(srodowisko.get("PROG_OCENY_AI", 7))
@@ -117,6 +119,7 @@ def wczytaj(srodowisko: Mapping[str, str] | None = None) -> Konfiguracja:
         ai_rezyser=ai_rezyser,
         ai_krytyk=ai_krytyk,
         prog_oceny_ai=prog_oceny_ai,
+        gwiazdy_w_haku=gwiazdy_w_haku,
     )
 
 

@@ -129,7 +129,7 @@ def test_renderuj_slowa_w_rytmie_pelny_przebieg(tmp_path):
     fps = 30
 
     wyjscie = tmp_path / "wynik.mp4"
-    podsumowanie = render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50)
+    podsumowanie = render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50, gwiazdy_w_haku=False)
 
     assert podsumowanie["slowa"]["liczba"] == 3
     okna = podsumowanie["slowa"]["okna"]
@@ -280,7 +280,7 @@ def test_renderuj_pionowy_pelny_przebieg(tmp_path):
     fps = 30
 
     wyjscie = tmp_path / "wynik.mp4"
-    podsumowanie = render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50)
+    podsumowanie = render.renderuj(wzor_json, projekt, utwor, wyjscie, szerokosc=270, wysokosc=480, fps=fps, limit_mb=50, gwiazdy_w_haku=False)
 
     assert podsumowanie["pionowo"]["znaki"] == 3
     poczatek = podsumowanie["pionowo"]["od"]

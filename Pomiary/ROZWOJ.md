@@ -86,6 +86,12 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-29: zadanie 12.5 (gwiazdy w haku), gałąź `styl`
+- Zrobione: `obraz_gwiazd` (12 złotych pięcioramiennych gwiazd na okręgu o środku kadru, r(t) = W·(0,40 − 0,34·e^(−t/1,5)), obrót 140°/s, gwiazda k od klatki k), `okno_gwiazd` (automat: od drugiego ujęcia 4,6 s, przycięte przed pierwszym późniejszym ujęciem z kolażem i przed uderzeniem poprzedzającym drop; scenariusz: od pierwszego ujęcia z `gwiazdy` przez kolejne; okno krótsze niż 1 s nie powstaje), `przygotuj_gwiazdy` (klip RGBA z `materializuj_warstwe`), warstwa w `przebieg_koncowy` nad nakładką i pod napisami (`gwiazdy=`), `zmontuj(gwiazdy_w_haku=...)`, `renderuj(gwiazdy_w_haku=True)`, CLI `--bez-gwiazd`, `GWIAZDY_W_HAKU` (`tak`/`nie`, inaczej `ValueError`) w konfiguracji i `.env.example`, bot dokłada `--bez-gwiazd`. `--bez-dynamiki` wyłącza gwiazdy. Podsumowanie: `gwiazdy: {od_s, do_s}` albo `null`.
+- Tryb scenariusza rozpoznaje plan po `efekt_scenariusza`; pole `gwiazdy` w ujęciu plan zacznie wypełniać 12.6.
+- Odkrycie z testów: `test_rytm.py::test_renderuj_slowa_w_rytmie_pelny_przebieg` i `..._pionowy_pelny_przebieg` wykrywają złoty tekst, a gwiazdy są złote, więc oba wywołania dostały `gwiazdy_w_haku=False`.
+- Testy: pełny zestaw 466, po poprawce `test_rytm.py` 22 z 22.
+
 ### 2026-09-29: zadanie 12.4 (kolaż w rytmie wzoru), gałąź `styl`
 - Start: gałąź `styl` założona z `origin/claude/loving-cannon-rdgo03` (tam leżało już 12.3, `main` go nie miał). Jedna poprawka po drodze: test `test_render_ai_scenariusz_na_wzorze_z_dropem_...` zakładał dokładnie jeden kolaż, a automat 12.3 słusznie dokłada kolaż w uzupełnieniu ujęć wzoru bez scenariusza; test sprawdza teraz kolaż scenariusza i to, że w ujęciach 0 do 2 jest tylko on.
 - Zrobione: `polowki_uderzen`, `czasy_wejsc_kolazu` (półuderzenia, pierwsze najwcześniej w klatce 2, odpadają wejścia w ostatnich 0,25 s, najwyżej `LICZBA_ELEMENTOW_KOLAZU` 5; bez uderzeń w ujęciu krok 0,23 s), wejścia `wjazd` (3 klatki, przesunięcie 35% ku najbliższej krawędzi, skala 1,3, rozmycie ruchu z 5 kopii), `wskok` (dawne skale) i `powiekszenie` (jeden element, wysokość 95%, dół 5% poza kadrem, skala 2,0 do 1,0 przez 14 klatek, rozmycie Gaussa 12 px do 0), kafle (`kafel: True` w elemencie: zdjęcie dopasowane „cover” do 45% x 28%). `przygotuj_kolaz` dostaje `wejscie`; bez mapy zostaje ścieżka dawna (stałe pola, `wskok`).
