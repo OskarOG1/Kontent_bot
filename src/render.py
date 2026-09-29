@@ -1683,7 +1683,7 @@ def okno_gwiazd(plan: dict, klatka_dropu: int | None, uderzenia_wyn: list[int], 
     ujecia = plan["ujecia"]
     ze_scenariusza = any(u.get("efekt_scenariusza") is not None for u in ujecia)
     if ze_scenariusza:
-        numery = {i for i, u in enumerate(ujecia) if u.get("gwiazdy")}
+        numery = {i for i, u in enumerate(ujecia) if u.get("gwiazdy")} - set(ujecia_z_kolazem)
         if not numery:
             return None
         pierwsze = min(numery)
@@ -2233,6 +2233,7 @@ def zmontuj(
     podsumowanie_kolazy = []
     kolaze_pominiete = []
     ostrzezenia_kolazy = []
+    przejscia_montazu = []
     tla_ujec = {}
 
     def tlo_ujecia(indeks: int, ujecie: dict):
@@ -2277,6 +2278,7 @@ def zmontuj(
         )
         podsumowanie_kolazy.append({
             "ujecie": indeks, "wycinki": [Path(w["plik"]).name for w in wybrane[:len(miejsca)]],
+            "start_s": round(ujecie["klatka_od"] / fps, 3),
             "ruch": round(ruch, 2), "wejscie": ujecie.get("wejscie_kolazu") or "wjazd",
             "miejsca": [[round(x, 3), round(y, 3)] for x, y in miejsca],
         })
@@ -2288,6 +2290,8 @@ def zmontuj(
         ma_efekt_scenariusza = ujecie.get("efekt_scenariusza") is not None
         if plansza_uzyta and indeks == len(plan["ujecia"]) - 1:
             efekt = None if bez_dynamiki else efekt_ujecia(ujecie, -1, klatka_dropu, licznik_zdjec_montazu)
+            if efekt and efekt["przejscie"] != "brak":
+                przejscia_montazu.append({"ujecie": indeks, "przejscie": efekt["przejscie"]})
             segment_planszy(
                 plansza, sciezka_segmentu, ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
                 przejscie=efekt["przejscie"] if efekt else "brak",
@@ -2321,6 +2325,8 @@ def zmontuj(
                 efekt = efekt_ujecia(ujecie, indeks, klatka_dropu, licznik_zdjec_montazu)
             if efekt is not None and klatka_dropu is not None and ujecie["klatka_od"] == klatka_dropu:
                 efekt = dict(efekt, blysk_s=0.3, wstrzas=True)
+            if efekt and efekt["przejscie"] != "brak":
+                przejscia_montazu.append({"ujecie": indeks, "przejscie": efekt["przejscie"]})
             sciezka_kolazu = None
             if ma_efekt_scenariusza:
                 numery_kolazu = ujecie.get("kolaz_scenariusza") or []
@@ -2397,6 +2403,7 @@ def zmontuj(
     return {
         "podsumowanie_kolazy": podsumowanie_kolazy,
         "kolaze_pominiete": kolaze_pominiete,
+        "przejscia": przejscia_montazu,
         "ostrzezenia_kolazy": ostrzezenia_kolazy,
         "plansza_uzyta": plansza_uzyta,
         "uzyc_kolor": uzyc_kolor,
@@ -2603,6 +2610,7 @@ def renderuj(
         "kolaze": wynik_montazu["podsumowanie_kolazy"],
         "kolaze_pominiete": wynik_montazu["kolaze_pominiete"],
         "gwiazdy": wynik_montazu["gwiazdy"],
+        "przejscia": wynik_montazu["przejscia"],
         "pasy": [{"plik": Path(plik).name, "kadr": kadr} for plik, kadr in kadry_klipow.items() if kadr],
         "ai": ai_info,
     }

@@ -643,8 +643,9 @@ def test_okno_gwiazd_ze_scenariusza_obejmuje_kolejne_ujecia_z_gwiazdami():
         {i: {"efekt_scenariusza": efekt, "gwiazdy": i in (1, 2, 4)} for i in range(5)},
     )
     assert render.okno_gwiazd(plan, None, [], [], 30) == (40, 120)
+    assert render.okno_gwiazd(plan, None, [], [1], 30) == (80, 120)
 
-    bez = plan_z_ujeciami([40, 40, 40], {i: {"efekt_scenariusza": efekt, "gwiazdy": False} for i in range(3)})
+    bez =plan_z_ujeciami([40, 40, 40], {i: {"efekt_scenariusza": efekt, "gwiazdy": False} for i in range(3)})
     assert render.okno_gwiazd(bez, None, [], [], 30) is None
 
     krotkie = plan_z_ujeciami([10, 10, 10], {i: {"efekt_scenariusza": efekt, "gwiazdy": i == 1} for i in range(3)})

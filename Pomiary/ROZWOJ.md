@@ -86,6 +86,14 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 
 ## Dziennik
 
+### 2026-09-29: zadanie 12.7 (pomiar stylu), gałąź `styl`
+- **Wynik:** progi B spełnione (ruch tła każdego z 16 kolaży w progu 5,0, żaden kolaż nie zaczyna się na dropie, 10 z 10 renderów bez błędu), arkusze i próbne edity powstały. Koszt AI **2,09 USD** (5 edytów, 0,38 do 0,50 USD każdy), czyli powyżej szacunku skryptu (najwyżej 1,82 USD); zgoda właściciela była na 1,5 USD, więc przekroczona.
+- Sekcja A (pasy): 29 klipów `dane/nagrania`, 5 z wykrytymi pasami, mediana 1,85 s na klip (jeden klip 8K 33 s).
+- Sekcja B, automat: 28 do 38 ujęć, gwiazdy w oknie od 0,33 do 0,63 s przez 4,6 s, **zero kolaży na wszystkich 5 wzorach** i zero pominiętych. Najpewniej żadne ujęcie automatu nie spełnia razem: co najmniej 1,5 s, nie na dropie, poza oknami słów i ruch tła do 5,0 (ujęcia mają średnio poniżej 1,5 s). Nie sprawdzone dalej: do decyzji, czy poluzować kwalifikację automatu.
+- Sekcja B, AI: 21 do 28 ujęć, kolaże 2 do 4 na edit (wejścia wjazd, wskok i powiekszenie), ocena krytyka 5 do 6 (0922: 5), okno gwiazd zaczyna się na 0,0 s i trwa 4,0 do 6,1 s, 2 pominięte kolaże (0915, 0922). **Ruch tła każdego kolażu z AI to 0,0**: podejrzane, bo klatki tła prawdopodobnie liczą się z nieruchomego materiału (zdjęcia) albo z jednego kadru; wymaga sprawdzenia `klatki_tla` na klipach z ruchem.
+- Czas zegara renderu (2 procesy naraz, wartości zawyżone): auto 407 do 601 s, AI 1176 do 1790 s.
+- Do oceny przez właściciela: `outputs/porownanie_styl_<wzor>_auto.png` i `_ai.png`, `outputs/styl_0923_auto.mp4` i `styl_0923_ai.mp4`. Pomiar dopisał do podsumowania `kolaze[].start_s` i `przejscia` (`zmontuj`).
+
 ### 2026-09-29: zadanie 12.6 (reżyser i krytyk znają styl 0923), gałąź `styl`
 - Zrobione: `rezyser.Ujecie` ma `wejscie_kolazu` (`wjazd`/`wskok`/`powiekszenie`), `miejsce_kolazu` (`auto`/`gora`/`dol`/`lewo`/`prawo`), `gwiazdy` (bool), a `kolaz` przycina do 5 (`LICZBA_ELEMENTOW_KOLAZU_SCENARIUSZA`). `plan_ze_scenariusza` i `zastosuj_poprawki` przenoszą pola do ujęcia planu, a `oczysc_kolaz_scenariusza` odrzuca numer klipu i nieznany numer z ostrzeżeniem („klip N w kolażu, pominięty”); numer zwykłego zdjęcia zostaje i daje kafel (`rezyseruj` buduje `elementy_kolazu` z wycinków i zdjęć `kafel: True`, `plik_roboczy`).
 - `POLECENIE_REZYSERA`: zdanie o stałych miejscach zniknęło, w jego miejsce bramka ruchu tła, miejsca wybiera render, `miejsce_kolazu`, kafle, `powiekszenie` przed planszą, `gwiazdy` na 2 do 3 ujęciach haka. Otwarcie: 3 do 5 elementów co pół uderzenia. `POLECENIE_KRYTYKA` sprawdza tło, rozmiary, miejsca i pierścień gwiazd. `opis_montazu` dostaje `kolaze`, `kolaze_pominiete`, `gwiazdy` (z wyniku montażu przez `ocen_montaz(..., wynik_montazu)`) i podaje elementy, wejście, miejsca, ruch tła, przejście, gwiazdy.
