@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 import random
 import statistics
 import shutil
@@ -12,7 +13,7 @@ from pathlib import Path
 import httpx
 import numpy
 import pillow_heif
-from PIL import Image, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 import analyze
 import kolor
@@ -69,7 +70,32 @@ UDZIAL_SZEROKOSCI_KOLAZU = 0.55
 UDZIAL_WYSOKOSCI_KOLAZU = 0.36
 POLA_KOLAZU = ((0.30, 0.30), (0.70, 0.47), (0.38, 0.66))
 WSKOK_SKALE_KOLAZU = (0.45, 0.85, 1.12, 1.05)
-LICZBA_WYCINKOW_KOLAZU = 3
+LICZBA_ELEMENTOW_KOLAZU = 5
+MINIMUM_KLATEK_DO_WEJSCIA = 2
+ZAPAS_KONCA_KOLAZU_S = 0.25
+POLOWA_UDERZENIA_S = 0.23
+KLATEK_WJAZDU = 3
+PRZESUNIECIE_WJAZDU = 0.35
+SKALA_WJAZDU = 1.3
+KOPII_ROZMYCIA_RUCHU = 5
+KLATEK_POWIEKSZENIA = 14
+SKALA_POWIEKSZENIA = 2.0
+ROZMYCIE_POWIEKSZENIA_PX = 12.0
+WYSOKOSC_POWIEKSZENIA = 0.95
+DOLNY_WYSTEP_POWIEKSZENIA = 0.05
+SZEROKOSC_KAFLA = 0.45
+WYSOKOSC_KAFLA = 0.28
+LICZBA_GWIAZD = 12
+KOLOR_GWIAZD = (255, 204, 0, 255)
+OBROT_GWIAZD_STOPNIE_NA_S = 140.0
+ROZPIETOSC_GWIAZDY = 0.14
+MINIMUM_ROZPIETOSCI_GWIAZDY_PX = 4
+PROMIEN_POCZATKOWY_GWIAZD = 0.06
+PROMIEN_KONCOWY_GWIAZD = 0.40
+CZAS_ROZSZERZANIA_GWIAZD_S = 1.5
+DLUGOSC_OKNA_GWIAZD_S = 4.6
+MINIMUM_OKNA_GWIAZD_S = 1.0
+WEJSCIA_KOLAZU = ("wjazd", "wskok", "powiekszenie")
 MINIMUM_KLIPU_KOLAZU_S = 1.5
 PROG_KANALU_PASA = 40
 UDZIAL_JASNYCH_W_PASIE = 0.02
@@ -78,6 +104,18 @@ MINIMUM_KADRU_BEZ_PASOW = 0.5
 LICZBA_KLATEK_PASOW = 6
 SZEROKOSC_KLATKI_PASOW = 320
 ZAPAS_PASA = 2
+PROG_RUCHU_KOLAZU = 5.0
+SZEROKOSC_TLA = 90
+WYSOKOSC_TLA = 160
+UDZIALY_KLATEK_TLA = (0.125, 0.375, 0.625, 0.875)
+OKNO_MAPY_ZAJETOSCI = 9
+WAGA_RUCHU_W_MAPIE = 2.0
+WYSTAWANIE_KOLAZU = 0.08
+WYSOKOSC_WYCINKA_KOLAZU = 0.5
+WYSOKOSC_JEDNEGO_WYCINKA_KOLAZU = 0.6
+SZEROKOSC_MAKS_WYCINKA_KOLAZU = 0.6
+MAKSIMUM_KOLAZY_AUTOMATU = 3
+ODSTEP_KOLAZY_AUTOMATU_S = 3.0
 
 
 def uruchom_ffmpeg(argumenty: list[str], katalog: Path | None = None) -> None:
@@ -272,6 +310,7 @@ def segment_zdjecia(
     sciezka_przygotowana: Path, wyjscie: Path, numer_ujecia: int, liczba_klatek: int, fps: float, szerokosc: int, wysokosc: int,
     lut_sciezka: str | None = None, katalog: Path | None = None,
     uderzenie: bool = False, blysk_s: float = 0.0, wstrzas: bool = False, przejscie: str = "brak",
+    kolaz: Path | None = None,
 ) -> None:
     szerokosc_robocza = szerokosc * MNOZNIK_ROBOCZY_ZOOM
     wysokosc_robocza = wysokosc * MNOZNIK_ROBOCZY_ZOOM
@@ -295,6 +334,22 @@ def segment_zdjecia(
         filtr += f",{filtr_wstrzasu(szerokosc, wysokosc)}"
     filtr += filtr_przejscia(przejscie)
     koncowka = koncowka_segmentu(blysk_s)
+    if kolaz is not None:
+        if przejscie == "rozciagniecie":
+            graf_bazy = graf_z_rozciagnieciem(filtr, koncowka, szerokosc, wysokosc)
+        else:
+            graf_bazy = f"[0:v]{filtr}{koncowka}"
+        uruchom_ffmpeg([
+            "-loop", "1", "-i", str(sciezka_przygotowana),
+            "-i", str(kolaz),
+            "-filter_complex", f"{graf_bazy}[baza];[1:v]format=rgba[nak];[baza][nak]overlay=format=auto[out]",
+            "-map", "[out]",
+            "-frames:v", str(liczba_klatek),
+            "-an",
+            *PARAMETRY_KODOWANIA_SEGMENTU,
+            str(wyjscie),
+        ], katalog=katalog)
+        return
     if przejscie == "rozciagniecie":
         argumenty_filtra = [
             "-filter_complex", f"{graf_z_rozciagnieciem(filtr, koncowka, szerokosc, wysokosc)}[baza]",
@@ -854,6 +909,20 @@ def fragment_klipu(od_s: float, czas_klipu_s: float, liczba_klatek: int, fps: in
     return od_s, None
 
 
+def oczysc_kolaz_scenariusza(numery: list[int], kawalki_wedlug_numeru: dict, etykieta: str) -> tuple[list[int], list[str]]:
+    zostaje = []
+    ostrzezenia = []
+    for numer in numery:
+        kawalek = kawalki_wedlug_numeru.get(numer)
+        if kawalek is None:
+            ostrzezenia.append(f"{etykieta}: nieznany numer {numer} w kolażu, pominięty")
+        elif kawalek["typ"] == "klip":
+            ostrzezenia.append(f"{etykieta}: klip {numer} w kolażu, pominięty")
+        else:
+            zostaje.append(numer)
+    return zostaje, ostrzezenia
+
+
 def plan_ze_scenariusza(
     scenariusz, plan: dict, kawalki_wedlug_numeru: dict, uderzenia: list[int], fps: int, wzor: dict,
 ) -> tuple[dict, list[str]]:
@@ -927,6 +996,11 @@ def plan_ze_scenariusza(
                 ostrzezenia.append(f"ujęcie {pozycja}: zdjęcie nie ma fragmentu, od_s wymuszone na 0")
             od_s = 0.0
 
+        kolaz_numery, ostrzezenia_kolazu = oczysc_kolaz_scenariusza(
+            ujecie_scenariusza.kolaz, kawalki_wedlug_numeru, f"ujęcie {pozycja}",
+        )
+        ostrzezenia += ostrzezenia_kolazu
+
         ujecia.append({
             "material": str(kawalek["plik"]),
             "typ": typ,
@@ -940,7 +1014,10 @@ def plan_ze_scenariusza(
                 "wstrzas": ujecie_scenariusza.wstrzas,
                 "przejscie": ujecie_scenariusza.przejscie,
             },
-            "kolaz_scenariusza": list(ujecie_scenariusza.kolaz),
+            "kolaz_scenariusza": kolaz_numery,
+            "wejscie_kolazu": ujecie_scenariusza.wejscie_kolazu,
+            "miejsce_kolazu": ujecie_scenariusza.miejsce_kolazu,
+            "gwiazdy": ujecie_scenariusza.gwiazdy,
         })
         klatka = koniec
 
@@ -991,6 +1068,10 @@ def zastosuj_poprawki(plan: dict, poprawki: list, kawalki_wedlug_numeru: dict, f
             start_w_klipie_s, ostrzezenie = fragment_klipu(zmiana.od_s, float(kawalek["czas_s"]), oryginal["liczba_klatek"], fps)
             if ostrzezenie:
                 ostrzezenia.append(f"poprawka ujęcia {indeks}: {ostrzezenie}")
+        kolaz_numery, ostrzezenia_kolazu = oczysc_kolaz_scenariusza(
+            zmiana.kolaz, kawalki_wedlug_numeru, f"poprawka ujęcia {indeks}",
+        )
+        ostrzezenia += ostrzezenia_kolazu
         ujecia[indeks] = {
             "material": str(kawalek["plik"]),
             "typ": typ,
@@ -1002,7 +1083,10 @@ def zastosuj_poprawki(plan: dict, poprawki: list, kawalki_wedlug_numeru: dict, f
                 "uderzenie": zmiana.uderzenie, "blysk_s": zmiana.blysk_s,
                 "wstrzas": zmiana.wstrzas, "przejscie": zmiana.przejscie,
             },
-            "kolaz_scenariusza": list(zmiana.kolaz),
+            "kolaz_scenariusza": kolaz_numery,
+            "wejscie_kolazu": zmiana.wejscie_kolazu,
+            "miejsce_kolazu": zmiana.miejsce_kolazu,
+            "gwiazdy": zmiana.gwiazdy,
         }
     plan_poprawiony = {"fps": plan["fps"], "start_audio_s": plan["start_audio_s"], "liczba_klatek": plan["liczba_klatek"], "ujecia": ujecia}
     return plan_poprawiony, ostrzezenia
@@ -1022,13 +1106,19 @@ def zapisz_scenariusz(katalog_projektu: Path, wzor_id: str, wariant: int, scenar
 def ocen_montaz(
     klient, model, wzor_json: Path, plan: dict, wyjscie: Path, katalog_pracy: Path,
     materialy: list[dict] | None = None, wycinki: list[dict] | None = None, plansza_uzyta: bool = False,
+    wynik_montazu: dict | None = None,
 ) -> tuple:
     zrodlo_wzoru = plik_zrodlowy_wzoru(wzor_json)
     if zrodlo_wzoru is None:
         return None, rezyser.zuzycie(powod="brak źródła wzoru do arkusza krytyka")
     try:
         arkusz = rezyser.arkusz_krytyka(wyjscie, zrodlo_wzoru, Path(katalog_pracy) / "arkusz_krytyka.jpg")
-        opis = rezyser.opis_montazu(plan, plan["fps"], materialy, wycinki, plansza_uzyta)
+        wynik_montazu = wynik_montazu or {}
+        opis = rezyser.opis_montazu(
+            plan, plan["fps"], materialy, wycinki, plansza_uzyta,
+            kolaze=wynik_montazu.get("podsumowanie_kolazy"), kolaze_pominiete=wynik_montazu.get("kolaze_pominiete"),
+            gwiazdy=wynik_montazu.get("gwiazdy"),
+        )
         tresc = {"obrazy": [arkusz], "tekst": rezyser.POLECENIE_KRYTYKA + "\n\n" + opis}
         dane, zuzycie = rezyser.wywolaj_model(klient, model, tresc, rezyser.schemat_oceny())
     except Exception as wyjatek:
@@ -1076,6 +1166,10 @@ def rezyseruj(
     zwykle_wedlug_numeru, wycinki_wedlug_numeru = rezyser.numeracja(zwykle, wycinki)
     materialy_wedlug_numeru = dict(zwykle_wedlug_numeru)
     materialy_wedlug_numeru.update({numer: dict(wycinek, typ="wycinek") for numer, wycinek in wycinki_wedlug_numeru.items()})
+    elementy_kolazu = dict(wycinki_wedlug_numeru)
+    for numer, material in zwykle_wedlug_numeru.items():
+        if material["typ"] == "zdjecie":
+            elementy_kolazu[numer] = {"plik": material.get("plik_roboczy") or material["plik"], "kafel": True}
 
     scenariusz = None
     plan_1 = plan_auto
@@ -1105,7 +1199,7 @@ def rezyseruj(
     if rezyser_aktywny:
         zapisz_scenariusz(katalog_projektu, Path(wzor_json).parent.name, wariant, scenariusz, ostrzezenia)
         try:
-            wynik_1 = montuj(plan_1, wycinki_wedlug_numeru, Path(katalog_pracy) / "montaz_ai_1", wyjscie)
+            wynik_1 = montuj(plan_1, elementy_kolazu, Path(katalog_pracy) / "montaz_ai_1", wyjscie)
         except Exception as wyjatek:
             rezyser_aktywny = False
             zuzycie_rezysera = dict(zuzycie_rezysera, powod=f"błąd montażu scenariusza: {type(wyjatek).__name__}")
@@ -1132,7 +1226,7 @@ def rezyseruj(
 
     plansza_uzyta = bool(wynik_1.get("plansza_uzyta"))
     ocena_1, zuzycie_krytyka_1 = ocen_montaz(
-        klient, model, wzor_json, plan_1, wyjscie, katalog_pracy, zwykle, wycinki, plansza_uzyta,
+        klient, model, wzor_json, plan_1, wyjscie, katalog_pracy, zwykle, wycinki, plansza_uzyta, wynik_1,
     )
     dolicz_zuzycie(ai_info, zuzycie_krytyka_1)
 
@@ -1153,14 +1247,14 @@ def rezyseruj(
 
     wyjscie_2 = Path(wyjscie).with_name(Path(wyjscie).stem + "_ai_poprawka" + Path(wyjscie).suffix)
     try:
-        wynik_2 = montuj(plan_2, wycinki_wedlug_numeru, Path(katalog_pracy) / "montaz_ai_2", wyjscie_2)
+        wynik_2 = montuj(plan_2, elementy_kolazu, Path(katalog_pracy) / "montaz_ai_2", wyjscie_2)
     except Exception as wyjatek:
         ai_info["ostrzezenia"].append(f"montaż po poprawce nieudany: {type(wyjatek).__name__}")
         wyjscie_2.unlink(missing_ok=True)
         return plan_1, wynik_1, ai_info
 
     ocena_2, zuzycie_krytyka_2 = ocen_montaz(
-        klient, model, wzor_json, plan_2, wyjscie_2, katalog_pracy, zwykle, wycinki, bool(wynik_2.get("plansza_uzyta")),
+        klient, model, wzor_json, plan_2, wyjscie_2, katalog_pracy, zwykle, wycinki, bool(wynik_2.get("plansza_uzyta")), wynik_2,
     )
     dolicz_zuzycie(ai_info, zuzycie_krytyka_2)
     if ocena_2 is None:
@@ -1268,6 +1362,7 @@ def przebieg_koncowy(
     teksty: list[dict] | None = None,
     slowa: dict | None = None,
     pionowo: dict | None = None,
+    gwiazdy: dict | None = None,
 ) -> None:
     polaczone_wideo = Path(polaczone_wideo)
     czas_trwania_s = liczba_klatek / fps
@@ -1318,6 +1413,16 @@ def przebieg_koncowy(
             f"[1:a]afade=t=out:st={poczatek_wyciszenia:.6f}:d={wyciszenie_s:.6f}[a]"
         )
         mapa_wideo = "[v]"
+
+    if gwiazdy is not None:
+        indeks_wejscia = wejscia.count("-i")
+        wejscia += ["-i", str(gwiazdy["plik"])]
+        filtr += (
+            f";[{indeks_wejscia}:v]setpts=PTS+{gwiazdy['od_s']:.6f}/TB[gwiazdy];"
+            f"{mapa_wideo}[gwiazdy]overlay=eval=frame:enable="
+            f"'between(t,{gwiazdy['od_s']:.6f},{gwiazdy['do_s']:.6f})'[vg]"
+        )
+        mapa_wideo = "[vg]"
 
     if teksty:
         fade_s = 4 / fps
@@ -1455,6 +1560,31 @@ def koniec_haka(plan: dict, sekcje: dict | None) -> int:
     return max(fps, min(klatka, liczba_klatek))
 
 
+def wydluz_zdjecie_pod_kolaz(plan: dict, wzor: dict, fps: float) -> dict:
+    ujecia = plan["ujecia"]
+    koniec = koniec_haka(plan, wzor.get("sekcje"))
+    minimum = round(MINIMUM_KLIPU_KOLAZU_S * fps)
+    for pierwsze, ujecie in enumerate(ujecia[:-1]):
+        if ujecie["klatka_od"] >= koniec:
+            return plan
+        if ujecie["typ"] != "zdjecie":
+            continue
+        ostatnie = pierwsze
+        dlugosc = ujecie["liczba_klatek"]
+        while dlugosc < minimum and ostatnie + 2 < len(ujecia):
+            nastepne = ujecia[ostatnie + 1]
+            if nastepne["typ"] != "zdjecie" or nastepne["klatka_od"] + nastepne["liczba_klatek"] > koniec:
+                break
+            ostatnie += 1
+            dlugosc += nastepne["liczba_klatek"]
+        if dlugosc >= minimum:
+            if ostatnie == pierwsze:
+                return plan
+            nowe = ujecia[:pierwsze] + [dict(ujecie, liczba_klatek=dlugosc)] + ujecia[ostatnie + 1:]
+            return dict(plan, ujecia=nowe)
+    return plan
+
+
 def okno_nakladki(
     wzor: dict, plan: dict, plansza_uzyta: bool, tryb: str | None = None, dlugosc_krycie_s: float = 0.0,
 ) -> tuple[float, float]:
@@ -1546,9 +1676,73 @@ def materializuj_warstwe(generator_klatek, liczba_klatek: int, fps: float, szero
         raise RuntimeError(f"ffmpeg zakonczyl sie kodem {kod}: {blad}")
 
 
-def kolaz_kwalifikuje(ujecie: dict, numer_klipu: int, klatka_dropu: int | None, okna_slow: list, fps: float) -> bool:
-    if numer_klipu % 2 != 1:
-        return False
+def promien_gwiazd(t_s: float, szerokosc: int) -> float:
+    return szerokosc * (
+        PROMIEN_KONCOWY_GWIAZD - (PROMIEN_KONCOWY_GWIAZD - PROMIEN_POCZATKOWY_GWIAZD) * math.exp(-t_s / CZAS_ROZSZERZANIA_GWIAZD_S)
+    )
+
+
+def obraz_gwiazd(indeks_klatki: int, fps: float, szerokosc: int, wysokosc: int):
+    obraz = Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
+    rysunek = ImageDraw.Draw(obraz)
+    t_s = indeks_klatki / fps
+    promien = promien_gwiazd(t_s, szerokosc)
+    rozpietosc = max(MINIMUM_ROZPIETOSCI_GWIAZDY_PX, ROZPIETOSC_GWIAZDY * promien)
+    zewnetrzny = rozpietosc / 2
+    wewnetrzny = zewnetrzny * 0.4
+    obrot = OBROT_GWIAZD_STOPNIE_NA_S * t_s
+    for k in range(min(LICZBA_GWIAZD, indeks_klatki + 1)):
+        kat = math.radians(-90.0 + 360.0 * k / LICZBA_GWIAZD + obrot)
+        srodek_x = szerokosc / 2 + promien * math.cos(kat)
+        srodek_y = wysokosc / 2 + promien * math.sin(kat)
+        wierzcholki = []
+        for i in range(10):
+            r = zewnetrzny if i % 2 == 0 else wewnetrzny
+            a = kat + math.radians(-90.0 + 36.0 * i)
+            wierzcholki.append((srodek_x + r * math.cos(a), srodek_y + r * math.sin(a)))
+        rysunek.polygon(wierzcholki, fill=KOLOR_GWIAZD)
+    return obraz
+
+
+def okno_gwiazd(plan: dict, klatka_dropu: int | None, uderzenia_wyn: list[int], ujecia_z_kolazem: list[int], fps: float) -> tuple[int, int] | None:
+    ujecia = plan["ujecia"]
+    ze_scenariusza = any(u.get("efekt_scenariusza") is not None for u in ujecia)
+    if ze_scenariusza:
+        numery = {i for i, u in enumerate(ujecia) if u.get("gwiazdy")} - set(ujecia_z_kolazem)
+        if not numery:
+            return None
+        pierwsze = min(numery)
+        ostatnie = pierwsze
+        while ostatnie + 1 in numery:
+            ostatnie += 1
+        od = ujecia[pierwsze]["klatka_od"]
+        do = ujecia[ostatnie]["klatka_od"] + ujecia[ostatnie]["liczba_klatek"]
+    else:
+        if len(ujecia) < 2:
+            return None
+        od = ujecia[1]["klatka_od"]
+        do = od + round(DLUGOSC_OKNA_GWIAZD_S * fps)
+        pozniejsze = [ujecia[i]["klatka_od"] for i in ujecia_z_kolazem if ujecia[i]["klatka_od"] > od]
+        if pozniejsze:
+            do = min(do, min(pozniejsze))
+        if klatka_dropu is not None:
+            przed_dropem = [k for k in uderzenia_wyn if k < klatka_dropu]
+            if przed_dropem:
+                do = min(do, max(przed_dropem))
+    do = min(do, plan["liczba_klatek"])
+    if do - od < MINIMUM_OKNA_GWIAZD_S * fps:
+        return None
+    return od, do
+
+
+def przygotuj_gwiazdy(okno: tuple[int, int], katalog_pracy: Path, szerokosc: int, wysokosc: int, fps: float) -> dict:
+    od, do = okno
+    sciezka = katalog_pracy / "gwiazdy.mov"
+    materializuj_warstwe(lambda k: obraz_gwiazd(k, fps, szerokosc, wysokosc), do - od, fps, szerokosc, wysokosc, sciezka)
+    return {"plik": sciezka, "od_s": round(od / fps, 6), "do_s": round(do / fps, 6)}
+
+
+def kolaz_kwalifikuje(ujecie: dict, klatka_dropu: int | None, okna_slow: list, fps: float) -> bool:
     if ujecie["liczba_klatek"] / fps < MINIMUM_KLIPU_KOLAZU_S:
         return False
     if klatka_dropu is not None and ujecie["klatka_od"] == klatka_dropu:
@@ -1559,6 +1753,120 @@ def kolaz_kwalifikuje(ujecie: dict, numer_klipu: int, klatka_dropu: int | None, 
         if poczatek < do and od < koniec:
             return False
     return True
+
+
+def na_szarosc(obraz_rgb: numpy.ndarray) -> numpy.ndarray:
+    return obraz_rgb.astype(numpy.float32) @ numpy.array([0.299, 0.587, 0.114], dtype=numpy.float32)
+
+
+def klatki_tla(ujecie: dict, sciezki_robocze: dict, kadry_klipow: dict, fps: float, czasy_klipow: dict | None = None) -> numpy.ndarray | None:
+    if ujecie["typ"] == "zdjecie":
+        klatka = na_szarosc(obraz_do_statystyk(sciezki_robocze[ujecie["material"]], SZEROKOSC_TLA, WYSOKOSC_TLA))
+        return numpy.stack([klatka] * len(UDZIALY_KLATEK_TLA))
+    start_s = ujecie["start_w_klipie_s"]
+    dlugosc_s = ujecie["liczba_klatek"] / fps
+    if czasy_klipow and ujecie["material"] in czasy_klipow:
+        dlugosc_s = min(dlugosc_s, czasy_klipow[ujecie["material"]] - start_s)
+    if dlugosc_s <= 0:
+        return None
+    filtr = (
+        f"{filtr_kadru(kadry_klipow.get(ujecie['material']))}"
+        f"scale={SZEROKOSC_TLA}:{WYSOKOSC_TLA}:force_original_aspect_ratio=increase,crop={SZEROKOSC_TLA}:{WYSOKOSC_TLA}"
+    )
+    klatki = []
+    with tempfile.TemporaryDirectory() as katalog_tymczasowy:
+        for indeks, udzial in enumerate(UDZIALY_KLATEK_TLA):
+            klatka = probuj_klatke_klipu(
+                ["-ss", f"{start_s + dlugosc_s * udzial:.6f}"], ujecie["material"], filtr, Path(katalog_tymczasowy) / f"tlo_{indeks}.png",
+            )
+            if klatka is not None:
+                klatki.append(na_szarosc(klatka))
+    if len(klatki) < 2:
+        return None
+    return numpy.stack(klatki)
+
+
+def ruch_tla(klatki: numpy.ndarray) -> float:
+    if len(klatki) < 2:
+        return 0.0
+    return float(numpy.abs(numpy.diff(klatki.astype(numpy.float32), axis=0)).mean())
+
+
+def rozmycie_okna(mapa: numpy.ndarray, okno: int) -> numpy.ndarray:
+    promien = okno // 2
+    dopelniona = numpy.pad(mapa, promien, mode="edge")
+    sumy = numpy.pad(dopelniona.cumsum(axis=0).cumsum(axis=1), ((1, 0), (1, 0)))
+    return (sumy[okno:, okno:] - sumy[:-okno, okno:] - sumy[okno:, :-okno] + sumy[:-okno, :-okno]) / (okno * okno)
+
+
+def mapa_zajetosci(klatki: numpy.ndarray) -> numpy.ndarray:
+    k = klatki.astype(numpy.float32)
+    dx = numpy.zeros_like(k)
+    dx[:, :, 1:] = numpy.abs(numpy.diff(k, axis=2))
+    dy = numpy.zeros_like(k)
+    dy[:, 1:, :] = numpy.abs(numpy.diff(k, axis=1))
+    gradient = (dx + dy).mean(axis=0)
+    ruch = numpy.abs(numpy.diff(k, axis=0)).mean(axis=0) if len(k) > 1 else numpy.zeros_like(gradient)
+    return rozmycie_okna(gradient + WAGA_RUCHU_W_MAPIE * ruch, OKNO_MAPY_ZAJETOSCI)
+
+
+STRONY_KANDYDATOW = {
+    "gora": {"lg", "pg", "g"},
+    "dol": {"ld", "pd", "d"},
+    "lewo": {"lg", "ld", "l"},
+    "prawo": {"pg", "pd", "p"},
+}
+
+
+def kandydaci_kolazu(szerokosc: float, wysokosc: float) -> dict:
+    lewo = -WYSTAWANIE_KOLAZU * szerokosc
+    prawo = 1 - szerokosc + WYSTAWANIE_KOLAZU * szerokosc
+    gora = -WYSTAWANIE_KOLAZU * wysokosc
+    dol = 1 - wysokosc + WYSTAWANIE_KOLAZU * wysokosc
+    return {
+        "lg": (lewo, gora), "pg": (prawo, gora), "ld": (lewo, dol), "pd": (prawo, dol),
+        "l": (lewo, (1 - wysokosc) / 2), "p": (prawo, (1 - wysokosc) / 2),
+        "g": ((1 - szerokosc) / 2, gora), "d": ((1 - szerokosc) / 2, dol),
+    }
+
+
+def zajetosc_pod_prostokatem(mapa: numpy.ndarray, x: float, y: float, szerokosc: float, wysokosc: float) -> float:
+    wiersze, kolumny = mapa.shape
+    x0, x1 = max(0, round(x * kolumny)), min(kolumny, round((x + szerokosc) * kolumny))
+    y0, y1 = max(0, round(y * wiersze)), min(wiersze, round((y + wysokosc) * wiersze))
+    if x1 <= x0 or y1 <= y0:
+        return float("inf")
+    return float(mapa[y0:y1, x0:x1].mean())
+
+
+def miejsca_kolazu(mapa: numpy.ndarray, rozmiary: list[tuple[float, float]], strona: str = "auto") -> list[tuple[float, float]]:
+    dozwolone = STRONY_KANDYDATOW.get(strona)
+    uzyte: set[str] = set()
+    wynik = []
+    for szerokosc, wysokosc in rozmiary:
+        kandydaci = {
+            nazwa: pozycja for nazwa, pozycja in kandydaci_kolazu(szerokosc, wysokosc).items()
+            if dozwolone is None or nazwa in dozwolone
+        }
+        wolni = [nazwa for nazwa in kandydaci if nazwa not in uzyte]
+        if not wolni:
+            uzyte = set()
+            wolni = list(kandydaci)
+        najlepszy = min(wolni, key=lambda nazwa: zajetosc_pod_prostokatem(mapa, *kandydaci[nazwa], szerokosc, wysokosc))
+        uzyte.add(najlepszy)
+        wynik.append(kandydaci[najlepszy])
+    return wynik
+
+
+def wybierz_kolaze_automatu(kandydaci: list[tuple[float, int]], ujecia: list[dict], fps: float) -> set[int]:
+    wybrane: list[int] = []
+    for _, indeks in sorted(kandydaci):
+        if len(wybrane) >= MAKSIMUM_KOLAZY_AUTOMATU:
+            break
+        start_s = ujecia[indeks]["klatka_od"] / fps
+        if all(abs(start_s - ujecia[inny]["klatka_od"] / fps) >= ODSTEP_KOLAZY_AUTOMATU_S for inny in wybrane):
+            wybrane.append(indeks)
+    return set(wybrane)
 
 
 def wytnij_do_alfa(sciezka: Path):
@@ -1577,35 +1885,193 @@ def dopasuj_do_pola_kolazu(obraz, szerokosc: int, wysokosc: int):
     return obraz.resize(nowy_rozmiar, Image.LANCZOS)
 
 
-def wybierz_wycinki_kolazu(wycinki_posortowane: list[dict], indeks_puli: int) -> tuple[list[dict], int]:
-    ile = LICZBA_WYCINKOW_KOLAZU
+def wybierz_wycinki_kolazu(wycinki_posortowane: list[dict], indeks_puli: int, ile: int = LICZBA_ELEMENTOW_KOLAZU) -> tuple[list[dict], int]:
     wybrane = [wycinki_posortowane[(indeks_puli + i) % len(wycinki_posortowane)] for i in range(ile)]
     return wybrane, indeks_puli + ile
 
 
+def rozmiary_wycinkow_kolazu(obrazy: list, szerokosc: int, wysokosc: int) -> list[tuple[int, int]]:
+    udzial_wysokosci = WYSOKOSC_JEDNEGO_WYCINKA_KOLAZU if len(obrazy) == 1 else WYSOKOSC_WYCINKA_KOLAZU
+    rozmiary = []
+    for obraz in obrazy:
+        skala = min(udzial_wysokosci * wysokosc / obraz.height, SZEROKOSC_MAKS_WYCINKA_KOLAZU * szerokosc / obraz.width)
+        rozmiary.append((max(1, round(obraz.width * skala)), max(1, round(obraz.height * skala))))
+    return rozmiary
+
+
+def naloz_obraz(platno, obraz, lewo: int, gora: int) -> None:
+    x0, y0 = max(0, lewo), max(0, gora)
+    x1, y1 = min(platno.width, lewo + obraz.width), min(platno.height, gora + obraz.height)
+    if x1 <= x0 or y1 <= y0:
+        return
+    platno.alpha_composite(obraz.crop((x0 - lewo, y0 - gora, x1 - lewo, y1 - gora)), (x0, y0))
+
+
+def polowki_uderzen(uderzenia_lokalne: list[int]) -> list[int]:
+    uderzenia = sorted(set(uderzenia_lokalne))
+    polowki = set(uderzenia)
+    for poprzednie, nastepne in zip(uderzenia, uderzenia[1:]):
+        polowki.add((poprzednie + nastepne) // 2)
+    return sorted(polowki)
+
+
+def czasy_wejsc_kolazu(uderzenia_lokalne: list[int], liczba_klatek: int, fps: float, ile: int = LICZBA_ELEMENTOW_KOLAZU) -> list[int]:
+    granica = liczba_klatek - round(ZAPAS_KONCA_KOLAZU_S * fps)
+    if uderzenia_lokalne:
+        polowki = polowki_uderzen(uderzenia_lokalne)
+    else:
+        krok = max(1, round(POLOWA_UDERZENIA_S * fps))
+        polowki = list(range(MINIMUM_KLATEK_DO_WEJSCIA, liczba_klatek, krok))
+    polowki = [k for k in polowki if MINIMUM_KLATEK_DO_WEJSCIA <= k <= granica]
+    return polowki[:min(ile, LICZBA_ELEMENTOW_KOLAZU)]
+
+
+def uderzenia_ujecia(ujecie: dict, uderzenia_wyn: list[int]) -> list[int]:
+    return [
+        k - ujecie["klatka_od"] for k in uderzenia_wyn
+        if ujecie["klatka_od"] < k < ujecie["klatka_od"] + ujecie["liczba_klatek"]
+    ]
+
+
+def obraz_kafla(sciezka: Path, szerokosc: int, wysokosc: int):
+    obraz = ImageOps.exif_transpose(Image.open(sciezka)).convert("RGBA")
+    rozmiar = (max(1, round(SZEROKOSC_KAFLA * szerokosc)), max(1, round(WYSOKOSC_KAFLA * wysokosc)))
+    return ImageOps.fit(obraz, rozmiar, Image.LANCZOS)
+
+
+def usrednij_platna(platna: list):
+    rozmiar = platna[0].size
+    suma = sum(numpy.asarray(p.convert("RGBa"), dtype=numpy.float32) for p in platna) / len(platna)
+    return Image.frombytes("RGBa", rozmiar, suma.round().astype(numpy.uint8).tobytes()).convert("RGBA")
+
+
+def platno_z_obrazem(obraz, srodek: tuple[float, float], skala: float, szerokosc: int, wysokosc: int):
+    platno = Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
+    szer = max(1, round(obraz.width * skala))
+    wys = max(1, round(obraz.height * skala))
+    wersja = obraz if (szer, wys) == obraz.size else obraz.resize((szer, wys), Image.LANCZOS)
+    naloz_obraz(platno, wersja, round(srodek[0] - szer / 2), round(srodek[1] - wys / 2))
+    return platno
+
+
+def kierunek_do_krawedzi(srodek: tuple[float, float], szerokosc: int, wysokosc: int) -> tuple[float, float]:
+    odleglosci = {
+        (-1.0, 0.0): srodek[0], (1.0, 0.0): szerokosc - srodek[0],
+        (0.0, -1.0): srodek[1], (0.0, 1.0): wysokosc - srodek[1],
+    }
+    return min(odleglosci, key=odleglosci.get)
+
+
+def platno_wjazdu(obraz, srodek: tuple[float, float], przesuniecie: int, szerokosc: int, wysokosc: int):
+    if przesuniecie >= KLATEK_WJAZDU:
+        return platno_z_obrazem(obraz, srodek, 1.0, szerokosc, wysokosc)
+    kierunek = kierunek_do_krawedzi(srodek, szerokosc, wysokosc)
+
+    def stan(postep: float):
+        odsuniecie = (1.0 - postep) * PRZESUNIECIE_WJAZDU
+        pozycja = (
+            srodek[0] + kierunek[0] * odsuniecie * obraz.width,
+            srodek[1] + kierunek[1] * odsuniecie * obraz.height,
+        )
+        return pozycja, 1.0 + (SKALA_WJAZDU - 1.0) * (1.0 - postep)
+
+    poczatek = przesuniecie / KLATEK_WJAZDU
+    koniec = (przesuniecie + 1) / KLATEK_WJAZDU
+    kopie = []
+    for i in range(KOPII_ROZMYCIA_RUCHU):
+        postep = poczatek + (koniec - poczatek) * i / (KOPII_ROZMYCIA_RUCHU - 1)
+        pozycja, skala = stan(postep)
+        kopie.append(platno_z_obrazem(obraz, pozycja, skala, szerokosc, wysokosc))
+    return usrednij_platna(kopie)
+
+
+def platno_wskoku(obraz, srodek: tuple[float, float], przesuniecie: int, szerokosc: int, wysokosc: int):
+    skala = WSKOK_SKALE_KOLAZU[przesuniecie] if przesuniecie < len(WSKOK_SKALE_KOLAZU) else 1.0
+    return platno_z_obrazem(obraz, srodek, skala, szerokosc, wysokosc)
+
+
+def platno_powiekszenia(obraz, srodek: tuple[float, float], przesuniecie: int, szerokosc: int, wysokosc: int):
+    t = min(1.0, przesuniecie / KLATEK_POWIEKSZENIA)
+    lagodnie = 1.0 - (1.0 - t) ** 2
+    skala = SKALA_POWIEKSZENIA - (SKALA_POWIEKSZENIA - 1.0) * lagodnie
+    platno = platno_z_obrazem(obraz, srodek, skala, szerokosc, wysokosc)
+    promien = ROZMYCIE_POWIEKSZENIA_PX * (1.0 - lagodnie) * szerokosc / 1080
+    if promien < 0.05:
+        return platno
+    return platno.convert("RGBa").filter(ImageFilter.GaussianBlur(promien)).convert("RGBA")
+
+
+def srodek_powiekszenia(mapa: numpy.ndarray | None, szerokosc_ulamek: float) -> float:
+    if mapa is None:
+        return 0.5
+    gora = 1.0 + DOLNY_WYSTEP_POWIEKSZENIA - WYSOKOSC_POWIEKSZENIA
+    minimum = -WYSTAWANIE_KOLAZU * szerokosc_ulamek
+    maksimum = 1.0 - szerokosc_ulamek + WYSTAWANIE_KOLAZU * szerokosc_ulamek
+    kandydaci = [minimum + (maksimum - minimum) * i / 10 for i in range(11)]
+    lewo = min(kandydaci, key=lambda x: zajetosc_pod_prostokatem(mapa, x, gora, szerokosc_ulamek, WYSOKOSC_POWIEKSZENIA))
+    return lewo + szerokosc_ulamek / 2
+
+
 def przygotuj_kolaz(
     wycinki_kolazu: list[dict], uderzenia_lokalne: list[int], liczba_klatek: int, fps: float,
-    szerokosc: int, wysokosc: int, wyjscie: Path,
-) -> None:
-    obrazy = [dopasuj_do_pola_kolazu(wytnij_do_alfa(Path(w["plik"])), szerokosc, wysokosc) for w in wycinki_kolazu]
-    poczatki = [uderzenia_lokalne[i] if i < len(uderzenia_lokalne) else liczba_klatek for i in range(len(obrazy))]
-    srodki = [(round(POLA_KOLAZU[i][0] * szerokosc), round(POLA_KOLAZU[i][1] * wysokosc)) for i in range(len(obrazy))]
+    szerokosc: int, wysokosc: int, wyjscie: Path, mapa: numpy.ndarray | None = None, strona: str = "auto",
+    wejscie: str = "wjazd",
+) -> list[tuple[float, float]] | None:
+    if wejscie not in WEJSCIA_KOLAZU:
+        raise ValueError(f"nieznane wejscie kolazu: {wejscie}")
+    if mapa is None:
+        zrodla = [wytnij_do_alfa(Path(w["plik"])) for w in wycinki_kolazu]
+        obrazy = [dopasuj_do_pola_kolazu(obraz, szerokosc, wysokosc) for obraz in zrodla]
+        srodki = [(round(POLA_KOLAZU[i][0] * szerokosc), round(POLA_KOLAZU[i][1] * wysokosc)) for i in range(len(obrazy))]
+        poczatki = [uderzenia_lokalne[i] if i < len(uderzenia_lokalne) else liczba_klatek for i in range(len(obrazy))]
+        funkcje = [platno_wskoku] * len(obrazy)
+        miejsca = None
+    else:
+        elementy = list(wycinki_kolazu)[:LICZBA_ELEMENTOW_KOLAZU]
+        if wejscie == "powiekszenie":
+            elementy = elementy[:1]
+        poczatki = czasy_wejsc_kolazu(uderzenia_lokalne, liczba_klatek, fps, len(elementy))
+        if wejscie == "powiekszenie" and elementy and not poczatki:
+            poczatki = [MINIMUM_KLATEK_DO_WEJSCIA]
+        elementy = elementy[:len(poczatki)]
+        if not elementy:
+            materializuj_warstwe(lambda k: Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0)), liczba_klatek, fps, szerokosc, wysokosc, wyjscie)
+            return []
+        zrodla = [
+            obraz_kafla(Path(e["plik"]), szerokosc, wysokosc) if e.get("kafel") else wytnij_do_alfa(Path(e["plik"]))
+            for e in elementy
+        ]
+        if wejscie == "powiekszenie":
+            wys = WYSOKOSC_POWIEKSZENIA * wysokosc
+            obraz = zrodla[0].resize((max(1, round(zrodla[0].width * wys / zrodla[0].height)), max(1, round(wys))), Image.LANCZOS)
+            obrazy = [obraz]
+            srodek_x = srodek_powiekszenia(mapa, obraz.width / szerokosc)
+            srodki = [(round(srodek_x * szerokosc), round((1.0 + DOLNY_WYSTEP_POWIEKSZENIA) * wysokosc - obraz.height / 2))]
+            miejsca = [(srodek_x - obraz.width / szerokosc / 2, 1.0 + DOLNY_WYSTEP_POWIEKSZENIA - WYSOKOSC_POWIEKSZENIA)]
+            funkcje = [platno_powiekszenia]
+        else:
+            rozmiary = [
+                obraz.size if e.get("kafel") else rozmiar
+                for e, obraz, rozmiar in zip(elementy, zrodla, rozmiary_wycinkow_kolazu(zrodla, szerokosc, wysokosc))
+            ]
+            obrazy = [obraz if obraz.size == rozmiar else obraz.resize(rozmiar, Image.LANCZOS) for obraz, rozmiar in zip(zrodla, rozmiary)]
+            miejsca = miejsca_kolazu(mapa, [(w / szerokosc, h / wysokosc) for w, h in rozmiary], strona)
+            srodki = [
+                (round(x * szerokosc) + obraz.width // 2, round(y * wysokosc) + obraz.height // 2)
+                for (x, y), obraz in zip(miejsca, obrazy)
+            ]
+            funkcje = [platno_wjazdu if wejscie == "wjazd" else platno_wskoku] * len(obrazy)
 
     def klatka_dla(indeks_lokalny: int):
         platno = Image.new("RGBA", (szerokosc, wysokosc), (0, 0, 0, 0))
         for i, obraz in enumerate(obrazy):
             if indeks_lokalny < poczatki[i]:
                 continue
-            przesuniecie = indeks_lokalny - poczatki[i]
-            skala = WSKOK_SKALE_KOLAZU[przesuniecie] if przesuniecie < len(WSKOK_SKALE_KOLAZU) else 1.0
-            szerokosc_klatki = max(1, round(obraz.width * skala))
-            wysokosc_klatki = max(1, round(obraz.height * skala))
-            wersja = obraz.resize((szerokosc_klatki, wysokosc_klatki), Image.LANCZOS)
-            srodek_x, srodek_y = srodki[i]
-            platno.alpha_composite(wersja, (srodek_x - szerokosc_klatki // 2, srodek_y - wysokosc_klatki // 2))
+            platno.alpha_composite(funkcje[i](obraz, srodki[i], indeks_lokalny - poczatki[i], szerokosc, wysokosc))
         return platno
 
     materializuj_warstwe(klatka_dla, liczba_klatek, fps, szerokosc, wysokosc, wyjscie)
+    return miejsca
 
 
 def uderzenia_wyniku(uderzenia_utworu: list[float], start_audio_s: float, liczba_klatek: int, fps: float) -> list[int]:
@@ -1775,6 +2241,7 @@ def zmontuj(
     plansza: Path | None,
     wyjscie: Path,
     kadry_klipow: dict | None = None,
+    gwiazdy_w_haku: bool = False,
 ) -> dict:
     katalog_pracy = Path(katalog_pracy)
     katalog_pracy.mkdir(parents=True, exist_ok=True)
@@ -1786,10 +2253,61 @@ def zmontuj(
     sekcje = wzor.get("sekcje")
     klatka_dropu = koniec_haka(plan, sekcje) if sekcje and sekcje.get("drop_ujecie") is not None else None
     licznik_zdjec_montazu = 0
-    licznik_klipow = 0
     wycinki_posortowane = sorted(wycinki, key=lambda material: material["message_id"]) if wycinki else []
     indeks_puli_kolazu = 0
     podsumowanie_kolazy = []
+    kolaze_pominiete = []
+    ostrzezenia_kolazy = []
+    przejscia_montazu = []
+    tla_ujec = {}
+
+    def tlo_ujecia(indeks: int, ujecie: dict):
+        if indeks not in tla_ujec:
+            tla_ujec[indeks] = klatki_tla(ujecie, sciezki_robocze, kadry_klipow, fps, czasy_klipow)
+        return tla_ujec[indeks]
+
+    ujecia_automatu: set[int] = set()
+    if not bez_dynamiki and wycinki_posortowane:
+        kandydaci = []
+        for indeks, ujecie in enumerate(plan["ujecia"]):
+            if plansza_uzyta and indeks == len(plan["ujecia"]) - 1:
+                continue
+            if ujecie.get("efekt_scenariusza") is not None:
+                continue
+            if not kolaz_kwalifikuje(ujecie, klatka_dropu, okna_slow, fps):
+                continue
+            klatki = tlo_ujecia(indeks, ujecie)
+            if klatki is None:
+                continue
+            ruch = ruch_tla(klatki)
+            if ruch <= PROG_RUCHU_KOLAZU:
+                kandydaci.append((ruch, indeks))
+        ujecia_automatu = wybierz_kolaze_automatu(kandydaci, plan["ujecia"], fps)
+
+    def kolaz_ujecia(indeks: int, ujecie: dict, wybrane: list[dict]) -> Path | None:
+        klatki = tlo_ujecia(indeks, ujecie)
+        ruch = ruch_tla(klatki) if klatki is not None else None
+        if klatki is None or ruch > PROG_RUCHU_KOLAZU:
+            ostrzezenia_kolazy.append(
+                f"ujęcie {indeks}: tło w ruchu ({ruch:.2f}), kolaż pominięty" if ruch is not None
+                else f"ujęcie {indeks}: tło nie do zmierzenia, kolaż pominięty"
+            )
+            kolaze_pominiete.append({"ujecie": indeks, "ruch": round(ruch, 2) if ruch is not None else None})
+            return None
+        uderzenia_lokalne = uderzenia_ujecia(ujecie, uderzenia_wyn)
+        sciezka = katalog_pracy / f"kolaz_{indeks:06d}.mov"
+        miejsca = przygotuj_kolaz(
+            wybrane, uderzenia_lokalne, ujecie["liczba_klatek"], fps, szerokosc, wysokosc, sciezka,
+            mapa=mapa_zajetosci(klatki), strona=ujecie.get("miejsce_kolazu") or "auto",
+            wejscie=ujecie.get("wejscie_kolazu") or "wjazd",
+        )
+        podsumowanie_kolazy.append({
+            "ujecie": indeks, "wycinki": [Path(w["plik"]).name for w in wybrane[:len(miejsca)]],
+            "start_s": round(ujecie["klatka_od"] / fps, 3),
+            "ruch": round(ruch, 2), "wejscie": ujecie.get("wejscie_kolazu") or "wjazd",
+            "miejsca": [[round(x, 3), round(y, 3)] for x, y in miejsca],
+        })
+        return sciezka
 
     sciezki_segmentow = []
     for indeks, ujecie in enumerate(plan["ujecia"]):
@@ -1797,6 +2315,8 @@ def zmontuj(
         ma_efekt_scenariusza = ujecie.get("efekt_scenariusza") is not None
         if plansza_uzyta and indeks == len(plan["ujecia"]) - 1:
             efekt = None if bez_dynamiki else efekt_ujecia(ujecie, -1, klatka_dropu, licznik_zdjec_montazu)
+            if efekt and efekt["przejscie"] != "brak":
+                przejscia_montazu.append({"ujecie": indeks, "przejscie": efekt["przejscie"]})
             segment_planszy(
                 plansza, sciezka_segmentu, ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
                 przejscie=efekt["przejscie"] if efekt else "brak",
@@ -1830,6 +2350,21 @@ def zmontuj(
                 efekt = efekt_ujecia(ujecie, indeks, klatka_dropu, licznik_zdjec_montazu)
             if efekt is not None and klatka_dropu is not None and ujecie["klatka_od"] == klatka_dropu:
                 efekt = dict(efekt, blysk_s=0.3, wstrzas=True)
+            if efekt and efekt["przejscie"] != "brak":
+                przejscia_montazu.append({"ujecie": indeks, "przejscie": efekt["przejscie"]})
+            sciezka_kolazu = None
+            if ma_efekt_scenariusza:
+                numery_kolazu = ujecie.get("kolaz_scenariusza") or []
+                wybrane = [
+                    wycinki_wedlug_numeru[numer] for numer in numery_kolazu
+                    if wycinki_wedlug_numeru and numer in wycinki_wedlug_numeru
+                ][:LICZBA_ELEMENTOW_KOLAZU]
+                if wybrane:
+                    sciezka_kolazu = kolaz_ujecia(indeks, ujecie, wybrane)
+            elif indeks in ujecia_automatu:
+                ile_elementow = max(1, len(czasy_wejsc_kolazu(uderzenia_ujecia(ujecie, uderzenia_wyn), ujecie["liczba_klatek"], fps)))
+                wybrane, indeks_puli_kolazu = wybierz_wycinki_kolazu(wycinki_posortowane, indeks_puli_kolazu, ile_elementow)
+                sciezka_kolazu = kolaz_ujecia(indeks, ujecie, wybrane)
             if ujecie["typ"] == "zdjecie":
                 segment_zdjecia(
                     sciezki_robocze[ujecie["material"]], sciezka_segmentu, indeks, ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
@@ -1838,33 +2373,9 @@ def zmontuj(
                     blysk_s=efekt["blysk_s"] if efekt else 0.0,
                     wstrzas=efekt["wstrzas"] if efekt else False,
                     przejscie=efekt["przejscie"] if efekt else "brak",
+                    kolaz=sciezka_kolazu,
                 )
             else:
-                licznik_klipow += 1
-                sciezka_kolazu = None
-                if ma_efekt_scenariusza:
-                    numery_kolazu = ujecie.get("kolaz_scenariusza") or []
-                    wybrane = [
-                        wycinki_wedlug_numeru[numer] for numer in numery_kolazu
-                        if wycinki_wedlug_numeru and numer in wycinki_wedlug_numeru
-                    ][:LICZBA_WYCINKOW_KOLAZU]
-                    if wybrane:
-                        uderzenia_lokalne = [
-                            k - ujecie["klatka_od"] for k in uderzenia_wyn
-                            if ujecie["klatka_od"] < k < ujecie["klatka_od"] + ujecie["liczba_klatek"]
-                        ]
-                        sciezka_kolazu = katalog_pracy / f"kolaz_{indeks:06d}.mov"
-                        przygotuj_kolaz(wybrane, uderzenia_lokalne, ujecie["liczba_klatek"], fps, szerokosc, wysokosc, sciezka_kolazu)
-                        podsumowanie_kolazy.append({"ujecie": indeks, "wycinki": [Path(w["plik"]).name for w in wybrane]})
-                elif not bez_dynamiki and wycinki_posortowane and kolaz_kwalifikuje(ujecie, licznik_klipow, klatka_dropu, okna_slow, fps):
-                    wybrane, indeks_puli_kolazu = wybierz_wycinki_kolazu(wycinki_posortowane, indeks_puli_kolazu)
-                    uderzenia_lokalne = [
-                        k - ujecie["klatka_od"] for k in uderzenia_wyn
-                        if ujecie["klatka_od"] < k < ujecie["klatka_od"] + ujecie["liczba_klatek"]
-                    ]
-                    sciezka_kolazu = katalog_pracy / f"kolaz_{indeks:06d}.mov"
-                    przygotuj_kolaz(wybrane, uderzenia_lokalne, ujecie["liczba_klatek"], fps, szerokosc, wysokosc, sciezka_kolazu)
-                    podsumowanie_kolazy.append({"ujecie": indeks, "wycinki": [Path(w["plik"]).name for w in wybrane]})
                 segment_klipu(
                     ujecie["material"], sciezka_segmentu, ujecie["start_w_klipie_s"], ujecie["liczba_klatek"], fps, szerokosc, wysokosc,
                     lut_sciezka=lut_nazwa, katalog=katalog_ffmpeg,
@@ -1895,6 +2406,12 @@ def zmontuj(
 
     znak_do_s = okno_znaku(plan, plansza_uzyta) if znak is not None else None
 
+    warstwa_gwiazd = None
+    if gwiazdy_w_haku and not bez_dynamiki:
+        okno = okno_gwiazd(plan, klatka_dropu, uderzenia_wyn, [w["ujecie"] for w in podsumowanie_kolazy], fps)
+        if okno is not None:
+            warstwa_gwiazd = przygotuj_gwiazdy(okno, katalog_pracy, szerokosc, wysokosc, fps)
+
     przebieg_koncowy(
         polaczone, utwor, plan["start_audio_s"], plan["liczba_klatek"], fps, wyjscie, limit_mb,
         szerokosc=szerokosc, wysokosc=wysokosc,
@@ -1904,11 +2421,15 @@ def zmontuj(
         teksty=teksty_do_przebiegu,
         slowa=warstwa_slow,
         pionowo=warstwa_pionowo,
+        gwiazdy=warstwa_gwiazd,
     )
     zweryfikuj_wynik(wyjscie, szerokosc, wysokosc, fps, plan["liczba_klatek"], limit_mb)
 
     return {
         "podsumowanie_kolazy": podsumowanie_kolazy,
+        "kolaze_pominiete": kolaze_pominiete,
+        "przejscia": przejscia_montazu,
+        "ostrzezenia_kolazy": ostrzezenia_kolazy,
         "plansza_uzyta": plansza_uzyta,
         "uzyc_kolor": uzyc_kolor,
         "tryb_nakladki": tryb_nak,
@@ -1916,6 +2437,7 @@ def zmontuj(
         "nakladka_do_s": nakladka_do_s,
         "znak_do_s": znak_do_s,
         "klatka_dropu": klatka_dropu,
+        "gwiazdy": {"od_s": warstwa_gwiazd["od_s"], "do_s": warstwa_gwiazd["do_s"]} if warstwa_gwiazd else None,
     }
 
 
@@ -1944,6 +2466,7 @@ def renderuj(
     bez_rezysera: bool = False,
     bez_krytyka: bool = False,
     prog_oceny_ai: int = 7,
+    gwiazdy_w_haku: bool = True,
     klient_ai=None,
 ) -> dict:
     czas_startu = time.time()
@@ -2013,6 +2536,8 @@ def renderuj(
         )
         uderzenia_wyn = uderzenia_wyniku(uderzenia_utworu, plan_bazowy["start_audio_s"], plan_bazowy["liczba_klatek"], fps)
         plan = rozloz_tempo(plan_bazowy, wzor, uderzenia_wyn, kawalki, fps)
+        if wycinki:
+            plan = wydluz_zdjecie_pod_kolaz(plan, wzor, fps)
         liczba_wycinkow = len(wycinki)
 
     slowa_surowe = wczytaj_slowa_projektu(katalog_projektu)
@@ -2044,7 +2569,7 @@ def renderuj(
             szerokosc, wysokosc, fps, sila_koloru, bez_dynamiki, uderzenia_wyn, okna_slow,
             utwor, limit_mb, nakladka, znak, dlugosc_nakladki_krycie_s,
             teksty_do_przebiegu, warstwa_slow, warstwa_pionowo, plansza, wyjscie_docelowe,
-            kadry_klipow=kadry_klipow,
+            kadry_klipow=kadry_klipow, gwiazdy_w_haku=gwiazdy_w_haku,
         )
 
     ai_info = None
@@ -2065,6 +2590,9 @@ def renderuj(
         )
     else:
         wynik_montazu = wykonaj_montaz(plan, None, katalog_pracy / "montaz", wyjscie)
+
+    if ai_info is not None:
+        ai_info["ostrzezenia"] += wynik_montazu["ostrzezenia_kolazy"]
 
     materialy_uzyte = len({u["material"] for u in plan["ujecia"]})
     rozmiar_mb = wyjscie.stat().st_size / (1024 * 1024)
@@ -2107,6 +2635,9 @@ def renderuj(
         "pionowo": podsumowanie_pionowo,
         "dynamika": podsumowanie_dynamiki,
         "kolaze": wynik_montazu["podsumowanie_kolazy"],
+        "kolaze_pominiete": wynik_montazu["kolaze_pominiete"],
+        "gwiazdy": wynik_montazu["gwiazdy"],
+        "przejscia": wynik_montazu["przejscia"],
         "pasy": [{"plik": Path(plik).name, "kadr": kadr} for plik, kadr in kadry_klipow.items() if kadr],
         "ai": ai_info,
     }
@@ -2138,6 +2669,7 @@ def glowna(argumenty: list[str] | None = None) -> int:
     parser.add_argument("--pozycja-tekstu", choices=sorted(tekst.POZYCJE), default="dol")
     parser.add_argument("--wariant", type=int, default=0)
     parser.add_argument("--bez-dynamiki", action="store_true")
+    parser.add_argument("--bez-gwiazd", action="store_true")
     parser.add_argument("--dlugosc-nakladki-krycie", type=float, default=DLUGOSC_NAKLADKI_KRYCIE_S)
     parser.add_argument("--ai", action="store_true")
     parser.add_argument("--model-ai", default="anthropic/claude-opus-5.5")
@@ -2167,6 +2699,7 @@ def glowna(argumenty: list[str] | None = None) -> int:
             bez_rezysera=ustalone.bez_rezysera,
             bez_krytyka=ustalone.bez_krytyka,
             prog_oceny_ai=ustalone.prog_oceny_ai,
+            gwiazdy_w_haku=not ustalone.bez_gwiazd,
         )
     except Exception as blad:
         print(str(blad), file=sys.stderr)

@@ -144,3 +144,14 @@ def test_ai_rezyser_niepoprawna_wartosc():
 def test_prog_oceny_ai_poza_zakresem():
     with pytest.raises(ValueError, match="PROG_OCENY_AI"):
         wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123", "PROG_OCENY_AI": "11"})
+
+
+def test_gwiazdy_w_haku_domyslnie_tak_i_nie_z_srodowiska():
+    assert wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123"}).gwiazdy_w_haku is True
+    assert wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123", "GWIAZDY_W_HAKU": "nie"}).gwiazdy_w_haku is False
+    assert wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123", "GWIAZDY_W_HAKU": "tak"}).gwiazdy_w_haku is True
+
+
+def test_gwiazdy_w_haku_niepoprawne():
+    with pytest.raises(ValueError, match="GWIAZDY_W_HAKU"):
+        wczytaj({"BOT_TOKEN": "token", "OWNER_ID": "123", "GWIAZDY_W_HAKU": "moze"})

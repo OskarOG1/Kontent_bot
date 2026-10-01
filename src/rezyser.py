@@ -349,7 +349,7 @@ def opis_wzoru(
     return json.dumps(opis, ensure_ascii=False)
 
 
-LICZBA_WYCINKOW_KOLAZU_SCENARIUSZA = 3
+LICZBA_ELEMENTOW_KOLAZU_SCENARIUSZA = 5
 LIMIT_UZASADNIENIA = 300
 LICZBA_MOCNYCH_STRON = 3
 POLA_POMIJANE_W_SCHEMACIE = ("title", "default")
@@ -365,13 +365,23 @@ class Ujecie(BaseModel):
     blysk_s: Literal[0.0, 0.1, 0.3] = Field(default=0.0, description="biały błysk na początku ujęcia w sekundach")
     wstrzas: bool = Field(default=False, description="wstrząs kadru przez pierwsze pół sekundy")
     przejscie: Literal["brak", "smuga", "najazd", "rozciagniecie"] = Field(default="brak", description="wejście ujęcia")
-    kolaz: list[int] = Field(default_factory=list, description="najwyżej 3 numery wycinków, tylko na klipach")
+    kolaz: list[int] = Field(
+        default_factory=list,
+        description="najwyżej 5 numerów wycinków (posągi) i zwykłych zdjęć (kafle), na zdjęciu albo na klipie, nigdy numer klipu",
+    )
+    wejscie_kolazu: Literal["wjazd", "wskok", "powiekszenie"] = Field(
+        default="wjazd", description="jak elementy kolażu wchodzą w kadr, powiekszenie to jeden duży posąg"
+    )
+    miejsce_kolazu: Literal["auto", "gora", "dol", "lewo", "prawo"] = Field(
+        default="auto", description="strona kadru, po której jest wolne tło bez twarzy i głównej postaci"
+    )
+    gwiazdy: bool = Field(default=False, description="pierścień złotych gwiazd na środku kadru przez to ujęcie")
 
     @field_validator("kolaz", mode="before")
     @classmethod
     def przytnij_kolaz(cls, wartosc):
         if isinstance(wartosc, list):
-            return wartosc[:LICZBA_WYCINKOW_KOLAZU_SCENARIUSZA]
+            return wartosc[:LICZBA_ELEMENTOW_KOLAZU_SCENARIUSZA]
         return wartosc
 
 
@@ -478,7 +488,8 @@ POLECENIE_REZYSERA = (
     "ostatnie 3 uderzenia. Proporcje przenieś na wzór z danych (jego uderzenia, drop i planszę). Energię "
     "daje ruch w kadrze i to, co dzieje się na uderzeniach, a nie sama liczba cięć.\n"
     "- Otwarcie (pierwsze 3 do 4 uderzeń) działa jak plansza tytułowa: spokojny klip z mocnym tłem (flaga, "
-    "niebo, pejzaż, mur, sztandar), na który wskakują posągi, po jednym na uderzenie, pod napisem haka.\n"
+    "niebo, pejzaż, mur, sztandar), na który wchodzi 3 do 5 elementów (posągi i kafle) co pół uderzenia, "
+    "pod napisem haka.\n"
     "- Dalej w haku 4 ujęcia po 2 do 4 uderzenia i jedno dłuższe (do 8 uderzeń) z serią obrazów na spokojnym "
     "tle: postacie w ruchu albo z emocją (ktoś idzie w stronę kamery, zbliżenie twarzy, scena z filmu, "
     "zwierzę). Na każdym coś dzieje się w rytmie: napis, słowa, napis pionowy albo wskakujące wycinki.\n"
@@ -487,12 +498,20 @@ POLECENIE_REZYSERA = (
     "marsz, kamera w ruchu), przeplatane krótkimi mocnymi obrazami po 1 do 2 uderzenia. W ostatnich "
     "3 sekundach przed planszą 2 do 3 bardzo krótkie ujęcia po 1 uderzeniu.\n"
     "- Posągi i inne wycinki (pole kolaz) stawiaj tylko na spokojnych klipach z pustym tłem (niebo, pejzaż, "
-    "woda, flaga, mur, sztandar, grafika), 1 do 3 wycinki na jednym ujęciu, 3 do 4 takie ujęcia w edicie: "
-    "otwarcie, jedno w haku i 1 do 2 w montażu. Nigdy na twarzach, tłumie, ruchliwej ulicy, klipie z akcją "
-    "ani na dropie. Wycinki wskakują na kolejnych uderzeniach wewnątrz ujęcia, więc ujęcie z kolażem trwa "
-    "co najmniej o 1 uderzenie dłużej, niż ma wycinków. Stoją w stałych miejscach kadru: lewa góra (30% "
-    "szerokości, 30% wysokości), prawa strona (70%, 47%) i lewy dół (38%, 66%), więc wybieraj klipy, "
-    "w których te miejsca nie zasłaniają twarzy ani głównej postaci.\n"
+    "woda, flaga, mur, sztandar, grafika) albo na zdjęciach, do 5 elementów na ujęciu, 3 do 4 takie ujęcia "
+    "w edicie: otwarcie, jedno w haku i 1 do 2 w montażu. Render mierzy ruch tła i usuwa kolaż z tła "
+    "w ruchu, więc wybieraj klipy bez ruchu kamery i bez ludzi. Nigdy na twarzach, tłumie, ruchliwej "
+    "ulicy, klipie z akcją ani na dropie. Miejsca elementów wybiera render: stawia je duże, przy "
+    "krawędziach kadru, tam gdzie tło jest najspokojniejsze. Pole miejsce_kolazu (auto, gora, dol, lewo "
+    "albo prawo) wskazuje stronę kadru, po której jest wolne tło bez twarzy i głównej postaci. Elementy "
+    "wchodzą co pół uderzenia (pole wejscie_kolazu: wjazd, wskok albo powiekszenie), więc ujęcie z kolażem "
+    "trwa co najmniej o 1 uderzenie dłużej, niż ma elementów. Numer wycinka w polu kolaz daje posąg, "
+    "a numer zwykłego zdjęcia daje kafel, czyli prostokąt ze zdjęciem, jak ilustracje na planszy. Numeru "
+    "klipu w polu kolaz nie podawaj. wejscie_kolazu powiekszenie to jeden duży posąg, który przez pół "
+    "sekundy rośnie z rozmycia do ostrego obrazu tuż przed planszą końcową.\n"
+    "- Pole gwiazdy ustaw na true na 2 do 3 kolejnych ujęciach haka po otwarciu: render rysuje wtedy "
+    "pierścień 12 złotych gwiazd na środku kadru, jak w haku wzoru. Nie łącz gwiazd z kolażem na tym "
+    "samym ujęciu.\n"
     "- Nie powtarzaj materiału, dopóki nie użyjesz wszystkich, a powtórki nigdy w sąsiednich ujęciach. Gdy "
     "materiałów jest mało, wydłuż klipy z akcją do 6 do 8 uderzeń zamiast powtarzać zdjęcia.\n"
     "- Zdjęcia bez ruchu (obrazy, grafiki, plakaty, mapy) trwają 1 do 2 uderzeń, klipy 2 do 6 uderzeń. "
@@ -572,7 +591,8 @@ def arkusz_krytyka(
 
 def opis_montazu(
     plan: dict, fps: int, materialy: list[dict] | None = None, wycinki: list[dict] | None = None,
-    plansza_uzyta: bool = False,
+    plansza_uzyta: bool = False, kolaze: list[dict] | None = None, kolaze_pominiete: list[dict] | None = None,
+    gwiazdy: dict | None = None,
 ) -> str:
     zwykle, _ = numeracja(materialy or [], wycinki or [])
     numery = {str(material["plik"]): numer for numer, material in zwykle.items()}
@@ -588,8 +608,25 @@ def opis_montazu(
         }
         if u["typ"] == "klip":
             wpis["od_s"] = round(float(u.get("start_w_klipie_s", 0.0)), 3)
+        przejscie = (u.get("efekt_scenariusza") or {}).get("przejscie")
+        if przejscie:
+            wpis["przejscie"] = przejscie
+        kolaz = {}
         if u.get("kolaz_scenariusza"):
-            wpis["kolaz"] = list(u["kolaz_scenariusza"])
+            kolaz["elementy"] = list(u["kolaz_scenariusza"])
+        zrobiony = next((k for k in kolaze or [] if k["ujecie"] == i), None)
+        if zrobiony is not None:
+            kolaz.setdefault("elementy", list(zrobiony["wycinki"]))
+            kolaz["wejscie"] = zrobiony.get("wejscie")
+            kolaz["miejsca"] = zrobiony.get("miejsca")
+            kolaz["ruch_tla"] = zrobiony.get("ruch")
+        pominiety = next((k for k in kolaze_pominiete or [] if k["ujecie"] == i), None)
+        if pominiety is not None:
+            kolaz["pominiety_ruch_tla"] = pominiety.get("ruch")
+        if kolaz:
+            wpis["kolaz"] = kolaz
+        if u.get("gwiazdy"):
+            wpis["gwiazdy"] = True
         ujecia.append(wpis)
     if plansza_uzyta and ujecia:
         ujecia[-1]["plansza"] = True
@@ -599,6 +636,8 @@ def opis_montazu(
         "ujecia": ujecia,
         "materialy": lista_materialow(materialy or [], wycinki or []),
     }
+    if gwiazdy:
+        opis["gwiazdy"] = gwiazdy
     return json.dumps(opis, ensure_ascii=False)
 
 
@@ -609,9 +648,13 @@ POLECENIE_KRYTYKA = (
     "styl, jego obraz i dźwięk nie trafiają do wyniku, więc nie oceniaj podobieństwa treści, tylko rytm, "
     "dynamikę i jakość wyboru materiałów. Sprawdź zwłaszcza, czy otwarcie przyciąga, czy klipy mają ruch "
     "w kadrze, czy materiały się nie powtarzają i czy posągi oraz inne wycinki leżą na spokojnym tle "
-    "(niebo, pejzaż, flaga, mur), a nie na twarzach, tłumie albo ruchliwej ulicy.\n"
+    "(niebo, pejzaż, flaga, mur), a nie na twarzach, tłumie albo ruchliwej ulicy. Przy kolażach sprawdź "
+    "tło (ruch tła podany w danych ma być niski), rozmiary elementów (duże, około połowy wysokości kadru) "
+    "i ich miejsca (przy krawędziach, bez zasłaniania twarzy i głównej postaci), a w haku pierścień "
+    "12 złotych gwiazd na środku kadru.\n"
     "Dane podają listę ujęć wyniku (czas w edicie start_s i koniec_s, typ, numer materiału, początek "
-    "fragmentu klipu od_s, efekty, kolaż, plansza) i listę materiałów z numerami, typami i długością klipów.\n"
+    "fragmentu klipu od_s, efekty i przejście, kolaż z elementami, wejściem, miejscami i ruchem tła, "
+    "gwiazdy, plansza) i listę materiałów z numerami, typami i długością klipów.\n"
     "Oceń wynik w skali 1 do 10, wypisz do 3 mocnych stron i listę poprawek (najwyżej po jednej na "
     "problem): numer ujęcia z listy, opis problemu i nowe ujęcie zgodne ze schematem Ujecie. W zmianie "
     "podaj numer zdjęcia albo klipu z listy materiałów (numery wycinków tylko w polu kolaz), a dla klipu "

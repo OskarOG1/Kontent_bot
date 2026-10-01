@@ -593,23 +593,22 @@ def test_kolaz_wskok_wieksze_na_szczycie_niz_pozniej(tmp_path):
     assert n2 > n5
 
 
-def test_kolaz_kwalifikuje_co_drugi_klip_bez_dropu_planszy_i_slow():
+def test_kolaz_kwalifikuje_bez_dropu_krotkich_i_slow():
     fps = 30
     ujecie = {"klatka_od": 100, "liczba_klatek": 60}
 
-    assert render.kolaz_kwalifikuje(ujecie, 1, None, [], fps) is True
-    assert render.kolaz_kwalifikuje(ujecie, 2, None, [], fps) is False
+    assert render.kolaz_kwalifikuje(ujecie, None, [], fps) is True
 
     ujecie_krotkie = {"klatka_od": 100, "liczba_klatek": 30}
-    assert render.kolaz_kwalifikuje(ujecie_krotkie, 1, None, [], fps) is False
+    assert render.kolaz_kwalifikuje(ujecie_krotkie, None, [], fps) is False
 
-    assert render.kolaz_kwalifikuje(ujecie, 1, 100, [], fps) is False
+    assert render.kolaz_kwalifikuje(ujecie, 100, [], fps) is False
 
     okna_slow = [(90, 130)]
-    assert render.kolaz_kwalifikuje(ujecie, 1, None, okna_slow, fps) is False
+    assert render.kolaz_kwalifikuje(ujecie, None, okna_slow, fps) is False
 
     okna_slow_bez_nachodzenia = [(0, 50)]
-    assert render.kolaz_kwalifikuje(ujecie, 1, None, okna_slow_bez_nachodzenia, fps) is True
+    assert render.kolaz_kwalifikuje(ujecie, None, okna_slow_bez_nachodzenia, fps) is True
 
 
 def wzor_dynamika_z_klipami():

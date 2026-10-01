@@ -279,11 +279,11 @@ def test_polecenie_rezysera_wymienia_efekty_i_numeracje():
 
 def test_scenariusz_przycina_kolaz_i_uzasadnienie_zamiast_odrzucac():
     scenariusz = rezyser.zbuduj_scenariusz({
-        "ujecia": [{"material": 0, "uderzenia": 4, "kolaz": [5, 6, 7, 8]}],
+        "ujecia": [{"material": 0, "uderzenia": 4, "kolaz": [5, 6, 7, 8, 9, 10]}],
         "uzasadnienie": "x" * 400,
     })
     assert scenariusz is not None
-    assert scenariusz.ujecia[0].kolaz == [5, 6, 7]
+    assert scenariusz.ujecia[0].kolaz == [5, 6, 7, 8, 9]
     assert len(scenariusz.uzasadnienie) == rezyser.LIMIT_UZASADNIENIA
 
 
@@ -371,14 +371,52 @@ def test_polecenie_rezysera_opisuje_styl_wzorcowego_editu():
         assert fraza in rezyser.POLECENIE_REZYSERA
 
 
-def test_polecenie_rezysera_podaje_miejsca_wycinkow_z_renderu():
+def test_polecenie_rezysera_opisuje_nowy_kolaz_bez_stalych_miejsc():
     import render
 
-    for x, y in render.POLA_KOLAZU:
-        assert f"{round(x * 100)}%" in rezyser.POLECENIE_REZYSERA
-        assert f"{round(y * 100)}%" in rezyser.POLECENIE_REZYSERA
+    polecenie = rezyser.POLECENIE_REZYSERA
+    for x_pola, y_pola in render.POLA_KOLAZU:
+        assert f"({round(x_pola * 100)}%, {round(y_pola * 100)}%)" not in polecenie
+    assert "lewa góra" not in polecenie
+    for fraza in ("Render mierzy ruch tła", "miejsce_kolazu", "kafel", "powiekszenie", "gwiazdy", "co pół uderzenia", "12 złotych gwiazd"):
+        assert fraza in polecenie
+
+
+def test_schemat_ujecia_ma_nowe_pola_z_wartosciami_z_kontraktu():
+    ujecie = rezyser.schemat_scenariusza()["$defs"]["Ujecie"]["properties"]
+    assert ujecie["wejscie_kolazu"]["enum"] == ["wjazd", "wskok", "powiekszenie"]
+    assert ujecie["miejsce_kolazu"]["enum"] == ["auto", "gora", "dol", "lewo", "prawo"]
+    assert ujecie["gwiazdy"]["type"] == "boolean"
+    assert ujecie["kolaz"]["type"] == "array"
+
+
+def test_opis_montazu_ma_wejscie_miejsca_ruch_tla_kolazu_i_gwiazdy():
+    plan = {"liczba_klatek": 90, "fps": 30, "ujecia": [
+        {"material": "/p/k.mp4", "typ": "klip", "klatka_od": 0, "liczba_klatek": 60, "start_w_klipie_s": 0.0,
+         "efekt_scenariusza": {"uderzenie": False, "blysk_s": 0.0, "wstrzas": False, "przejscie": "smuga"},
+         "kolaz_scenariusza": [2, 1], "gwiazdy": True},
+        {"material": "/p/k.mp4", "typ": "klip", "klatka_od": 60, "liczba_klatek": 30, "start_w_klipie_s": 0.0,
+         "efekt_scenariusza": None, "kolaz_scenariusza": [2]},
+    ]}
+    kolaze = [{"ujecie": 0, "wycinki": ["w.png"], "ruch": 1.65, "wejscie": "powiekszenie", "miejsca": [[0.1, 0.2]]}]
+
+    dane = json.loads(rezyser.opis_montazu(
+        plan, 30, [{"plik": "/p/k.mp4", "typ": "klip", "czas_s": 6.0}, {"plik": "/p/a.jpg", "typ": "zdjecie"}], [{"plik": "/p/w.png"}],
+        kolaze=kolaze, kolaze_pominiete=[{"ujecie": 1, "ruch": 9.0}], gwiazdy={"od_s": 0.0, "do_s": 2.0},
+    ))
+
+    pierwsze, drugie = dane["ujecia"]
+    assert pierwsze["kolaz"] == {"elementy": [2, 1], "wejscie": "powiekszenie", "miejsca": [[0.1, 0.2]], "ruch_tla": 1.65}
+    assert pierwsze["przejscie"] == "smuga" and pierwsze["gwiazdy"] is True
+    assert drugie["kolaz"] == {"elementy": [2], "pominiety_ruch_tla": 9.0}
+    assert dane["gwiazdy"] == {"od_s": 0.0, "do_s": 2.0}
 
 
 def test_polecenie_krytyka_sprawdza_powtorki_i_miejsce_posagow():
     assert "powtarzają" in rezyser.POLECENIE_KRYTYKA
     assert "posągi" in rezyser.POLECENIE_KRYTYKA
+
+
+def test_polecenie_krytyka_sprawdza_tlo_rozmiary_miejsca_i_gwiazdy():
+    for fraza in ("ruch tła", "rozmiary elementów", "miejsca", "12 złotych gwiazd"):
+        assert fraza in rezyser.POLECENIE_KRYTYKA

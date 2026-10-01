@@ -200,6 +200,8 @@ async def renderuj_zadanie_w_tle(
         "--wariant", str(zadanie["wariant"]),
         "--dlugosc-nakladki-krycie", str(konf.dlugosc_nakladki_krycie_s),
     ]
+    if not konf.gwiazdy_w_haku:
+        argumenty += ["--bez-gwiazd"]
     if nakladka is not None:
         argumenty += ["--nakladka", str(nakladka)]
     if plansza is not None:

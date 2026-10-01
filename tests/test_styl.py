@@ -255,3 +255,473 @@ def test_efekt_ujecia_drugie_ujecie_najazd_i_zmiana_smugi_z_rozciagnieciem():
         "brak", "brak", "smuga", "brak", "brak", "rozciagniecie",
         "brak", "brak", "smuga", "brak", "brak", "rozciagniecie",
     ]
+
+
+def mapa_z_szumem_po_lewej():
+    mapa = np.zeros((160, 90), dtype=np.float32)
+    mapa[:, :45] = np.random.default_rng(1).uniform(50, 100, (160, 45))
+    return mapa
+
+
+def test_ruch_tla_zero_dla_takich_samych_klatek_i_duzy_dla_szumu():
+    klatka = np.full((160, 90), 120.0, dtype=np.float32)
+    szum = np.random.default_rng(0).uniform(0, 255, (4, 160, 90)).astype(np.float32)
+
+    assert render.ruch_tla(np.stack([klatka] * 4)) == 0.0
+    assert render.ruch_tla(szum) > render.PROG_RUCHU_KOLAZU
+
+
+def test_miejsca_kolazu_wybieraja_gladka_strone_i_strone_z_polecenia():
+    mapa = mapa_z_szumem_po_lewej()
+    rozmiary = [(0.4, 0.5)] * 3
+
+    miejsca = render.miejsca_kolazu(mapa, rozmiary)
+
+    assert len(set(miejsca)) == 3
+    for x, y in miejsca:
+        assert x + 0.2 > 0.5
+        assert x >= -0.08 * 0.4 - 1e-9 and x + 0.4 <= 1 + 0.08 * 0.4 + 1e-9
+        assert y >= -0.08 * 0.5 - 1e-9 and y + 0.5 <= 1 + 0.08 * 0.5 + 1e-9
+
+    u_gory = render.miejsca_kolazu(mapa, rozmiary, strona="gora")
+    assert len(u_gory) == 3
+    for _, y in u_gory:
+        assert y < 0.05
+
+
+def test_mapa_zajetosci_ma_wymiary_kadru_i_wyzsze_wartosci_na_szumie():
+    klatki = np.stack([mapa_z_szumem_po_lewej()] * 4)
+
+    mapa = render.mapa_zajetosci(klatki)
+
+    assert mapa.shape == (160, 90)
+    assert mapa[:, :35].mean() > 5 * mapa[:, 55:].mean() + 1
+
+
+def zmontuj_ze_stubami(tmp_path, monkeypatch, ujecia, wycinki, numery=None, wzor=None, gwiazdy=False, bez_dynamiki=False):
+    monkeypatch.setattr(render, "sklej_segmenty", lambda *args, **kwargs: None)
+    monkeypatch.setattr(render, "przebieg_koncowy", lambda *args, **kwargs: None)
+    monkeypatch.setattr(render, "zweryfikuj_wynik", lambda *args, **kwargs: None)
+    segmenty = {}
+
+    def zapisz(zrodlo, wyjscie, *args, **kwargs):
+        segmenty[int(wyjscie.stem.split("_")[-1])] = kwargs.get("kolaz")
+
+    monkeypatch.setattr(render, "segment_klipu", zapisz)
+    monkeypatch.setattr(render, "segment_zdjecia", zapisz)
+    liczba_klatek = sum(u["liczba_klatek"] for u in ujecia)
+    plan = {"fps": 30, "start_audio_s": 0.0, "liczba_klatek": liczba_klatek, "ujecia": ujecia}
+    czasy = {u["material"]: 3.0 for u in ujecia if u["typ"] == "klip"}
+    wynik = render.zmontuj(
+        plan, wzor or {}, wycinki, numery, {}, czasy, tmp_path / "montaz", 270, 480, 30, 0.0, bez_dynamiki, [], [],
+        None, 50, None, None, 2.5, None, None, None, None, tmp_path / "wynik.mp4",
+        gwiazdy_w_haku=gwiazdy,
+    )
+    return wynik, segmenty
+
+
+def ujecie_klipu(material, od, dlugosc=60, **kwargs):
+    return {
+        "material": str(material), "typ": "klip", "klatka_od": od, "liczba_klatek": dlugosc,
+        "start_w_klipie_s": 0.0, "numer_wzoru": 0, **kwargs,
+    }
+
+
+def klipy_tla(tmp_path):
+    spokojny = tmp_path / "spokojny.mp4"
+    generuj.klip_testowy(spokojny, czas_s=3.0, rozmiar=(270, 480), kolor=(0, 200, 0))
+    ruchomy = tmp_path / "ruchomy.mp4"
+    generuj.szum(ruchomy, 3.0, (270, 480))
+    wycinek = tmp_path / "wycinek.png"
+    generuj.zdjecie_kwadrat_na_przezroczystym(wycinek)
+    return spokojny, ruchomy, wycinek
+
+
+def test_kolaz_ze_scenariusza_odpada_na_tle_w_ruchu_i_zostaje_na_spokojnym(tmp_path, monkeypatch):
+    spokojny, ruchomy, wycinek = klipy_tla(tmp_path)
+    efekt = {"uderzenie": False, "blysk_s": 0.0, "wstrzas": False, "przejscie": "brak"}
+    ujecia = [
+        ujecie_klipu(ruchomy, 0, efekt_scenariusza=efekt, kolaz_scenariusza=[7]),
+        ujecie_klipu(spokojny, 60, efekt_scenariusza=efekt, kolaz_scenariusza=[7]),
+    ]
+
+    wynik, segmenty = zmontuj_ze_stubami(
+        tmp_path, monkeypatch, ujecia, [{"plik": str(wycinek), "message_id": 7}], {7: {"plik": str(wycinek), "message_id": 7}},
+    )
+
+    assert segmenty[0] is None and segmenty[1] is not None
+    assert [w["ujecie"] for w in wynik["podsumowanie_kolazy"]] == [1]
+    assert wynik["podsumowanie_kolazy"][0]["ruch"] <= render.PROG_RUCHU_KOLAZU
+    assert len(wynik["podsumowanie_kolazy"][0]["miejsca"]) == 1
+    assert [w["ujecie"] for w in wynik["kolaze_pominiete"]] == [0]
+    assert wynik["kolaze_pominiete"][0]["ruch"] > render.PROG_RUCHU_KOLAZU
+    assert len(wynik["ostrzezenia_kolazy"]) == 1
+    assert wynik["ostrzezenia_kolazy"][0].startswith("ujęcie 0: tło w ruchu (")
+    assert wynik["ostrzezenia_kolazy"][0].endswith("), kolaż pominięty")
+
+
+def test_kolaz_automatu_tylko_na_spokojnym_tle_najwyzej_trzy_i_co_trzy_sekundy(tmp_path, monkeypatch):
+    spokojny, ruchomy, wycinek = klipy_tla(tmp_path)
+    ujecia = [ujecie_klipu(ruchomy if i == 1 else spokojny, i * 60) for i in range(6)]
+
+    wynik, segmenty = zmontuj_ze_stubami(tmp_path, monkeypatch, ujecia, [{"plik": str(wycinek), "message_id": 7}])
+
+    wybrane = [w["ujecie"] for w in wynik["podsumowanie_kolazy"]]
+    assert wybrane == [0, 2, 4]
+    assert segmenty[1] is None
+    starty = [ujecia[i]["klatka_od"] / 30 for i in wybrane]
+    assert all(b - a >= render.ODSTEP_KOLAZY_AUTOMATU_S for a, b in zip(starty, starty[1:]))
+    assert wynik["kolaze_pominiete"] == []
+
+
+def test_kolaz_automatu_nie_stoi_na_dropie(tmp_path, monkeypatch):
+    spokojny, _, wycinek = klipy_tla(tmp_path)
+    ujecia = [ujecie_klipu(spokojny, 0), ujecie_klipu(spokojny, 60)]
+    monkeypatch.setattr(render, "koniec_haka", lambda plan, sekcje: 0)
+
+    wynik, _ = zmontuj_ze_stubami(
+        tmp_path, monkeypatch, ujecia, [{"plik": str(wycinek), "message_id": 7}], wzor={"sekcje": {"drop_ujecie": 1}},
+    )
+
+    assert [w["ujecie"] for w in wynik["podsumowanie_kolazy"]] == [1]
+
+
+def test_kolaz_na_zdjeciu_widac_w_wybranym_miejscu(tmp_path):
+    zdjecie = tmp_path / "tlo.jpg"
+    generuj.zdjecie_testowe(zdjecie, rozmiar=(270, 480), kolor=(0, 200, 0))
+    wycinek = tmp_path / "wycinek.png"
+    generuj.zdjecie_kwadrat_na_przezroczystym(wycinek)
+    kolaz = tmp_path / "kolaz.mov"
+
+    miejsca = render.przygotuj_kolaz(
+        [{"plik": str(wycinek)}], [3], 15, 30, 270, 480, kolaz, mapa=mapa_z_szumem_po_lewej(),
+    )
+    wyjscie = tmp_path / "segment.mp4"
+    render.segment_zdjecia(zdjecie, wyjscie, 0, 15, 30, 270, 480, kolaz=kolaz)
+    klatki = klatki_wideo(wyjscie, 270, 480)
+
+    assert len(klatki) == 15
+    x, y = miejsca[0]
+    bok = 0.6 * 270
+    srodek_x = min(269, max(0, round((x * 270) + bok / 2)))
+    srodek_y = min(479, max(0, round((y * 480) + bok / 2)))
+    assert srodek_x > 135
+    piksel = klatki[12, srodek_y, srodek_x].astype(int)
+    assert piksel[0] - piksel[1] > 100
+    przed = klatki[1, srodek_y, srodek_x].astype(int)
+    assert przed[1] - przed[0] > 100
+
+
+def test_segmenty_bez_kolazu_maja_te_same_polecenia_ffmpeg(tmp_path, monkeypatch):
+    zdjecie = tmp_path / "tlo.jpg"
+    generuj.zdjecie_testowe(zdjecie, rozmiar=(270, 480), kolor=(0, 200, 0))
+    klip = klip_lavfi(tmp_path / "klip.mp4", "testsrc2=size=480x270:rate=30")
+    polecenia = []
+    monkeypatch.setattr(render, "uruchom_ffmpeg", lambda argumenty, katalog=None: polecenia.append(argumenty))
+
+    render.segment_zdjecia(zdjecie, tmp_path / "a.mp4", 0, 12, 30, 270, 480)
+    render.segment_klipu(klip, tmp_path / "b.mp4", 0.0, 12, 30, 270, 480)
+
+    for polecenie in polecenia:
+        assert polecenie.count("-i") == 1
+        assert "-filter_complex" not in polecenie
+        assert "-vf" in polecenie
+
+
+def mapa_z_szumem_na_bokach():
+    mapa = np.zeros((160, 90), dtype=np.float32)
+    mapa[:, :25] = 80.0
+    mapa[:, 65:] = 80.0
+    return mapa
+
+
+def warstwa_rgba(sciezka, szerokosc, wysokosc):
+    wynik = subprocess.run(
+        ["ffmpeg", "-nostdin", "-loglevel", "error", "-i", str(sciezka), "-pix_fmt", "rgba", "-f", "rawvideo", "-"],
+        stdin=subprocess.DEVNULL, capture_output=True, check=True,
+    )
+    return np.frombuffer(wynik.stdout, dtype=np.uint8).reshape(-1, wysokosc, szerokosc, 4)
+
+
+def ramka_alfa(klatka, prog=128):
+    wiersze, kolumny = np.where(klatka[:, :, 3] >= prog)
+    if len(wiersze) == 0:
+        return None
+    return kolumny.min(), wiersze.min(), kolumny.max() + 1, wiersze.max() + 1
+
+
+def wycinek_koloru(katalog, nazwa, kolor):
+    sciezka = katalog / nazwa
+    generuj.zdjecie_kwadrat_na_przezroczystym(sciezka, kolor=kolor, udzial_kwadratu=0.8)
+    return {"plik": str(sciezka)}
+
+
+def test_wejscia_elementow_kolazu_leza_na_polowkach_uderzen_i_nie_w_ostatnich_klatkach():
+    assert render.polowki_uderzen([4, 12, 20]) == [4, 8, 12, 16, 20]
+    assert render.czasy_wejsc_kolazu([4, 12, 20], 40, 30) == [4, 8, 12, 16, 20]
+    assert render.czasy_wejsc_kolazu([4, 12, 19], 20, 30) == [4, 8, 12]
+    assert render.czasy_wejsc_kolazu([0, 6, 12], 60, 30) == [3, 6, 9, 12]
+    assert render.czasy_wejsc_kolazu(list(range(4, 90, 6)), 90, 30) == [4, 7, 10, 13, 16]
+    assert len(render.czasy_wejsc_kolazu(list(range(2, 200, 2)), 200, 30, 9)) == render.LICZBA_ELEMENTOW_KOLAZU
+
+
+def test_kolaz_wprowadza_elementy_na_polowkach_i_nie_wiecej_niz_piec(tmp_path):
+    wycinki = [wycinek_koloru(tmp_path, f"w{i}.png", (220, 30 * i, 30)) for i in range(7)]
+    kolaz = tmp_path / "kolaz.mov"
+
+    miejsca = render.przygotuj_kolaz(wycinki, [4, 12, 20], 40, 30, 270, 480, kolaz, mapa=np.zeros((160, 90), dtype=np.float32))
+    klatki = warstwa_rgba(kolaz, 270, 480)
+
+    assert len(miejsca) == 5 and len(klatki) == 40
+    assert klatki[3, :, :, 3].max() == 0
+    assert klatki[4, :, :, 3].max() > 0
+    assert klatki[39, :, :, 3].max() > 0
+
+    miejsca = render.przygotuj_kolaz(wycinki, [4, 12, 19], 20, 30, 270, 480, tmp_path / "krotki.mov", mapa=np.zeros((160, 90), dtype=np.float32))
+    assert len(miejsca) == 3
+
+    miejsca = render.przygotuj_kolaz(wycinki, list(range(4, 90, 6)), 90, 30, 270, 480, tmp_path / "gesty.mov", mapa=np.zeros((160, 90), dtype=np.float32))
+    assert len(miejsca) == render.LICZBA_ELEMENTOW_KOLAZU
+
+
+def test_wjazd_zaczyna_przesuniety_i_wiekszy_a_w_czwartej_klatce_stoi_na_miejscu():
+    element = Image.new("RGBA", (60, 60), (220, 30, 30, 255))
+    srodek = (200.0, 240.0)
+
+    pierwsza = ramka_alfa(np.asarray(render.platno_wjazdu(element, srodek, 0, 270, 480)), prog=20)
+    trzecia = ramka_alfa(np.asarray(render.platno_wjazdu(element, srodek, 2, 270, 480)), prog=20)
+    czwarta = ramka_alfa(np.asarray(render.platno_wjazdu(element, srodek, 3, 270, 480)))
+
+    assert czwarta == (170, 210, 230, 270)
+    assert render.kierunek_do_krawedzi(srodek, 270, 480) == (1.0, 0.0)
+    assert (pierwsza[2] - pierwsza[0]) > 1.15 * 60
+    assert (pierwsza[0] + pierwsza[2]) / 2 - 200 > 0.2 * 60
+    assert (trzecia[2] - trzecia[0]) < (pierwsza[2] - pierwsza[0])
+    assert 0 < (trzecia[0] + trzecia[2]) / 2 - 200 < (pierwsza[0] + pierwsza[2]) / 2 - 200
+
+
+def test_wjazd_w_kolazu_zaczyna_w_klatce_wejscia_i_stoi_na_miejscu(tmp_path):
+    wycinek = wycinek_koloru(tmp_path, "w.png", (220, 30, 30))
+    kolaz = tmp_path / "kolaz.mov"
+
+    miejsca = render.przygotuj_kolaz([wycinek], [4], 30, 30, 270, 480, kolaz, mapa=mapa_z_szumem_po_lewej(), wejscie="wjazd")
+    klatki = warstwa_rgba(kolaz, 270, 480)
+
+    assert len(miejsca) == 1
+    assert ramka_alfa(klatki[3], prog=1) is None
+    assert ramka_alfa(klatki[4], prog=1) is not None
+    assert ramka_alfa(klatki[7]) == ramka_alfa(klatki[25])
+
+
+def test_powiekszenie_jednego_elementu_z_dwukrotnej_skali_i_rozmycia_do_ostrej_jedynki(tmp_path):
+    wysoki = tmp_path / "wysoki.png"
+    Image.new("RGBA", (30, 180), (30, 30, 220, 255)).save(wysoki)
+    wycinek = {"plik": str(wysoki)}
+    kolaz = tmp_path / "kolaz.mov"
+
+    miejsca = render.przygotuj_kolaz(
+        [wycinek, wycinek_koloru(tmp_path, "w2.png", (30, 220, 30))], [3], 30, 30, 270, 480, kolaz,
+        mapa=mapa_z_szumem_na_bokach(), wejscie="powiekszenie",
+    )
+    klatki = warstwa_rgba(kolaz, 270, 480)
+
+    assert len(miejsca) == 1
+    poczatek = 3
+    docelowa = ramka_alfa(klatki[poczatek + 14])
+    pierwsza = ramka_alfa(klatki[poczatek], prog=20)
+    assert docelowa[3] == 480 and abs((docelowa[3] - docelowa[1]) - 0.90 * 480) < 3
+    assert (pierwsza[2] - pierwsza[0]) > 1.6 * (docelowa[2] - docelowa[0])
+
+    def czesc_czesciowa(klatka):
+        alfa = klatka[:, :, 3]
+        return ((alfa > 0) & (alfa < 255)).sum() / max(1, (alfa > 0).sum())
+
+    assert czesc_czesciowa(klatki[poczatek]) > 5 * czesc_czesciowa(klatki[poczatek + 14]) + 0.05
+    assert klatki[poczatek + 14, :, :, 3].max() == 255
+
+
+def test_kafel_to_prostokat_ze_zwyklego_zdjecia_w_jego_kolorze(tmp_path):
+    zdjecie = tmp_path / "zdjecie.jpg"
+    generuj.zdjecie_testowe(zdjecie, rozmiar=(600, 400), kolor=(0, 200, 0))
+    kolaz = tmp_path / "kolaz.mov"
+
+    miejsca = render.przygotuj_kolaz(
+        [{"plik": str(zdjecie), "kafel": True}], [3], 20, 30, 270, 480, kolaz, mapa=mapa_z_szumem_po_lewej(),
+    )
+    klatki = warstwa_rgba(kolaz, 270, 480)
+
+    x, y = miejsca[0]
+    szerokosc_kafla, wysokosc_kafla = round(0.45 * 270), round(0.28 * 480)
+    srodek_x = min(269, max(0, round(x * 270) + szerokosc_kafla // 2))
+    srodek_y = min(479, max(0, round(y * 480) + wysokosc_kafla // 2))
+    piksel = klatki[15, srodek_y, srodek_x].astype(int)
+    assert piksel[3] == 255 and piksel[1] > 150 and piksel[0] < 80
+    ramka = ramka_alfa(klatki[15])
+    assert abs((ramka[2] - ramka[0]) - min(szerokosc_kafla, 270 - max(0, round(x * 270)))) <= 3 or ramka[0] == 0 or ramka[2] == 270
+
+
+def plan_z_ujeciami(dlugosci, kolejne=None):
+    kolejne = kolejne or {}
+    ujecia = []
+    klatka = 0
+    for i, dlugosc in enumerate(dlugosci):
+        ujecia.append({"klatka_od": klatka, "liczba_klatek": dlugosc, "typ": "klip", "material": f"m{i}", **kolejne.get(i, {})})
+        klatka += dlugosc
+    return {"fps": 30, "liczba_klatek": klatka, "ujecia": ujecia}
+
+
+def plamy_zlote(klatka):
+    return (klatka[:, :, 0] > 200) & (klatka[:, :, 1] > 150) & (klatka[:, :, 2] < 60) & (klatka[:, :, 3] > 200)
+
+
+def kat_pierscienia(klatka):
+    wiersze, kolumny = np.where(klatka[:, :, 3] > 0)
+    kat = np.arctan2(wiersze - klatka.shape[0] / 2, kolumny - klatka.shape[1] / 2)
+    return np.degrees(np.angle(np.exp(1j * 12 * kat).sum())) / 12
+
+
+def pozycje_gwiazd(t_s, szerokosc=270, wysokosc=480):
+    promien = szerokosc * (0.40 - 0.34 * np.exp(-t_s / 1.5))
+    obrot = np.radians(140 * t_s)
+    wynik = []
+    for k in range(12):
+        kat = -np.pi / 2 + 2 * np.pi * k / 12 + obrot
+        wynik.append((round(szerokosc / 2 + promien * np.cos(kat)), round(wysokosc / 2 + promien * np.sin(kat))))
+    return promien, wynik
+
+
+def test_klatka_gwiazd_po_sekundzie_ma_dwanascie_zlotych_plam_na_okregu_o_srodku_kadru(tmp_path):
+    warstwa = tmp_path / "gwiazdy.mov"
+    render.materializuj_warstwe(lambda k: render.obraz_gwiazd(k, 30, 270, 480), 40, 30, 270, 480, warstwa)
+    klatka = warstwa_rgba(warstwa, 270, 480)[30]
+
+    promien, pozycje = pozycje_gwiazd(1.0)
+    zlote = plamy_zlote(klatka)
+    wiersze, kolumny = np.where(klatka[:, :, 3] > 0)
+    odleglosci = np.hypot(kolumny - 135, wiersze - 240)
+    assert zlote.sum() > 0.8 * (klatka[:, :, 3] > 0).sum()
+    assert abs(odleglosci.mean() - promien) < 0.05 * promien
+    assert odleglosci.max() < 1.15 * promien and odleglosci.min() > 0.85 * promien
+
+    zajete = np.zeros((480, 270), dtype=bool)
+    for x, y in pozycje:
+        assert zlote[y - 1:y + 2, x - 1:x + 2].any()
+        zajete[max(0, y - 8):y + 9, max(0, x - 8):x + 9] = True
+    assert ((klatka[:, :, 3] > 0) & ~zajete).sum() == 0
+
+
+def test_gwiazdy_pojawiaja_sie_po_kolei_i_okrag_obraca_sie_o_140_stopni_na_sekunde(tmp_path):
+    warstwa = tmp_path / "gwiazdy.mov"
+    render.materializuj_warstwe(lambda k: render.obraz_gwiazd(k, 30, 270, 480), 45, 30, 270, 480, warstwa)
+    klatki = warstwa_rgba(warstwa, 270, 480)
+
+    ilosc = [int((klatka[:, :, 3] > 0).sum()) for klatka in klatki]
+    assert ilosc[0] > 0 and ilosc[3] > ilosc[0] and ilosc[11] > ilosc[5]
+
+    for k in (20, 30, 40):
+        roznica = (kat_pierscienia(klatki[k + 1]) - kat_pierscienia(klatki[k]) + 15) % 30 - 15
+        assert abs(roznica - 140 / 30) < 1.0
+
+
+def test_okno_gwiazd_automatu_zaczyna_na_drugim_ujeciu_trwa_4_6_s_i_konczy_przed_dropem_i_kolazem():
+    plan = plan_z_ujeciami([60, 200, 60, 60])
+    assert render.okno_gwiazd(plan, None, [], [], 30) == (60, 60 + round(4.6 * 30))
+    assert render.okno_gwiazd(plan, None, [], [2], 30) == (60, 198)
+    assert render.okno_gwiazd(plan_z_ujeciami([60, 100, 100, 60]), None, [], [2], 30) == (60, 160)
+
+    plan = plan_z_ujeciami([60, 200, 60, 60])
+    assert render.okno_gwiazd(plan, 200, [30, 90, 150, 170, 200], [], 30) == (60, 170)
+
+    assert render.okno_gwiazd(plan_z_ujeciami([60, 100]), 130, [30, 80, 130], [], 30) is None
+    assert render.okno_gwiazd(plan_z_ujeciami([60]), None, [], [], 30) is None
+
+
+def test_okno_gwiazd_ze_scenariusza_obejmuje_kolejne_ujecia_z_gwiazdami():
+    efekt = {"uderzenie": False, "blysk_s": 0.0, "wstrzas": False, "przejscie": "brak"}
+    plan = plan_z_ujeciami(
+        [40, 40, 40, 40, 40],
+        {i: {"efekt_scenariusza": efekt, "gwiazdy": i in (1, 2, 4)} for i in range(5)},
+    )
+    assert render.okno_gwiazd(plan, None, [], [], 30) == (40, 120)
+    assert render.okno_gwiazd(plan, None, [], [1], 30) == (80, 120)
+
+    bez =plan_z_ujeciami([40, 40, 40], {i: {"efekt_scenariusza": efekt, "gwiazdy": False} for i in range(3)})
+    assert render.okno_gwiazd(bez, None, [], [], 30) is None
+
+    krotkie = plan_z_ujeciami([10, 10, 10], {i: {"efekt_scenariusza": efekt, "gwiazdy": i == 1} for i in range(3)})
+    assert render.okno_gwiazd(krotkie, None, [], [], 30) is None
+
+
+def ujecia_do_gwiazd():
+    return [
+        {"material": "a", "typ": "klip", "klatka_od": 0, "liczba_klatek": 60, "start_w_klipie_s": 0.0, "numer_wzoru": 0},
+        {"material": "b", "typ": "klip", "klatka_od": 60, "liczba_klatek": 120, "start_w_klipie_s": 0.0, "numer_wzoru": 0},
+    ]
+
+
+def test_gwiazdy_wylaczone_flaga_konfiguracja_i_bez_dynamiki_daja_brak_warstwy(tmp_path, monkeypatch):
+    wynik, _ = zmontuj_ze_stubami(tmp_path / "a", monkeypatch, ujecia_do_gwiazd(), [], gwiazdy=True)
+    assert wynik["gwiazdy"] == {"od_s": 2.0, "do_s": 6.0}
+    assert (tmp_path / "a" / "montaz" / "gwiazdy.mov").exists()
+
+    wynik, _ = zmontuj_ze_stubami(tmp_path / "b", monkeypatch, ujecia_do_gwiazd(), [], gwiazdy=False)
+    assert wynik["gwiazdy"] is None
+    assert not (tmp_path / "b" / "montaz" / "gwiazdy.mov").exists()
+
+    wynik, _ = zmontuj_ze_stubami(tmp_path / "c", monkeypatch, ujecia_do_gwiazd(), [], gwiazdy=True, bez_dynamiki=True)
+    assert wynik["gwiazdy"] is None
+    assert not (tmp_path / "c" / "montaz" / "gwiazdy.mov").exists()
+
+
+def test_flaga_bez_gwiazd_wylacza_gwiazdy_w_renderze(tmp_path, monkeypatch):
+    przekazane = []
+    monkeypatch.setattr(render, "renderuj", lambda *args, **kwargs: przekazane.append(kwargs))
+    baza = ["--wzor", "w.json", "--projekt", str(tmp_path), "--wyjscie", str(tmp_path / "w.mp4")]
+
+    assert render.glowna(baza) == 0
+    assert render.glowna(baza + ["--bez-gwiazd"]) == 0
+    assert [k["gwiazdy_w_haku"] for k in przekazane] == [True, False]
+
+
+def test_przebieg_koncowy_dostaje_gwiazdy_jako_klip_bez_petli_i_nad_napisami(tmp_path, monkeypatch):
+    polecenia = []
+    monkeypatch.setattr(render, "uruchom_ffmpeg", lambda argumenty, katalog=None: polecenia.append(argumenty))
+    warstwa = tmp_path / "gwiazdy.mov"
+    render.materializuj_warstwe(lambda k: render.obraz_gwiazd(k, 30, 270, 480), 45, 30, 270, 480, warstwa)
+    napis = tmp_path / "napis.webm"
+    napis.write_bytes(b"")
+
+    render.przebieg_koncowy(
+        tmp_path / "polaczone.mp4", tmp_path / "utwor.wav", 0.0, 150, 30, tmp_path / "wynik.mp4", 50,
+        szerokosc=270, wysokosc=480,
+        teksty=[{"plik": napis, "od_s": 0.5, "do_s": 3.0}],
+        gwiazdy={"plik": warstwa, "od_s": 1.0, "do_s": 2.5},
+    )
+
+    polecenie = polecenia[-1]
+    indeks = polecenie.index(str(warstwa))
+    assert polecenie[indeks - 1] == "-i"
+    assert "-t" not in polecenie[indeks - 3:indeks]
+    assert "-loop" not in polecenie and "-stream_loop" not in polecenie
+    filtr = polecenie[polecenie.index("-filter_complex") + 1]
+    assert filtr.index("[gwiazdy]overlay") < filtr.index("[tekst0]overlay")
+
+
+def test_automat_laczy_pierwsze_zdjecia_haka_w_ujecie_pod_kolaz():
+    zdjecia = {i: {"typ": "zdjecie"} for i in (0, 1, 2, 3, 5, 6, 8)}
+    plan = plan_z_ujeciami([15, 13, 14, 14, 60, 14, 14, 60, 14, 60], zdjecia)
+
+    wynik = render.wydluz_zdjecie_pod_kolaz(plan, {}, 30)
+
+    assert [u["liczba_klatek"] for u in wynik["ujecia"]] == [56, 60, 14, 14, 60, 14, 60]
+    assert wynik["ujecia"][0]["material"] == "m0" and wynik["ujecia"][1]["klatka_od"] == 56
+    assert wynik["liczba_klatek"] == plan["liczba_klatek"]
+    assert render.kolaz_kwalifikuje(wynik["ujecia"][0], None, [], 30)
+
+
+def test_automat_nie_laczy_zdjec_przez_klip_ani_za_hakiem():
+    przeplot = plan_z_ujeciami([60, 14, 60, 14, 60, 14, 60], {i: {"typ": "zdjecie"} for i in (1, 3, 5)})
+    assert render.wydluz_zdjecie_pod_kolaz(przeplot, {}, 30) is przeplot
+
+    dlugie = plan_z_ujeciami([50, 14, 60], {0: {"typ": "zdjecie"}, 1: {"typ": "zdjecie"}})
+    assert render.wydluz_zdjecie_pod_kolaz(dlugie, {}, 30) is dlugie
