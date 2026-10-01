@@ -705,3 +705,23 @@ def test_przebieg_koncowy_dostaje_gwiazdy_jako_klip_bez_petli_i_nad_napisami(tmp
     assert "-loop" not in polecenie and "-stream_loop" not in polecenie
     filtr = polecenie[polecenie.index("-filter_complex") + 1]
     assert filtr.index("[gwiazdy]overlay") < filtr.index("[tekst0]overlay")
+
+
+def test_automat_laczy_pierwsze_zdjecia_haka_w_ujecie_pod_kolaz():
+    zdjecia = {i: {"typ": "zdjecie"} for i in (0, 1, 2, 3, 5, 6, 8)}
+    plan = plan_z_ujeciami([15, 13, 14, 14, 60, 14, 14, 60, 14, 60], zdjecia)
+
+    wynik = render.wydluz_zdjecie_pod_kolaz(plan, {}, 30)
+
+    assert [u["liczba_klatek"] for u in wynik["ujecia"]] == [56, 60, 14, 14, 60, 14, 60]
+    assert wynik["ujecia"][0]["material"] == "m0" and wynik["ujecia"][1]["klatka_od"] == 56
+    assert wynik["liczba_klatek"] == plan["liczba_klatek"]
+    assert render.kolaz_kwalifikuje(wynik["ujecia"][0], None, [], 30)
+
+
+def test_automat_nie_laczy_zdjec_przez_klip_ani_za_hakiem():
+    przeplot = plan_z_ujeciami([60, 14, 60, 14, 60, 14, 60], {i: {"typ": "zdjecie"} for i in (1, 3, 5)})
+    assert render.wydluz_zdjecie_pod_kolaz(przeplot, {}, 30) is przeplot
+
+    dlugie = plan_z_ujeciami([50, 14, 60], {0: {"typ": "zdjecie"}, 1: {"typ": "zdjecie"}})
+    assert render.wydluz_zdjecie_pod_kolaz(dlugie, {}, 30) is dlugie

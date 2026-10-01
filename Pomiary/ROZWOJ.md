@@ -2,7 +2,7 @@
 
 Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym zadaniu, decyzji, odkryciu albo nowym wymaganiu od właściciela. Najnowsze wpisy na górze sekcji „Dziennik". Plany części: `PLAN_EDITY_0_MAPA.md` i kolejne. Ten plik nie zastępuje planów, tylko zapisuje to, czego w planach nie ma: co faktycznie się stało, co odkryliśmy i czego właściciel zażądał po drodze.
 
-## Stan na 2026-09-29
+## Stan na 2026-10-01
 
 | Część | Status |
 |---|---|
@@ -16,7 +16,7 @@ Ten plik uzupełniamy w trakcie pracy, nie na końcu. Wpis dopisujemy po każdym
 | 9 fabryka | 9.5 do 9.9 scalone (PR #14, #17) i wdrożone. 9.10 (PR #18) i 9.1 do 9.4 (PR #20: restart, `/wzory`, warianty, `/ponow`, pomiar; testy 323 z 323, odbiór OK 2026-09-26) scalone do `main` i wdrożone (potwierdzenie właściciela 2026-09-27) |
 | 10 dynamika | Scalona: 10.1 do 10.5 w PR #21 (2026-09-26), 10.6 do 10.12 w PR #22 (2026-09-27). Testy 361 z 361 w CI (obraz z `Dockerfile`, ffmpeg 7.1.5). Pomiar u właściciela: progi A spełnione na 5 wzorach, żaden render nie przekroczył limitu (problem 13 zamknięty), narzut B 44,1%, arkusze i próbny edit zaakceptowane. Odbiór 2026-09-27: OK z poprawką 10.12. Wdrożenie do potwierdzenia (`wdroz.ps1` z maszyny właściciela), potem test na Telegramie na wzorze `0923` |
 | 11 reżyser AI | zadania 11.1 do 11.4 zrobione na gałęzi `rezyser` (2026-09-27): konfiguracja, `src/rezyser.py`, scenariusz i krytyk wpięte w `src/render.py`, `Pomiary/measure_rezyser.py`. Testy 404 z 404 bez sieci. Pomiar na prawdziwym modelu NIE uruchomiony (sesja bez `OPENROUTER_API_KEY`, bez `dane/`, bez dostępu do openrouter.ai). Scalone do `main` w PR #26 i #27 (2026-09-27). Odbiór 2026-09-27 bez pomiaru: poprawki przed pomiarem 11.4 (dziennik, 8 błędów, w tym przerwany render po poprawce krytyka). Bez klucza AI jest nieaktywne, a polecenia bez `--ai` są takie jak przed częścią 11. Poprawki scalone w PR #28 (2026-09-27), testy 423 z 423 (CI na ffmpeg 7.1: 277 s). Pomiar 11.4 u właściciela na poprawionym kodzie: A w progach (scenariusz poprawny 5 z 5, 0,23 do 0,32 $ za edit z AI, cały pomiar 1,80 $). Werdykt właściciela na próbnym edicie: za mało dynamiczny, posągi nie na miejscu. Polecenie reżysera dostało styl wzoru `0923` (2026-09-27). Polecenie ze stylem scalone w PR #31 (2026-09-27). Do zrobienia: pomiar na nowym poleceniu i werdykt, klucz na serwerze i test na Telegramie. Zmiany renderu poszły do części 12 |
-| 12 styl `0923` | plan `PLAN_EDITY_12_STYL.md` (2026-09-29, decyzja właściciela z 2026-09-27). Zadania 12.1 (pasy kinowe przycinane przed kadrowaniem 9:16) i 12.2 (przejścia jak we wzorze: smuga znikająca w 7 klatkach, rozciągnięcie pikseli, najazd na każdym ujęciu) zrobione przez Opusa i scalone w PR #32 (2026-09-29), sprawdzone na klatkach editu AI i `0923`, testy 442 z 442, CI zielone na ffmpeg 7.1. Zadania 12.3 do 12.7 (kolaż na spokojnym tle, kolaż w rytmie wzoru, gwiazdy w haku, reżyser, pomiar) czekają na wykonawcę |
+| 12 styl `0923` | plan `PLAN_EDITY_12_STYL.md` (2026-09-29, decyzja właściciela z 2026-09-27). Zadania 12.1 (pasy kinowe przycinane przed kadrowaniem 9:16) i 12.2 (przejścia jak we wzorze: smuga znikająca w 7 klatkach, rozciągnięcie pikseli, najazd na każdym ujęciu) zrobione przez Opusa i scalone w PR #32 (2026-09-29), sprawdzone na klatkach editu AI i `0923`, testy 442 z 442, CI zielone na ffmpeg 7.1. Zadania 12.3 do 12.7 (kolaż na spokojnym tle, kolaż w rytmie wzoru, gwiazdy w haku, reżyser, pomiar) zrobione na gałęzi `styl` (Sonnet), odbiór Opusa 2026-09-29: gwiazdy scenariusza poza ujęciami z kolażem. Decyzja właściciela 2026-10-01: automat łączy pierwsze zdjęcia haka w ujęcie od 1,5 s pod kolaż otwarcia. Pomiar B w progach, koszt AI 2,09 $. Gałąź `styl` do scalenia w PR, właściciel kończy projekt |
 | 6 tekst | kod gotowy na gałęzi `tekst`, 2026-09-25. Testy 251 z 251 (311 s). Pomiar: najwyżej 20 do 27 linii w haku prawdziwych wzorów, narzut procesora 24% (bez progu), arkusze dla 5 wzorów. Odbiór 2026-09-25 (Opus): OK z trzema drobnymi poprawkami, czcionka do akceptacji właściciela. Bez PR i bez wdrożenia. Czcionka szeryfowa zaakceptowana, scalona w PR #15 i wdrożona 2026-09-25. Test lokalny w warunkach produkcji OK (2026-09-25) |
 
 Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`). Wdrożenie na serwer nadal przez `wdroz.ps1` (część 7). CI od 2026-09-27 (PR #23): `.github/workflows/testy.yml` przy każdym pushu buduje obraz z `Dockerfile` i uruchamia w nim testy.
@@ -85,6 +85,12 @@ Repo: `https://github.com/OskarOG1/Kontent_bot.git` (`origin`, gałąź `main`).
 - CI (2026-09-27, PR #23): `.github/workflows/testy.yml` buduje przy każdym pushu obraz z `Dockerfile` i uruchamia w nim `python -m pytest -q`, więc testy idą na tym samym ffmpeg co serwer (7.1). CI działa na maszynach GitHuba i nie łączy się z serwerem.
 
 ## Dziennik
+
+### 2026-10-01: kolaż otwarcia w automacie (Opus), gałąź `styl`
+- Decyzja właściciela: wariant (b) z odbioru 12.7, czyli automat wydłuża zdjęcie w haku pod kolaż. Właściciel kończy projekt po scaleniu PR.
+- `render.wydluz_zdjecie_pod_kolaz`: w automacie, gdy są wycinki, pierwsze zdjęcie przed końcem haka łączy się z kolejnymi zdjęciami (bez przeskakiwania klipu, bez wyjścia za hak i bez ostatniego ujęcia, czyli miejsca planszy), aż ma co najmniej 1,5 s. Granice zostają na dotychczasowych cięciach, więc rytm i długość editu się nie zmieniają. Zdjęcie, które już ma 1,5 s, zostaje bez zmian.
+- Sprawdzone na materiałach właściciela i wzorze 0923: ujęcie 0 to zdjęcie 1,93 s (wcześniej 0,57 + 0,43 + 0,47 + 0,47 s), kwalifikuje się, ruch tła 0, więc automat stawia na nim kolaż otwarcia, a gwiazdy startują na drugim ujęciu. Pomiaru 12.7 nie powtarzano.
+- Testy: `test_automat_laczy_pierwsze_zdjecia_haka_w_ujecie_pod_kolaz`, `test_automat_nie_laczy_zdjec_przez_klip_ani_za_hakiem`.
 
 ### 2026-09-29: odbiór 12.3 do 12.7 (Opus), gałąź `styl`
 - **Ruch tła 0,0 w kolażach AI to nie błąd:** wszystkie kolaże AI stoją na zdjęciach (4 identyczne klatki). Pominięte kolaże AI na klipach mają ruch 5,33 i 53,4, więc pomiar klipów działa.

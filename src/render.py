@@ -1560,6 +1560,31 @@ def koniec_haka(plan: dict, sekcje: dict | None) -> int:
     return max(fps, min(klatka, liczba_klatek))
 
 
+def wydluz_zdjecie_pod_kolaz(plan: dict, wzor: dict, fps: float) -> dict:
+    ujecia = plan["ujecia"]
+    koniec = koniec_haka(plan, wzor.get("sekcje"))
+    minimum = round(MINIMUM_KLIPU_KOLAZU_S * fps)
+    for pierwsze, ujecie in enumerate(ujecia[:-1]):
+        if ujecie["klatka_od"] >= koniec:
+            return plan
+        if ujecie["typ"] != "zdjecie":
+            continue
+        ostatnie = pierwsze
+        dlugosc = ujecie["liczba_klatek"]
+        while dlugosc < minimum and ostatnie + 2 < len(ujecia):
+            nastepne = ujecia[ostatnie + 1]
+            if nastepne["typ"] != "zdjecie" or nastepne["klatka_od"] + nastepne["liczba_klatek"] > koniec:
+                break
+            ostatnie += 1
+            dlugosc += nastepne["liczba_klatek"]
+        if dlugosc >= minimum:
+            if ostatnie == pierwsze:
+                return plan
+            nowe = ujecia[:pierwsze] + [dict(ujecie, liczba_klatek=dlugosc)] + ujecia[ostatnie + 1:]
+            return dict(plan, ujecia=nowe)
+    return plan
+
+
 def okno_nakladki(
     wzor: dict, plan: dict, plansza_uzyta: bool, tryb: str | None = None, dlugosc_krycie_s: float = 0.0,
 ) -> tuple[float, float]:
@@ -2511,6 +2536,8 @@ def renderuj(
         )
         uderzenia_wyn = uderzenia_wyniku(uderzenia_utworu, plan_bazowy["start_audio_s"], plan_bazowy["liczba_klatek"], fps)
         plan = rozloz_tempo(plan_bazowy, wzor, uderzenia_wyn, kawalki, fps)
+        if wycinki:
+            plan = wydluz_zdjecie_pod_kolaz(plan, wzor, fps)
         liczba_wycinkow = len(wycinki)
 
     slowa_surowe = wczytaj_slowa_projektu(katalog_projektu)
